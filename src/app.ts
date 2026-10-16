@@ -5,7 +5,7 @@ export interface AppOptions {
   dataDir: string;
 }
 
-const PAGE = `<!doctype html>
+const HOME_PAGE_HTML = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -27,7 +27,7 @@ export async function buildApp({ dataDir }: AppOptions) {
 
   app.get("/", async (_req, reply) => {
     reply.type("text/html; charset=utf-8");
-    return PAGE;
+    return HOME_PAGE_HTML;
   });
 
   app.get("/health", async () => ({ status: "ok" }));
