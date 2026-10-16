@@ -1,8 +1,8 @@
 # Design
 
-This document is the output of an unattended design session. Every decision below marked **(assumed)** was adopted from the recommended answer to a design question and is **pending owner confirmation**. The vocabulary used here is defined in [GLOSSARY.md](../GLOSSARY.md); the why behind load-bearing decisions lives in [docs/adr/](./adr/).
+This document began as an unattended design session. Every decision below was confirmed by the owner on 2026-10-16 (amendments noted inline). The vocabulary used here is defined in [GLOSSARY.md](../GLOSSARY.md); the why behind load-bearing decisions lives in [docs/adr/](./adr/).
 
-## Assumptions log (pending confirmation)
+## Decision log (confirmed 2026-10-16)
 
 | # | Decision | Adopted answer |
 |---|----------|----------------|
@@ -10,10 +10,13 @@ This document is the output of an unattended design session. Every decision belo
 | Q2 | Planner shape | Hybrid: deterministic constraint engine + LLM selection. See ADR-0001. **(confirmed 2026-10-16)** |
 | Q3 | Ingredient source | Three sources, by precedence: manual Ingredients (kid-adapted dishes), recipe URL (LLM extracts), or neither — the LLM finds a recipe from the dish name. Free-text Adaptations ("no chili — kids") modify whatever the source yields. See ADR-0003. **(confirmed 2026-10-16, amended)** |
 | Q4 | Lunch ingestion | School Plugins + generic LLM fallback; multiple schools. See ADR-0004. **(confirmed 2026-10-16)** |
-| Q5 | Collision rule | Block on exact dish-name match AND on same Main Category; category check configurable, default ON. **(confirmed 2026-10-16)** |
+| Q5 | Collision rule | Hard block on same Main Category (category check configurable, default ON), plus an exact normalised name match as a backstop. Favorite Dish = in-rotation flag. Preferred Days (soft) and Weekend Dish (hard) per Dish. **(confirmed 2026-10-16; Q5 extended 2026-10-16)** |
 | Q6 | Staples | User-managed Pantry Items; matched Ingredients go to "Check pantry". **(confirmed 2026-10-16)** |
-| Q7 | Quick Days | Recurring weekly template (e.g. Tue/Thu) with per-week override in the UI; Dish carries an optional max-prep-time tag. **(confirmed 2026-10-16)** |
-| Q8 | Delivery | Web UI plus push of the Shopping List's "Buy" section via composable sinks: generic webhook (ntfy default), Bring!, Home Assistant (ADR-0006). HA is reached over the LAN — no internet exposure needed; it fans out outbound. Generation day/time configurable (default Sunday 18:00, plans the coming Mon–Sun week); manual "regenerate" button. **(confirmed 2026-10-16, amended)** |
+| Q7 | Quick Days | Recurring weekly template (e.g. Tue/Thu) with per-week override in the UI; Dish carries an optional prep-time tag. **(confirmed 2026-10-16)** |
+| Q8 | Delivery | Web UI (Today view first) plus push of the Shopping List's "Buy" section to Trello (primary, one list per week) and an optional generic webhook (ntfy reference default), per ADR-0006. Generation day/time configurable (default Sunday 18:00, plans the coming Mon–Sun week); manual "regenerate" button. **(confirmed 2026-10-16, amended: Trello replaces Bring!/Home Assistant)** |
+| Q9–Q16 | Dish rules, categories, pantry, plan lifecycle | Weekend Dish is its own hard flag. Preferred Days are soft. Quick Day limits apply to all dishes that day. Main Category is a fixed list of 11, with Swedish and English labels stored by key; "Other" never collides. Pantry matching is deterministic first, then LLM. Push happens on generation. Confirmed plans are locked from automatic changes. **(confirmed 2026-10-16)** |
+| Q17 | Menu changes | Regenerate re-checks school menus and shows a notice when a stored Lunch Entry changed. No silent re-plan. **(confirmed 2026-10-16)** |
+| Q22–Q36 | Account, app, scope | Shopping and house planning share one app, Trello. Dinners and shopping only in this app; house planning is outside its scope. Trello spike before the sink build. Calendar (ICS) feed deferred; the web app shows today's lunch and dinner. **(confirmed 2026-10-16)** |
 
 Round-2 resolutions:
 
@@ -55,15 +58,15 @@ Round-2 resolutions:
 
 ## Data model (SQLite)
 
-- **dish** — id, name, recipe_url?, adaptation_notes?, max_prep_time_minutes?, main_category?
+- **dish** — id, name, recipe_url?, adaptation_notes?, prep_time_minutes?, main_category? (key from the fixed list), in_rotation (default true), preferred_days (set of weekdays, soft), weekend_only (hard: Sat/Sun)
 - **dish_ingredient** — dish_id, name, quantity?, unit? (manual entries for dishes without a URL)
 - **school** — id, name, url, plugin_id? (null → LLM fallback), active
-- **lunch_entry** — school_id, date, raw_text, normalized_name?, fetched_at (unique on school_id+date)
-- **weekly_plan** — id, week_start (Monday), generated_at, status (generated | confirmed)
-- **planned_dinner** — plan_id, date, dish_id, is_quick_day, lunch_that_day?, selection_rationale?
+- **lunch_entry** — school_id, date, raw_text, normalized_name?, main_category? (key, LLM-assigned), fetched_at (unique on school_id+date)
+- **weekly_plan** — id, week_start (Monday), generated_at, status (generated | confirmed; confirmed plans are locked from automatic changes)
+- **planned_dinner** — plan_id, date, dish_id, is_quick_day, lunch_that_day?, selection_rationale?, source_url? (recipe link for LLM-found recipes, ADR-0003)
 - **pantry_item** — id, name, aliases (comma-separated for fuzzy matching)
 - **shopping_list_item** — plan_id, name, quantity?, unit?, section (`buy` | `check_pantry`), source_dish_id
-- **settings** — key/value: variety_window_weeks (soft preference, default 3), category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sinks (JSON array of sink configs; Bring!/HA credentials come from env vars, never this table)
+- **settings** — key/value: variety_window_weeks (soft preference, default 3), category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sinks (JSON array of sink configs; the Trello key and token, and any webhook secret, come from env vars, never this table)
 
 ## Key interfaces
 
@@ -77,6 +80,7 @@ interface SchoolPlugin {
 interface LlmAgent {
   extractLunchMenu(pageContent: string, weekStart: Date): Promise<LunchEntry[]>;
   extractIngredients(recipePageContent: string): Promise<Ingredient[]>;
+  findRecipe(dishName: string): Promise<{ url: string; ingredients: Ingredient[] }>;  // used when a Dish has neither URL nor manual Ingredients (Q3)
   selectDishes(input: {
     days: { date: Date; isQuickDay: boolean; lunch: LunchEntry[] }[];
     candidates: Dish[][];        // pre-filtered by the deterministic engine
@@ -85,7 +89,7 @@ interface LlmAgent {
 }
 ```
 
-Both interfaces ship with one production implementation in v1 (a plugins directory + a subprocess wrapper around the configured `agent_command`), plus deterministic fallbacks. `LlmAgent` additionally has a `findRecipe(dishName: string): Promise<{ url: string; ingredients: Ingredient[] }>` method used when a Dish has neither URL nor manual Ingredients (Q3).
+Both interfaces ship with one production implementation in v1 (a plugins directory + a subprocess wrapper around the configured `agent_command`), plus deterministic fallbacks.
 
 ## Flows
 
@@ -96,7 +100,9 @@ Both interfaces ship with one production implementation in v1 (a plugins directo
 4. `selectDishes` over the eligible sets, with recently-planned history (soft variety preference) → Weekly Plan + Planned Dinners (with rationale for transparency — including when a recent dish is repeated on purpose).
 5. Resolve Ingredients per planned Dish, by precedence: manual Ingredients → recipe URL (fetch → `extractIngredients`, cached per URL + content hash) → the LLM finds a recipe from the dish name and extracts from that. Adaptations ("no chili — kids") are applied by the LLM during extraction, so the list reflects what you actually cook.
 6. Aggregate into Shopping List; anything fuzzy-matching a Pantry Item (name or alias) goes to "Check pantry".
-7. Push the "Buy" section to every configured shopping-list sink (webhook/ntfy, Bring!, Home Assistant — ADR-0006); "Check pantry" stays in the app. Sink failures degrade gracefully and surface in the UI.
+7. Push the "Buy" section to every configured shopping-list sink (Trello as a new weekly list; optional webhook/ntfy — ADR-0006); "Check pantry" stays in the app. Sink failures degrade gracefully and surface in the UI.
+
+**Today view** — the first screen. Shows today's Lunch Entry for each School and today's Planned Dinner. Read-only, from the stored plan and lunch data.
 
 **Regenerate** — same pipeline on demand from the UI; replaces the current plan for that week.
 
@@ -107,4 +113,5 @@ Both interfaces ship with one production implementation in v1 (a plugins directo
 - Exact fuzzy-match strategy for Pantry Items and lunch-collision names (embeddings vs LLM call vs normalization rules) — decide at implementation time behind the interfaces above.
 - Whether `selectDishes` should see leftover/pantry inventory ("we have minced meat already") — v2.
 - Notifications (email/webhook when the plan is ready) — v2.
-- i18n of the UI (Swedish/English) — v2.
+- Calendar feed (ICS) for Google and Apple — deferred. Reachability from the internet needs a decision first (see the SPEC non-goals). Revisit once the Today view ships.
+- The UI is Swedish and English (FR-18). The order of the two languages is set by what ships first.

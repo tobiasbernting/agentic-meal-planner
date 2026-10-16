@@ -1,7 +1,7 @@
 # Single container, single process, SQLite
 
 ---
-Status: proposed (adopted by assumption in an unattended design session, awaiting owner confirmation)
+Status: Proposed (adopted by assumption; not yet explicitly confirmed by owner)
 ---
 
 The whole system — web UI, HTTP API, planner, cron scheduler — runs as one Node process in one Docker image, persisting to a SQLite file on a mounted volume. There is no external database, broker, or worker tier.

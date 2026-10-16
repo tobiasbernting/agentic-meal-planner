@@ -1,7 +1,7 @@
 # Hybrid planner: deterministic constraints, LLM selection
 
 ---
-Status: proposed (adopted by assumption in an unattended design session, awaiting owner confirmation)
+Status: Accepted (confirmed by owner 2026-10-16)
 ---
 
 The Weekly Plan is produced in two stages. Stage one is plain deterministic code: fetch Lunch Menus, filter Favorite Dishes by hard constraints (no collision with that day's school lunch — on exact dish name and on Main Category, Quick Day prep-time limits). Stage two hands the eligible candidates per day to an LLM agent, which makes the actual picks and does the fuzzy matching code can't (is "tortilla wraps med tacokrydda" the same as our "Taco Tuesday"?).
