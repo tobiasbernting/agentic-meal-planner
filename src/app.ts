@@ -1,34 +1,43 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance, type FastifyPluginAsync } from "fastify";
+import type Database from "better-sqlite3";
 import { openDatabase } from "./db.js";
+import { page } from "./ui/layout.js";
 
 export interface AppOptions {
   dataDir: string;
 }
 
-const HOME_PAGE_HTML = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meal Planner</title>
-  </head>
-  <body>
-    <h1>Meal Planner</h1>
-  </body>
-</html>
-`;
+/** Everything a feature's routes plugin can reach. Extend here when a new port is added. */
+export interface AppContext {
+  db: Database.Database;
+}
 
-export async function buildApp({ dataDir }: AppOptions) {
+export type FeaturePlugin = FastifyPluginAsync<AppContext>;
+
+/**
+ * Feature route plugins, registered in order. Each feature module exports one
+ * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
+ */
+const FEATURES: FeaturePlugin[] = [];
+
+const homeRoutes: FeaturePlugin = async (app) => {
+  app.get("/", async (_req, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return page({ title: "Today", body: "<h1>Meal Planner</h1>" });
+  });
+};
+
+export async function buildApp({ dataDir }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify();
   const db = openDatabase(dataDir);
   app.addHook("onClose", async () => {
     db.close();
   });
+  await app.register(import("@fastify/formbody"));
 
-  app.get("/", async (_req, reply) => {
-    reply.type("text/html; charset=utf-8");
-    return HOME_PAGE_HTML;
-  });
+  const ctx: AppContext = { db };
+  await app.register(homeRoutes, ctx);
+  for (const feature of FEATURES) await app.register(feature, ctx);
 
   app.get("/health", async () => ({ status: "ok" }));
 

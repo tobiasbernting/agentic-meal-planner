@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/formbody": "^8.0.2",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.7"
   },
