@@ -2,6 +2,7 @@
  * Shared server-rendered page shell. Every screen renders through `page()` so the nav,
  * viewport meta and HTMX script are in one place. Keep this file free of feature logic.
  */
+import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -14,26 +15,27 @@ export function escapeHtml(value: unknown): string {
 
 export interface NavItem {
   href: string;
-  label: string;
+  /** Message key of the nav label (translated per request in `page()`). */
+  label: MessageKey;
 }
 
 /** Navigation order. Features append their entry here (Today first, per FR-17a). */
-export const NAV: NavItem[] = [{ href: "/", label: "Today" }];
+export const NAV: NavItem[] = [{ href: "/", label: "nav.today" }];
 
 export interface PageOptions {
   title: string;
   body: string;
-  lang?: string;
+  lang?: Lang;
 }
 
-export function page({ title, body, lang = "en" }: PageOptions): string {
-  const nav = NAV.map((n) => `<a href="${escapeHtml(n.href)}">${escapeHtml(n.label)}</a>`).join(" ");
+export function page({ title, body, lang = DEFAULT_LANG }: PageOptions): string {
+  const nav = NAV.map((n) => `<a href="${escapeHtml(n.href)}">${escapeHtml(t(lang, n.label))}</a>`).join(" ");
   return `<!doctype html>
 <html lang="${escapeHtml(lang)}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)} - Meal Planner</title>
+    <title>${escapeHtml(title)} - ${escapeHtml(t(lang, "app.name"))}</title>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
       body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 0 auto; padding: 1rem; }

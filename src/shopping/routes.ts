@@ -8,11 +8,12 @@ import { addDays } from "../lunch/week.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { mondayOf } from "../planner/week.js";
 import { localDate } from "../today/routes.js";
+import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
 
-NAV.push({ href: "/shopping", label: "Shopping" });
+NAV.push({ href: "/shopping", label: "nav.shopping" });
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -33,8 +34,8 @@ function renderItem(item: AggregatedItem): string {
   return `<li>${escapeHtml(amount)}${escapeHtml(item.name)}</li>`;
 }
 
-function renderSection(id: string, heading: string, items: AggregatedItem[]): string {
-  const list = items.length === 0 ? `<p class="notice">Nothing here</p>` : `<ul>${items.map(renderItem).join("")}</ul>`;
+function renderSection(lang: Lang, id: string, heading: string, items: AggregatedItem[]): string {
+  const list = items.length === 0 ? `<p class="notice">${t(lang, "shopping.nothing")}</p>` : `<ul>${items.map(renderItem).join("")}</ul>`;
   return `<section id="${id}"><h2>${heading}</h2>${list}</section>`;
 }
 
@@ -47,30 +48,31 @@ function buildForm(weekStart: string, label: string): string {
 
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
   app.get<{ Querystring: ShoppingQuery }>("/shopping", async (req, reply) => {
+    const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, localDate(ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
     let content: string;
     if (!plan) {
-      content = `<p class="notice">No plan for this week. <a href="/plan?week=${weekStart}">Go to the plan</a> to generate one.</p>`;
+      content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
       const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
       content =
         buy.length + checkPantry.length === 0
-          ? `<p class="notice">No Shopping List yet.</p>
-${buildForm(weekStart, "Build shopping list")}`
-          : `${renderSection("buy", "Buy", buy)}
-${renderSection("check-pantry", "Check pantry", checkPantry)}
-${buildForm(weekStart, "Rebuild shopping list")}`;
+          ? `<p class="notice">${t(lang, "shopping.none")}</p>
+${buildForm(weekStart, t(lang, "shopping.build"))}`
+          : `${renderSection(lang, "buy", t(lang, "shopping.buy"), buy)}
+${renderSection(lang, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
+${buildForm(weekStart, t(lang, "shopping.rebuild"))}`;
     }
-    const body = `<h1>Shopping List</h1>
+    const body = `<h1>${t(lang, "shopping.title")}</h1>
 <p>
-  <a href="/shopping?week=${addDays(weekStart, -7)}">Previous week</a>
-  Week of <time datetime="${weekStart}">${weekStart}</time>
-  <a href="/shopping?week=${addDays(weekStart, 7)}">Next week</a>
+  <a href="/shopping?week=${addDays(weekStart, -7)}">${t(lang, "week.prev")}</a>
+  ${t(lang, "week.of")} <time datetime="${weekStart}">${weekStart}</time>
+  <a href="/shopping?week=${addDays(weekStart, 7)}">${t(lang, "week.next")}</a>
 </p>
 ${content}`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: "Shopping List", body });
+    return page({ title: t(lang, "shopping.title"), body, lang });
   });
 
   app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {

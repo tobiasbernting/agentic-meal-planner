@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
+import { withEnglish } from "../i18n/test-helpers.js";
 import { readSetting } from "../db.js";
 import type { Dish } from "../dishes/repo.js";
 import { CliAgent, NoAgent, ScriptedLlmAgent, type SelectDishesInput } from "../llm/index.js";
@@ -12,7 +13,7 @@ import { quickDayLimitFor, readPlannerSettings } from "../planner/settings.js";
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
 async function start() {
-  const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-http-")) });
+  const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-http-")) }));
   apps.push(app);
   return app;
 }

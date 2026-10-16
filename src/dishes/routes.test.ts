@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { withEnglish } from "../i18n/test-helpers.js";
 import { MAIN_CATEGORY_KEYS } from "./categories.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
 async function start() {
-  const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-dishes-http-")) });
+  const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-dishes-http-")) }));
   apps.push(app);
   return app;
 }
