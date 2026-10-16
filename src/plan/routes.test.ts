@@ -94,6 +94,23 @@ describe("GET /plan", () => {
     expect(res.body).toMatch(/<p class="notice">[^<]*no agent configured/);
   });
 
+  it("warns when a day's Lunch Entry no longer matches what the plan was made with (Q17)", async () => {
+    const app = await start();
+    const north = createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-19", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
+    upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Fiskgratäng", fetchedAt: NOW.toISOString() });
+    const dinners = emptyDinners().map((d) => ({
+      ...d,
+      lunchThatDay: d.date === "2026-10-19" ? "Pasta bolognese" : d.date === "2026-10-20" ? "Köttbullar" : null,
+    }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+
+    expect(res.body).toMatch(/<p class="notice">Lunch menu changed since this plan was made: 2026-10-20<\/p>/);
+    expect(res.body.match(/Lunch menu changed/g)).toHaveLength(1);
+  });
+
   it("links to the previous and next week and defaults to the week of today", async () => {
     const app = await start();
 
@@ -133,6 +150,87 @@ describe("POST /plan/generate", () => {
     expect(view.body).not.toContain("Burgers");
     expect(view.body).toContain("confirmed");
     expect(view.body).toContain("was not replaced");
+  });
+});
+
+describe("POST /plan/confirm (FR-9a)", () => {
+  it("offers a Confirm button on a generated plan, locks it, and says so", async () => {
+    const app = await start();
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+    const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(before.body).toMatch(/<form method="post" action="\/plan\/confirm">[\s\S]*name="weekStart" value="2026-10-19"/);
+
+    const res = await app.inject({ method: "POST", url: "/plan/confirm", payload: { weekStart: WEEK } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/plan?week=${WEEK}&notice=plan-confirmed`);
+    const view = await app.inject({ method: "GET", url: res.headers.location as string });
+    expect(view.body).toContain("Status: confirmed");
+    expect(view.body).toContain("Plan confirmed");
+    expect(view.body).not.toContain('action="/plan/confirm"');
+  });
+});
+
+const MENU_URL = "https://north.example/menu.lunch.json";
+const MENU_PAGE = JSON.stringify({ days: [{ date: "2026-10-20", dishes: ["Fiskgratäng"] }] });
+const fetchMenu = async (url: string) => {
+  if (url !== MENU_URL) throw new Error(`no fixture for ${url}`);
+  return MENU_PAGE;
+};
+
+describe("POST /plan/regenerate (FR-9, Q17)", () => {
+  it("re-checks the school menus, replaces the plan, and offers a Regenerate button on the plan view", async () => {
+    const app = await start({ llm: new NoAgent(), fetchPage: fetchMenu });
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+    const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(before.body).toMatch(/<form method="post" action="\/plan\/regenerate">[\s\S]*name="weekStart" value="2026-10-19"/);
+
+    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
+    const view = await app.inject({ method: "GET", url: res.headers.location as string });
+    expect(view.body.match(/Burgers/g)).toHaveLength(7);
+    expect(view.body).toContain("<li>Fiskgratäng</li>");
+    expect(view.body).not.toContain("Lunch menu changed");
+  });
+
+  it("shows which stored Lunch Entries changed since the plan was made", async () => {
+    const app = await start({ llm: new NoAgent(), fetchPage: fetchMenu });
+    const north = createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
+    upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    expect(res.statusCode).toBe(303);
+    const view = await app.inject({ method: "GET", url: res.headers.location as string });
+    expect(view.body).toMatch(/<p class="notice">Lunch menu changed since this plan was made: Northside 2026-10-20<\/p>/);
+  });
+
+  it("asks for confirmation before replacing a confirmed plan, then replaces it on override (FR-9a)", async () => {
+    const app = await start({ llm: new NoAgent(), fetchPage: fetchMenu });
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+    confirmPlan(app.ctx.db, WEEK);
+
+    const ask = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    expect(ask.statusCode).toBe(200);
+    expect(ask.body).toContain("This plan is confirmed");
+    expect(ask.body).toMatch(/<form method="post" action="\/plan\/regenerate">[\s\S]*name="weekStart" value="2026-10-19"[\s\S]*name="confirmed_override" value="1"/);
+    const untouched = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(untouched.body).not.toContain("Burgers");
+    expect(untouched.body).toContain("Status: confirmed");
+
+    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK, confirmed_override: "1" } });
+
+    expect(res.statusCode).toBe(303);
+    const view = await app.inject({ method: "GET", url: res.headers.location as string });
+    expect(view.body.match(/Burgers/g)).toHaveLength(7);
+    expect(view.body).toContain("Status: generated");
   });
 });
 
