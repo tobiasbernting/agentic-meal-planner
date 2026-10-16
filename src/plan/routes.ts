@@ -12,6 +12,7 @@ import { generatePlan } from "../planner/generate.js";
 import { getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { datesOfWeek, mondayOf } from "../planner/week.js";
 import { weekdayOf } from "../engine/filter.js";
+import { buildShoppingList } from "../shopping/build.js";
 import { localDate } from "../today/routes.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -127,6 +128,7 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
       { replace: false },
     );
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
+    if ("planId" in result) await buildShoppingList(ctx, result.planId); // #31: Shopping List follows the plan (FR-11)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 };
