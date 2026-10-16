@@ -1,0 +1,4 @@
+# Local secrets written by scripts/setup-trello.sh and the app
+.env
+.env.*
+!.env.example
