@@ -1,4 +1,13 @@
-import type { FoundRecipe, Ingredient, LlmAgent, LlmResult, LunchEntry, SelectDishesInput, SelectedDish } from "./types.js";
+import type {
+  FoundRecipe,
+  Ingredient,
+  LlmAgent,
+  LlmResult,
+  LunchEntry,
+  PantryMatch,
+  SelectDishesInput,
+  SelectedDish,
+} from "./types.js";
 
 export const NO_AGENT_REASON = "no agent configured";
 
@@ -17,6 +26,11 @@ export class NoAgent implements LlmAgent {
   }
 
   async findRecipe(): Promise<LlmResult<FoundRecipe>> {
+    return { ok: false, reason: NO_AGENT_REASON };
+  }
+
+  /** Unavailable: every Ingredient the deterministic match missed stays in "Buy". */
+  async matchPantryItems(): Promise<LlmResult<PantryMatch[]>> {
     return { ok: false, reason: NO_AGENT_REASON };
   }
 

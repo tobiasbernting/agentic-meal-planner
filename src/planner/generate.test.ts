@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import { openDatabase, writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent, type SelectDishesInput } from "../llm/index.js";
+import { upsertLunchEntry } from "../lunch/repo.js";
+import { createSchool, setSchoolActive } from "../schools/repo.js";
 import { generatePlan } from "./generate.js";
 import { confirmPlan, getPlanForWeek, savePlan } from "./repo.js";
 import { SETTING_QUICK_DAY_TEMPLATE } from "./settings.js";
@@ -61,6 +63,28 @@ describe("generatePlan", () => {
     expect(req.recentlyPlanned).toEqual([{ dishId: String(stew), lastDate: "2026-10-05" }]);
     expect(getPlanForWeek(db, WEEK)?.dinners[0]?.lunchThatDay).toBe("Fiskpinnar");
     expect(fish).toBeGreaterThan(0);
+  });
+
+  it("loads stored Lunch Entries of active Schools by default so lunch constrains dinner", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Fish", mainCategory: "fish", prepTimeMinutes: 20 });
+    createDish(db, { name: "Stew", prepTimeMinutes: 20 });
+    const school = createSchool(db, { name: "Skolan", url: "https://example.test/menu" });
+    const paused = createSchool(db, { name: "Paused", url: "https://example.test/paused" });
+    setSchoolActive(db, paused.id, false);
+    upsertLunchEntry(db, { schoolId: school.id, date: "2026-10-12", rawText: "Fiskpinnar\nSallad", mainCategory: "fish", fetchedAt: NOW });
+    upsertLunchEntry(db, { schoolId: school.id, date: "2026-10-11", rawText: "Last week", mainCategory: "fish", fetchedAt: NOW });
+    upsertLunchEntry(db, { schoolId: paused.id, date: "2026-10-13", rawText: "Paused fish", mainCategory: "fish", fetchedAt: NOW });
+    const llm = new ScriptedLlmAgent({ selectDishes: { ok: true, value: [] } });
+
+    await generatePlan({ db, llm, now: () => NOW }, WEEK);
+
+    const req = llm.calls[0]?.args[0] as SelectDishesInput;
+    expect(req.days[0]?.lunch).toEqual([{ date: "2026-10-12", rawText: "Fiskpinnar\nSallad", mainCategory: "fish" }]);
+    expect(req.candidates[0]?.map((d) => d.name)).toEqual(["Stew"]); // Monday: fish collides with the stored lunch
+    expect(req.days[1]?.lunch).toEqual([]); // paused School does not constrain
+    expect(req.candidates[1]?.map((d) => d.name)).toEqual(["Fish", "Stew"]);
+    expect(getPlanForWeek(db, WEEK)?.dinners[0]?.lunchThatDay).toBe("Fiskpinnar\nSallad");
   });
 
   it("degrades with NoAgent: a plan is still stored and marked", async () => {
