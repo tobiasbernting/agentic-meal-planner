@@ -8,6 +8,7 @@ import { SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
 import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
 import { SCHEMA_SHOPPING } from "./shopping/schema.js";
+import { SCHEMA_SINKS } from "./sinks/schema.js";
 
 export const DB_FILENAME = "meal-planner.db";
 
@@ -29,6 +30,7 @@ const SCHEMA: string[] = [
   SCHEMA_PLANNER,
   SCHEMA_INGREDIENTS,
   SCHEMA_SHOPPING,
+  SCHEMA_SINKS,
 ];
 
 /**

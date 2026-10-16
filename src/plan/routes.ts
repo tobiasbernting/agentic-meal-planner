@@ -16,6 +16,7 @@ import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from
 import { datesOfWeek, mondayOf } from "../planner/week.js";
 import { weekdayOf } from "../engine/filter.js";
 import { buildShoppingList } from "../shopping/build.js";
+import { pushShoppingList } from "../sinks/push.js";
 import { localDate } from "../today/routes.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -200,7 +201,7 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
       { replace: false },
     );
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
-    if ("planId" in result) await buildShoppingList(ctx, result.planId); // #31: Shopping List follows the plan (FR-11)
+    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 
@@ -214,7 +215,7 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
     }
     const { changed } = await ingestWeek(ctx, weekStart, { force: true });
     const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });
-    if ("planId" in result) await buildShoppingList(ctx, result.planId); // #31: the new plan gets a fresh Shopping List
+    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: fresh Shopping List, pushed
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });

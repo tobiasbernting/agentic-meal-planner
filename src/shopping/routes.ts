@@ -10,6 +10,8 @@ import { mondayOf } from "../planner/week.js";
 import { localDate } from "../today/routes.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 import type { AggregatedItem } from "./aggregate.js";
+import { pushShoppingList } from "../sinks/push.js";
+import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
 
 NAV.push({ href: "/shopping", label: "Shopping" });
@@ -45,6 +47,21 @@ function buildForm(weekStart: string, label: string): string {
 </form>`;
 }
 
+function renderPushes(ctx: { db: import("better-sqlite3").Database }, planId: number, weekStart: string): string {
+  const rows = latestPushes(ctx.db, planId)
+    .map((p) =>
+      p.ok
+        ? `<li class="push-ok">${escapeHtml(p.sinkId)}: pushed${p.detail ? ` (${escapeHtml(p.detail)})` : ""}</li>`
+        : `<li class="push-error">${escapeHtml(p.sinkId)}: push failed: ${escapeHtml(p.error ?? "unknown error")}</li>`,
+    )
+    .join("");
+  return `<section id="sinks"><h2>Sinks</h2>${rows ? `<ul>${rows}</ul>` : `<p class="notice">Not pushed anywhere</p>`}
+<form method="post" action="/shopping/push">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <button type="submit">Push again</button>
+</form></section>`;
+}
+
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
   app.get<{ Querystring: ShoppingQuery }>("/shopping", async (req, reply) => {
     const weekStart = resolveWeek(req.query.week, localDate(ctx.now()));
@@ -60,7 +77,8 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
 ${buildForm(weekStart, "Build shopping list")}`
           : `${renderSection("buy", "Buy", buy)}
 ${renderSection("check-pantry", "Check pantry", checkPantry)}
-${buildForm(weekStart, "Rebuild shopping list")}`;
+${buildForm(weekStart, "Rebuild shopping list")}
+${renderPushes(ctx, plan.id, weekStart)}`;
     }
     const body = `<h1>Shopping List</h1>
 <p>
@@ -76,7 +94,14 @@ ${content}`;
   app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) await buildShoppingList(ctx, plan.id);
+    if (plan) { await buildShoppingList(ctx, plan.id); await pushShoppingList(ctx, plan.id); }
+    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  });
+
+  app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {
+    const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
+    const plan = getPlanForWeek(ctx.db, weekStart);
+    if (plan) await pushShoppingList(ctx, plan.id);
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });
 };
