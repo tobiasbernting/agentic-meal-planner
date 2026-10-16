@@ -6,11 +6,12 @@
 import cron from "node-cron";
 import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
+import { DEFAULT_CRON_EXPRESSION, SETTING_CRON_EXPRESSION } from "../planner/settings.js";
 import { runWeeklyPlanning, type WeeklyRunDeps } from "./run-weekly.js";
 
-/** Sunday 18:00 in the scheduler's time zone. */
-export const DEFAULT_CRON = "0 18 * * 0";
-export const SETTING_CRON_EXPRESSION = "cron_expression";
+/** Sunday 18:00 in the scheduler's time zone. The single definition lives in src/planner/settings.ts. */
+export const DEFAULT_CRON = DEFAULT_CRON_EXPRESSION;
+export { SETTING_CRON_EXPRESSION };
 export const SETTING_TIMEZONE = "timezone";
 
 export interface ScheduledJob {
