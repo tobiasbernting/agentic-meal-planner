@@ -2,7 +2,18 @@ import { CliAgent, type CliAgentDeps } from "./cli-agent.js";
 import { NoAgent } from "./no-agent.js";
 import type { LlmAgent } from "./types.js";
 
-export type { LlmAgent, LlmResult, Ingredient, LunchEntry, Dish, SelectDishesInput, SelectedDish, FoundRecipe } from "./types.js";
+export type {
+  LlmAgent,
+  LlmResult,
+  Ingredient,
+  LunchEntry,
+  Dish,
+  SelectDishesInput,
+  SelectedDish,
+  FoundRecipe,
+  MatchPantryInput,
+  PantryMatch,
+} from "./types.js";
 export { CliAgent, type CliAgentDeps, type ProcessRunner } from "./cli-agent.js";
 export { NoAgent, NO_AGENT_REASON } from "./no-agent.js";
 export { ScriptedLlmAgent, type ScriptedResponses } from "./fake.js";

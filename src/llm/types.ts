@@ -50,10 +50,24 @@ export interface FoundRecipe {
   ingredients: Ingredient[];
 }
 
+/** Ingredients the deterministic pantry match could not place, plus the whole pantry (FR-11). */
+export interface MatchPantryInput {
+  ingredients: string[];
+  pantry: { id: string; name: string; aliases: string[] }[];
+}
+
+/** One judgement per ingredient: `pantryId` is an id from the input pantry, or null for "Buy". */
+export interface PantryMatch {
+  ingredient: string;
+  pantryId: string | null;
+}
+
 export interface LlmAgent {
   extractLunchMenu(pageContent: string, weekStart: string): Promise<LlmResult<LunchEntry[]>>;
   extractIngredients(recipePageContent: string): Promise<LlmResult<Ingredient[]>>;
   /** Used when a Dish has neither a recipe URL nor manual Ingredients. */
   findRecipe(dishName: string): Promise<LlmResult<FoundRecipe>>;
   selectDishes(input: SelectDishesInput): Promise<LlmResult<SelectedDish[]>>;
+  /** Judges the Ingredients the deterministic name/alias match missed (FR-11). */
+  matchPantryItems(input: MatchPantryInput): Promise<LlmResult<PantryMatch[]>>;
 }

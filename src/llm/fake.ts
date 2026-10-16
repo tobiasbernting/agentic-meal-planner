@@ -1,4 +1,14 @@
-import type { FoundRecipe, Ingredient, LlmAgent, LlmResult, LunchEntry, SelectDishesInput, SelectedDish } from "./types.js";
+import type {
+  FoundRecipe,
+  Ingredient,
+  LlmAgent,
+  LlmResult,
+  LunchEntry,
+  MatchPantryInput,
+  PantryMatch,
+  SelectDishesInput,
+  SelectedDish,
+} from "./types.js";
 
 type Scripted<Args extends unknown[], T> = LlmResult<T> | ((...args: Args) => LlmResult<T>);
 
@@ -7,6 +17,7 @@ export interface ScriptedResponses {
   extractIngredients?: Scripted<[recipePageContent: string], Ingredient[]>;
   findRecipe?: Scripted<[dishName: string], FoundRecipe>;
   selectDishes?: Scripted<[input: SelectDishesInput], SelectedDish[]>;
+  matchPantryItems?: Scripted<[input: MatchPantryInput], PantryMatch[]>;
 }
 
 export interface ScriptedCall {
@@ -38,6 +49,10 @@ export class ScriptedLlmAgent implements LlmAgent {
 
   selectDishes(input: SelectDishesInput) {
     return this.reply("selectDishes", [input]);
+  }
+
+  matchPantryItems(input: MatchPantryInput) {
+    return this.reply("matchPantryItems", [input]);
   }
 
   private async reply<M extends keyof ScriptedResponses>(

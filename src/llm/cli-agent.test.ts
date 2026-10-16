@@ -152,6 +152,58 @@ describe("CliAgent.findRecipe", () => {
   });
 });
 
+describe("CliAgent.matchPantryItems", () => {
+  const input = {
+    ingredients: ["whole milk", "saffron"],
+    pantry: [
+      { id: "1", name: "milk", aliases: ["mjölk"] },
+      { id: "2", name: "flour", aliases: [] },
+    ],
+  };
+
+  it("parses matches and includes the ingredients and pantry aliases in the prompt", async () => {
+    const { run, calls } = scriptedRunner([
+      JSON.stringify([
+        { ingredient: "whole milk", pantryId: "1" },
+        { ingredient: "saffron", pantryId: null },
+      ]),
+    ]);
+    const agent = new CliAgent("copilot -p", { run });
+
+    const result = await agent.matchPantryItems(input);
+
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { ingredient: "whole milk", pantryId: "1" },
+        { ingredient: "saffron", pantryId: null },
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args.at(-1)).toContain("saffron");
+    expect(calls[0]!.args.at(-1)).toContain("mjölk");
+  });
+
+  it("accepts numeric pantry ids and returns them as strings", async () => {
+    const { run } = scriptedRunner(['[{"ingredient": "whole milk", "pantryId": 1}]']);
+    const agent = new CliAgent("copilot -p", { run });
+
+    const result = await agent.matchPantryItems(input);
+
+    expect(result).toEqual({ ok: true, value: [{ ingredient: "whole milk", pantryId: "1" }] });
+  });
+
+  it("rejects a match to a pantry id that does not exist", async () => {
+    const bad = '[{"ingredient": "whole milk", "pantryId": "99"}]';
+    const { run } = scriptedRunner([bad, bad]);
+    const agent = new CliAgent("copilot -p", { run });
+
+    const result = await agent.matchPantryItems(input);
+
+    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry" });
+  });
+});
+
 describe("CliAgent.selectDishes", () => {
   const input = {
     days: [
