@@ -12,6 +12,6 @@ export interface ShoppingListSink {
 }
 
 /** Minimal fetch shape so tests can record calls without a network. */
-export type FetchLike = (url: string, init?: { method?: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export type Env = Record<string, string | undefined>;

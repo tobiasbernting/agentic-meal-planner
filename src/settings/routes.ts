@@ -70,7 +70,7 @@ ${notice(error)}
   <label>Variety window (weeks) <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
   <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> Avoid Main Category collisions with lunch</label>
   <label>Agent command (blank = no agent, degraded mode) <input name="agent_command" value="${escapeHtml(view.agentCommand)}" /></label>
-  <label>Shopping List Sinks (JSON array) <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
+  <label>Shopping List Sinks (JSON array, e.g. [{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]; format is ntfy or json; secret via env WEBHOOK_SECRET; blank = Trello from env) <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">Save</button>
 </form>`;
   return page({ title: "Settings", body });
