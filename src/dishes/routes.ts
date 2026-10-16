@@ -24,6 +24,12 @@ interface DishFormBody {
   adaptation_notes?: string;
   prep_time_minutes?: string;
   main_category?: string;
+  /**
+   * Set (hidden field, edit form only) when the user has seen the Main Category select, so a
+   * blank `main_category` means "no category" on purpose and the agent must not propose one.
+   * Absent on the new-Dish form: a blank category there is "undecided" and gets a proposal.
+   */
+  main_category_touched?: string;
   in_rotation?: string;
   preferred_days?: string | string[];
   weekend_only?: string;
@@ -67,7 +73,7 @@ function blank(value: string | undefined): string | null {
 }
 
 /** Maps the submitted form to a DishInput, or returns an error message. */
-function toDishInput(lang: Lang, body: DishFormBody): { input: DishInput } | { error: string } {
+function toDishInput(lang: Lang, body: DishFormBody): { input: DishInput; proposeCategory: boolean } | { error: string } {
   const name = blank(body.name);
   if (!name) return { error: t(lang, "dishes.error.nameRequired") };
 
@@ -83,13 +89,14 @@ function toDishInput(lang: Lang, body: DishFormBody): { input: DishInput } | { e
     if (!isMainCategory(categoryRaw)) return { error: t(lang, "dishes.error.category") };
     mainCategory = categoryRaw;
   }
-  // Hook for FR-1: when no category is chosen, `LlmAgent` may propose one here (not in this ticket).
 
   const daysRaw = body.preferred_days === undefined ? [] : [body.preferred_days].flat();
   const preferredDays = WEEKDAYS.filter((d) => daysRaw.includes(d));
   if (daysRaw.some((d) => !isWeekday(d))) return { error: t(lang, "dishes.error.days") };
 
   return {
+    // FR-1: only an undecided (blank, untouched) category is handed to the agent, see DishFormBody.
+    proposeCategory: mainCategory === null && body.main_category_touched !== "1",
     input: {
       name,
       recipeUrl: blank(body.recipe_url),
@@ -121,7 +128,7 @@ const NEW_DISH: Omit<Dish, "id"> = {
   ingredients: [],
 };
 
-function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: string): string {
+function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: string, editing = false): string {
   const categoryOptions = [
     `<option value=""${dish.mainCategory === null ? " selected" : ""}>${t(lang, "dishes.categoryNone")}</option>`,
     ...MAIN_CATEGORY_KEYS.map(
@@ -134,6 +141,7 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
   ).join("\n        ");
   return `${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}
     <form method="post" action="${escapeHtml(action)}">
+      ${editing ? '<input type="hidden" name="main_category_touched" value="1" />' : ""}
       <label>${t(lang, "common.name")} <input name="name" required value="${escapeHtml(dish.name)}" /></label>
       <label>${t(lang, "dishes.recipeUrl")} <input name="recipe_url" type="url" value="${escapeHtml(dish.recipeUrl ?? "")}" /></label>
       <label>${t(lang, "dishes.prepTime")} <input name="prep_time_minutes" type="number" min="0" step="1" value="${escapeHtml(dish.prepTimeMinutes ?? "")}" /></label>
@@ -170,7 +178,15 @@ function dishListItem(lang: Lang, dish: Dish): string {
       </li>`;
 }
 
-export const dishRoutes: FeaturePlugin = async (app, { db }) => {
+export const dishRoutes: FeaturePlugin = async (app, ctx) => {
+  const { db } = ctx;
+  // FR-1: the agent proposes a Main Category on save; a degraded agent leaves it null. `ctx.llm` is read per call (it follows Settings).
+  const withProposedCategory = async ({ input, proposeCategory }: { input: DishInput; proposeCategory: boolean }): Promise<DishInput> => {
+    if (!proposeCategory) return input;
+    const suggestion = await ctx.llm.suggestMainCategory(input.name, [...MAIN_CATEGORY_KEYS]);
+    return suggestion.ok && suggestion.value !== null ? { ...input, mainCategory: suggestion.value } : input;
+  };
+
   const html = (reply: { type(t: string): unknown }) => reply.type("text/html; charset=utf-8");
 
   app.get("/dishes", async (req, reply) => {
@@ -198,7 +214,7 @@ export const dishRoutes: FeaturePlugin = async (app, { db }) => {
         .code(400)
         .send(page({ title: t(lang, "dishes.new"), body: `<h1>${t(lang, "dishes.new")}</h1>${dishForm(lang, "/dishes", NEW_DISH, parsed.error)}`, lang }));
     }
-    createDish(db, parsed.input);
+    createDish(db, await withProposedCategory(parsed));
     return reply.redirect("/dishes", 303);
   });
 
@@ -207,7 +223,7 @@ export const dishRoutes: FeaturePlugin = async (app, { db }) => {
     const dish = getDish(db, Number(req.params.id));
     if (!dish) return reply.code(404).send(t(lang, "dishes.notFound"));
     html(reply);
-    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish)}`, lang });
+    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish, undefined, true)}`, lang });
   });
 
   app.post<{ Params: { id: string }; Body: DishFormBody }>("/dishes/:id", async (req, reply) => {
@@ -220,9 +236,9 @@ export const dishRoutes: FeaturePlugin = async (app, { db }) => {
       html(reply);
       return reply
         .code(400)
-        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error)}`, lang }));
+        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error, true)}`, lang }));
     }
-    if (!updateDish(db, id, parsed.input)) return reply.code(404).send(t(lang, "dishes.notFound"));
+    if (!updateDish(db, id, await withProposedCategory(parsed))) return reply.code(404).send(t(lang, "dishes.notFound"));
     return reply.redirect("/dishes", 303);
   });
 

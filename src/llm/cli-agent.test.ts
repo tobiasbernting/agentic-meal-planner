@@ -227,6 +227,37 @@ describe("CliAgent.matchPantryItems", () => {
   });
 });
 
+describe("CliAgent.suggestMainCategory", () => {
+  const candidates = ["pasta", "fish", "other"] as const;
+
+  it("returns the proposed category and names the dish and candidates in the prompt", async () => {
+    const { run, calls } = scriptedRunner(['{"category": "fish"}']);
+    const agent = new CliAgent("copilot -p", { run });
+
+    const result = await agent.suggestMainCategory("Fiskgratäng", [...candidates]);
+
+    expect(result).toEqual({ ok: true, value: "fish" });
+    expect(calls[0]!.args.at(-1)).toContain("Fiskgratäng");
+    expect(calls[0]!.args.at(-1)).toContain("pasta");
+  });
+
+  it("accepts null when nothing fits", async () => {
+    const { run } = scriptedRunner(['{"category": null}']);
+
+    expect(await new CliAgent("copilot -p", { run }).suggestMainCategory("Mystery", [...candidates])).toEqual({ ok: true, value: null });
+  });
+
+  it("rejects a category outside the candidates (retry, then degrade)", async () => {
+    const bad = '{"category": "beef"}';
+    const { run } = scriptedRunner([bad, bad]);
+
+    expect(await new CliAgent("copilot -p", { run }).suggestMainCategory("Steak", [...candidates])).toEqual({
+      ok: false,
+      reason: "invalid JSON after retry",
+    });
+  });
+});
+
 describe("CliAgent.selectDishes", () => {
   const input = {
     days: [

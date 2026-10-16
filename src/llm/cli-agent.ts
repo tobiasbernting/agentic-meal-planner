@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { MainCategory } from "../dishes/categories.js";
 import type {
   ExtractIngredientsOptions,
   FoundRecipe,
@@ -110,6 +111,20 @@ export class CliAgent implements LlmAgent {
       `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string}, one per day, in order.` +
       `\n\n${JSON.stringify(input, null, 2)}`;
     return this.ask(prompt, (json) => validateSelection(json, input));
+  }
+
+  async suggestMainCategory(dishName: string, candidates: MainCategory[]): Promise<LlmResult<MainCategory | null>> {
+    const prompt =
+      `Propose the Main Category of the dish "${dishName}". Choose exactly one of: ${candidates.join(", ")}. ` +
+      `Use null when none fits; when unsure prefer "other" or null. ` +
+      `Respond with JSON only: {"category": string | null}.`;
+    return this.ask(prompt, (json) => {
+      if (!isRecord(json)) return undefined;
+      if (json.category === null) return null;
+      return typeof json.category === "string" && (candidates as string[]).includes(json.category)
+        ? (json.category as MainCategory)
+        : undefined;
+    });
   }
 
   async matchPantryItems(input: MatchPantryInput): Promise<LlmResult<PantryMatch[]>> {

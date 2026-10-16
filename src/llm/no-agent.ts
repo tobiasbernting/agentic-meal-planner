@@ -1,3 +1,4 @@
+import type { MainCategory } from "../dishes/categories.js";
 import type {
   FoundRecipe,
   Ingredient,
@@ -23,6 +24,10 @@ export class NoAgent implements LlmAgent {
 
   /** Unavailable regardless of Adaptation notes. */
   async extractIngredients(): Promise<LlmResult<Ingredient[]>> {
+    return { ok: false, reason: NO_AGENT_REASON };
+  }
+
+  async suggestMainCategory(): Promise<LlmResult<MainCategory | null>> {
     return { ok: false, reason: NO_AGENT_REASON };
   }
 

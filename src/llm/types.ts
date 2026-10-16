@@ -3,6 +3,7 @@
  * this interface; the production implementation shells out to the configured agent CLI
  * and the fallback degrades deterministically. Dates are ISO `YYYY-MM-DD` strings.
  */
+import type { MainCategory } from "../dishes/categories.js";
 
 /** A degradable result: callers get `{ ok: false, reason }` instead of a thrown error. */
 export type LlmResult<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -68,6 +69,8 @@ export interface ExtractIngredientsOptions {
 }
 
 export interface LlmAgent {
+  /** FR-1: proposes one of `candidates` (Main Category keys) for a Dish name, or null when none fits. */
+  suggestMainCategory(dishName: string, candidates: MainCategory[]): Promise<LlmResult<MainCategory | null>>;
   extractLunchMenu(pageContent: string, weekStart: string): Promise<LlmResult<LunchEntry[]>>;
   extractIngredients(recipePageContent: string, options?: ExtractIngredientsOptions): Promise<LlmResult<Ingredient[]>>;
   /** Used when a Dish has neither a recipe URL nor manual Ingredients. Adaptation notes apply during extraction (ADR-0003). */
