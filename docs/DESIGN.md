@@ -7,12 +7,12 @@ This document is the output of an unattended design session. Every decision belo
 | # | Decision | Adopted answer |
 |---|----------|----------------|
 | Q1 | Tech stack | TypeScript end-to-end: Node + Fastify, better-sqlite3, server-rendered HTMX UI. One process, one image. **(confirmed 2026-10-16 — HTMX explicitly)** |
-| Q2 | Planner shape | Hybrid: deterministic constraint engine + LLM selection. See ADR-0001. **(assumed)** |
+| Q2 | Planner shape | Hybrid: deterministic constraint engine + LLM selection. See ADR-0001. **(confirmed 2026-10-16)** |
 | Q3 | Ingredient source | Three sources, by precedence: manual Ingredients (kid-adapted dishes), recipe URL (LLM extracts), or neither — the LLM finds a recipe from the dish name. Free-text Adaptations ("no chili — kids") modify whatever the source yields. See ADR-0003. **(confirmed 2026-10-16, amended)** |
-| Q4 | Lunch ingestion | School Plugins + generic LLM fallback; multiple schools. See ADR-0004. **(assumed)** |
-| Q5 | Collision rule | Block on exact dish-name match AND on same Main Category; category check configurable, default ON. **(assumed)** |
-| Q6 | Staples | User-managed Pantry Items; matched Ingredients go to "Check pantry". **(assumed)** |
-| Q7 | Quick Days | Recurring weekly template (e.g. Tue/Thu) with per-week override in the UI; Dish carries an optional max-prep-time tag. **(assumed)** |
+| Q4 | Lunch ingestion | School Plugins + generic LLM fallback; multiple schools. See ADR-0004. **(confirmed 2026-10-16)** |
+| Q5 | Collision rule | Block on exact dish-name match AND on same Main Category; category check configurable, default ON. **(confirmed 2026-10-16)** |
+| Q6 | Staples | User-managed Pantry Items; matched Ingredients go to "Check pantry". **(confirmed 2026-10-16)** |
+| Q7 | Quick Days | Recurring weekly template (e.g. Tue/Thu) with per-week override in the UI; Dish carries an optional max-prep-time tag. **(confirmed 2026-10-16)** |
 | Q8 | Delivery | Web UI plus push of the Shopping List's "Buy" section to a shopping-list app (Bring! in v1, behind a sink interface — ADR-0006). Generation day/time configurable (default Sunday 18:00, plans the coming Mon–Sun week); manual "regenerate" button. **(confirmed 2026-10-16, amended)** |
 
 Round-2 resolutions (all **(assumed)**):
