@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
+import { writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE, type PlannedDinnerDraft } from "../planner/plan-week.js";
@@ -25,6 +26,17 @@ async function start(options: Partial<AppOptions> = {}) {
 
 afterEach(async () => {
   while (apps.length) await apps.pop()!.close();
+});
+
+describe("timezone setting", () => {
+  it("decides which date is today (23:30 UTC is already tomorrow in Stockholm)", async () => {
+    const app = await start({ now: () => new Date("2026-10-21T23:30:00Z") });
+    writeSetting(app.ctx.db, "timezone", "Europe/Stockholm");
+
+    const res = await app.inject({ method: "GET", url: "/" });
+
+    expect(res.body).toContain('<time datetime="2026-10-22">');
+  });
 });
 
 describe("GET / (Today view)", () => {

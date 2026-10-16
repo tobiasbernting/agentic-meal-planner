@@ -107,6 +107,37 @@ describe("Settings page", () => {
     expect(readSetting(app.ctx.db, "shopping_list_sinks")).toBeUndefined();
   });
 
+  it("stores a valid IANA timezone, rejects an unknown one, and blank clears it", async () => {
+    const app = await start();
+    const base = { cron_expression: "0 18 * * 0", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" };
+
+    const bad = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Mars/Olympus" } });
+    const good = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Europe/Stockholm" } });
+    const shown = await app.inject({ method: "GET", url: "/settings" });
+    const cleared = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "" } });
+
+    expect(bad.statusCode).toBe(400);
+    expect(good.statusCode).toBe(303);
+    expect(shown.body).toContain('name="timezone" value="Europe/Stockholm"');
+    expect(cleared.statusCode).toBe(303);
+    expect(readSetting(app.ctx.db, "timezone")).toBe("");
+  });
+
+  it("passes the saved timezone to the running scheduler", async () => {
+    const calls: [string, string | undefined][] = [];
+    const app = await buildApp({
+      dataDir: mkdtempSync(join(tmpdir(), "mp-settings-http-")),
+      scheduler: { reschedule: (cronExpression, timezone) => void calls.push([cronExpression, timezone]) },
+    });
+    apps.push(app);
+    const base = { cron_expression: "0 18 * * 0", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" };
+
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Europe/Stockholm" } });
+    await app.inject({ method: "POST", url: "/settings", payload: base });
+
+    expect(calls).toEqual([["0 18 * * 0", "Europe/Stockholm"], ["0 18 * * 0", undefined]]);
+  });
+
   it("re-arms the running scheduler with the saved cron expression (no restart)", async () => {
     const rescheduled: string[] = [];
     const app = await buildApp({

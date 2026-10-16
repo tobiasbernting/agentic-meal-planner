@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { openDatabase } from "../db.js";
+import { openDatabase, writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { listLunchEntries } from "../lunch/repo.js";
@@ -43,6 +43,16 @@ describe("runWeeklyPlanning", () => {
     const stored = getPlanForWeek(db, NEXT_MONDAY);
     expect(stored?.dinners).toHaveLength(7);
     expect(stored?.dinners[0]?.lunchThatDay).toBe("Fiskpinnar");
+  });
+
+  it("plans the coming week of the configured timezone", async () => {
+    const db = freshDb();
+    writeSetting(db, "timezone", "Europe/Stockholm");
+    const instant = new Date("2026-10-11T23:30:00Z"); // Sunday in UTC, already Monday in Stockholm
+
+    const result = await runWeeklyPlanning({ db, llm: new NoAgent(), fetchPage: async () => "", now: () => instant });
+
+    expect(result.weekStart).toBe("2026-10-19");
   });
 
   it("skips a confirmed plan for that week and leaves it untouched (FR-9a)", async () => {

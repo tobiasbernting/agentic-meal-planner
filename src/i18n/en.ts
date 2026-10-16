@@ -131,6 +131,8 @@ export const en = {
   "settings.quickDayTemplate": "Quick Day template (prep-time limit in minutes; blank = not a Quick Day)",
   "settings.overrideLink": "Override Quick Days for a specific week",
   "settings.defaultPrepLimit": "Default prep limit (minutes)",
+  "settings.timezone": "Time zone (IANA name, blank = server time zone)",
+  "settings.error.timezone": "Time zone must be an IANA name such as Europe/Stockholm.",
   "settings.cron": "Plan schedule (cron, 5 fields)",
   "settings.varietyWindow": "Variety window (weeks)",
   "settings.collision": "Avoid Main Category collisions with lunch",

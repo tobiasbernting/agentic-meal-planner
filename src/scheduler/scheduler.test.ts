@@ -66,6 +66,17 @@ describe("startScheduler", () => {
     ]);
   });
 
+  it("reschedule picks up a changed timezone, and clears it when none is given", () => {
+    const zones: (string | undefined)[] = [];
+    const schedule = (_e: string, _t: () => Promise<unknown>, o?: { timezone?: string }) => (zones.push(o?.timezone), { stop() {} });
+    const scheduler = startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger: silent });
+
+    scheduler.reschedule(DEFAULT_CRON, "Europe/Stockholm");
+    scheduler.reschedule(DEFAULT_CRON);
+
+    expect(zones).toEqual([undefined, "Europe/Stockholm", undefined]);
+  });
+
   it("a failing run is logged and does not kill the scheduler", async () => {
     const { schedule, registered } = fakeSchedule();
     const errors: string[] = [];

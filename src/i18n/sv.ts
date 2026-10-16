@@ -133,6 +133,8 @@ export const sv: Dictionary = {
   "settings.quickDayTemplate": "Mall för snabbdagar (tidsgräns i minuter; tomt = ingen snabbdag)",
   "settings.overrideLink": "Ändra snabbdagar för en specifik vecka",
   "settings.defaultPrepLimit": "Standardgräns för tillagningstid (minuter)",
+  "settings.timezone": "Tidszon (IANA-namn, tomt = serverns tidszon)",
+  "settings.error.timezone": "Tidszonen måste vara ett IANA-namn, t.ex. Europe/Stockholm.",
   "settings.cron": "Planeringsschema (cron, 5 fält)",
   "settings.varietyWindow": "Variationsfönster (veckor)",
   "settings.collision": "Undvik samma huvudkategori som lunchen",

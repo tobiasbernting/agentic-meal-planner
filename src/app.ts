@@ -33,7 +33,7 @@ export interface AppOptions {
 
 /** What routes need from the scheduler: re-arm the weekly run when `cron_expression` changes. */
 export interface SchedulerPort {
-  reschedule(cronExpression: string): void;
+  reschedule(cronExpression: string, timezone?: string): void;
 }
 
 /** Everything a feature's routes plugin can reach. Extend here when a new port is added. */

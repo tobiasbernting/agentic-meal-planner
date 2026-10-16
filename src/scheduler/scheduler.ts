@@ -6,13 +6,12 @@
 import cron from "node-cron";
 import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
-import { DEFAULT_CRON_EXPRESSION, SETTING_CRON_EXPRESSION } from "../planner/settings.js";
+import { DEFAULT_CRON_EXPRESSION, SETTING_CRON_EXPRESSION, SETTING_TIMEZONE } from "../planner/settings.js";
 import { runWeeklyPlanning, type WeeklyRunDeps } from "./run-weekly.js";
 
 /** Sunday 18:00 in the scheduler's time zone. The single definition lives in src/planner/settings.ts. */
 export const DEFAULT_CRON = DEFAULT_CRON_EXPRESSION;
-export { SETTING_CRON_EXPRESSION };
-export const SETTING_TIMEZONE = "timezone";
+export { SETTING_CRON_EXPRESSION, SETTING_TIMEZONE };
 
 export interface ScheduledJob {
   stop(): void;
@@ -37,8 +36,11 @@ export interface SchedulerOptions {
 
 export interface Scheduler {
   stop(): void;
-  /** Replace the schedule (settings UI, #35). An invalid expression leaves nothing scheduled. */
-  reschedule(cronExpression: string): void;
+  /**
+   * Replace the schedule (settings UI, #35). An invalid expression leaves nothing scheduled.
+   * `timezone` replaces the zone too; omit it for the process time zone.
+   */
+  reschedule(cronExpression: string, timezone?: string): void;
   isScheduled(): boolean;
 }
 
@@ -69,18 +71,21 @@ export function startScheduler(deps: WeeklyRunDeps, options: SchedulerOptions, o
     }
   };
 
-  const register = (expression: string) => {
+  let timezone = options.timezone;
+
+  const register = (expression: string, zone?: string) => {
+    timezone = zone;
     job?.stop();
     job = undefined;
     if (!cron.validate(expression)) {
       logger.error(`invalid cron expression "${expression}": weekly planning is not scheduled`);
       return;
     }
-    job = schedule(expression, tick, options.timezone ? { timezone: options.timezone } : undefined);
-    logger.info(`weekly planning scheduled at "${expression}"${options.timezone ? ` (${options.timezone})` : ""}`);
+    job = schedule(expression, tick, timezone ? { timezone } : undefined);
+    logger.info(`weekly planning scheduled at "${expression}"${timezone ? ` (${timezone})` : ""}`);
   };
 
-  register(options.cronExpression);
+  register(options.cronExpression, options.timezone);
   return {
     stop: () => {
       job?.stop();

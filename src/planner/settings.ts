@@ -7,6 +7,7 @@ import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
 import { isWeekday, type Weekday } from "../dishes/repo.js";
 import { normaliseName } from "../text.js";
+import { localDate } from "../week.js";
 
 /** Variety Preference window (weeks), FR-7. */
 export const SETTING_VARIETY_WINDOW_WEEKS = "variety_window_weeks";
@@ -113,4 +114,28 @@ export function quickDayLimitFor(settings: PlannerSettings, weekStart: string, w
   if (limit === undefined) limit = settings.quickDayTemplate[weekday];
   if (limit === undefined || limit === null) return null;
   return limit > 0 ? limit : settings.defaultPrepLimitMinutes;
+}
+
+/** IANA time zone the household and the weekly run live in; blank = the process time zone (`TZ`). */
+export const SETTING_TIMEZONE = "timezone";
+
+/** True when `name` is an IANA time zone this runtime knows. */
+export function isTimezone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The configured time zone, or `undefined` for the process time zone (blank or invalid values count as unset). */
+export function readTimezone(db: Database.Database): string | undefined {
+  const name = readSetting(db, SETTING_TIMEZONE)?.trim();
+  return name && isTimezone(name) ? name : undefined;
+}
+
+/** The household's "today" (`YYYY-MM-DD`) at `now`, in the configured time zone. */
+export function householdToday(db: Database.Database, now: Date): string {
+  return localDate(now, readTimezone(db));
 }

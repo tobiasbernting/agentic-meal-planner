@@ -7,7 +7,8 @@
 import type Database from "better-sqlite3";
 import type { FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
-import { addDays, localDate, mondayOf, weekDates, weekdayOf } from "../week.js";
+import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
+import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
@@ -167,7 +168,7 @@ function isNotice(key: string | undefined): key is keyof typeof NOTICES {
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
-    const weekStart = resolveWeek(req.query.week, localDate(ctx.now()));
+    const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
     let notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
     if (req.query.notice === "lunch-changed") {
@@ -187,7 +188,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
   });
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
     await ingestWeek(ctx, weekStart);
     const result = await generatePlan(
@@ -203,7 +204,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
   // FR-9 / Q17: manual regenerate re-checks the school menus (forced ingest), replaces the
   // week's plan, and reports stored Lunch Entries that changed. No silent re-plan.
   app.post<{ Body: RegenerateForm }>("/plan/regenerate", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
       const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
@@ -218,7 +219,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
 
   // FR-9a: lock the week's plan from automatic changes.
   app.post<{ Body: GenerateForm }>("/plan/confirm", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     confirmPlan(ctx.db, weekStart);
     return reply.redirect(`/plan?week=${weekStart}&notice=plan-confirmed`, 303);
   });
