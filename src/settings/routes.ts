@@ -8,6 +8,7 @@ import type { FeaturePlugin } from "../app.js";
 import { readSetting, writeSetting } from "../db.js";
 import { WEEKDAYS, type Weekday } from "../dishes/repo.js";
 import {
+  DEFAULT_AGENT_COMMAND,
   DEFAULT_CRON_EXPRESSION,
   SETTING_AGENT_COMMAND,
   SETTING_CATEGORY_COLLISION_ENABLED,
@@ -65,7 +66,7 @@ ${notice(error)}
   <label>${t(lang, "settings.timezone")} <input name="timezone" value="${escapeHtml(view.timezone)}" placeholder="Europe/Stockholm" /></label>
   <label>${t(lang, "settings.varietyWindow")} <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
   <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> ${t(lang, "settings.collision")}</label>
-  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" /></label>
+  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
   <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">${t(lang, "common.save")}</button>
 </form>`;

@@ -43,7 +43,7 @@ describe("Settings page", () => {
     expect(res.body).toContain('name="variety_window_weeks" value="3"');
     expect(res.body).toContain('name="category_collision_enabled" checked');
     expect(res.body).toContain('name="default_prep_limit_minutes" value="30"');
-    expect(res.body).toContain('name="agent_command" value=""');
+    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot -p"');
     expect(res.body).toContain('name="shopping_list_sinks">[]</textarea>');
   });
 
@@ -185,6 +185,15 @@ describe("agent_command", () => {
     expect((first as CliAgent).command).toBe("myagent --json");
     expect((second as CliAgent).command).toBe("otheragent -p");
     expect(app.ctx.llm).toBeInstanceOf(NoAgent);
+  });
+
+  it("falls back to AGENT_COMMAND (the server default) when the saved command is blank", async () => {
+    vi.stubEnv("AGENT_COMMAND", "copilot -p");
+    const app = await start();
+
+    await app.inject(form(""));
+
+    expect((app.ctx.llm as CliAgent).command).toBe("copilot -p");
   });
 
   it("keeps the same agent instance while the command is unchanged", async () => {

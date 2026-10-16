@@ -138,7 +138,7 @@ export const sv: Dictionary = {
   "settings.cron": "Planeringsschema (cron, 5 fält)",
   "settings.varietyWindow": "Variationsfönster (veckor)",
   "settings.collision": "Undvik samma huvudkategori som lunchen",
-  "settings.agentCommand": "Agentkommando (tomt = ingen agent, förenklat läge)",
+  "settings.agentCommand": "Agentkommando (tomt = serverns standard, normalt copilot -p; sätt AGENT_COMMAND tomt för ingen agent)",
   "settings.sinks": "Mottagare för inköpslistan (JSON-lista, t.ex. nedan; format är ntfy eller json; hemlighet via miljövariabeln WEBHOOK_SECRET; tomt = Trello från miljövariabler)",
   "settings.error.quickDay": "{day}: Minuter för snabbdag måste vara ett heltal.",
   "settings.error.prepLimit": "Standardgränsen för tillagningstid måste vara ett helt antal minuter.",

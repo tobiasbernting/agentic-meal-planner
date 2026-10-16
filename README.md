@@ -45,6 +45,8 @@ Shopping List Sinks are set in Settings as a JSON array (empty = Trello when `TR
 
 `format` is `ntfy` (default, plain text) or `json` (`{ weekStart, items }`). Only the Buy list is pushed. Secrets come from env, never settings: `WEBHOOK_SECRET` adds a bearer `Authorization` header.
 
+The agent command (Settings, or the `AGENT_COMMAND` env var) defaults to `copilot -p` in the running server; set `AGENT_COMMAND=""` to run without an agent (degraded mode). "Today" and the weekly run use the server time zone (`-e TZ=Europe/Stockholm` with Docker; the image defaults to UTC) unless a time zone (IANA name) is saved in Settings.
+
 ## Development
 
 Requires Node 24+.
