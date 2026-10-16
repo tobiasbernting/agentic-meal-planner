@@ -1,15 +1,27 @@
 import Fastify, { type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import type Database from "better-sqlite3";
-import { openDatabase } from "./db.js";
+import { openDatabase, readSetting } from "./db.js";
+import { createLlmAgent } from "./llm/index.js";
+import type { LlmAgent } from "./llm/types.js";
 import { page } from "./ui/layout.js";
 
 export interface AppOptions {
   dataDir: string;
+  /** Override the LLM port (tests pass a ScriptedLlmAgent). Defaults from `agent_command`. */
+  llm?: LlmAgent;
 }
 
 /** Everything a feature's routes plugin can reach. Extend here when a new port is added. */
 export interface AppContext {
   db: Database.Database;
+  llm: LlmAgent;
+}
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /** The ports this app was built with; also passed to every FeaturePlugin as options. */
+    ctx: AppContext;
+  }
 }
 
 export type FeaturePlugin = FastifyPluginAsync<AppContext>;
@@ -27,7 +39,7 @@ const homeRoutes: FeaturePlugin = async (app) => {
   });
 };
 
-export async function buildApp({ dataDir }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ dataDir, llm }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify();
   const db = openDatabase(dataDir);
   app.addHook("onClose", async () => {
@@ -35,7 +47,13 @@ export async function buildApp({ dataDir }: AppOptions): Promise<FastifyInstance
   });
   await app.register(import("@fastify/formbody"));
 
-  const ctx: AppContext = { db };
+  // No built-in default command: with nothing configured the app runs with NoAgent
+  // (FR-16) and never spawns a process. DESIGN.md's `copilot -p` default is a deployment choice.
+  const ctx: AppContext = {
+    db,
+    llm: llm ?? createLlmAgent(readSetting(db, "agent_command") ?? process.env.AGENT_COMMAND),
+  };
+  app.decorate("ctx", ctx);
   await app.register(homeRoutes, ctx);
   for (const feature of FEATURES) await app.register(feature, ctx);
 
