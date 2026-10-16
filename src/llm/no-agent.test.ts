@@ -8,6 +8,10 @@ describe("NoAgent", () => {
     expect(await agent.extractLunchMenu("page", "2026-10-19")).toEqual({ ok: false, reason: "no agent configured" });
     expect(await agent.extractIngredients("page")).toEqual({ ok: false, reason: "no agent configured" });
     expect(await agent.findRecipe("Tacos")).toEqual({ ok: false, reason: "no agent configured" });
+    expect(await agent.matchPantryItems({ ingredients: ["milk"], pantry: [] })).toEqual({
+      ok: false,
+      reason: "no agent configured",
+    });
   });
 
   it("selects dishes round-robin over each day's candidates with the degraded rationale", async () => {
