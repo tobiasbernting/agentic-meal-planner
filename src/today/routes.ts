@@ -1,6 +1,8 @@
-import type { FeaturePlugin } from "../app.js";
+import type { AppContext, FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
+import { getDish } from "../dishes/repo.js";
+import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
 import { mondayOf } from "../planner/week.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
@@ -21,9 +23,25 @@ function renderSchoolLunch({ school, entry }: SchoolLunch): string {
   return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
 }
 
+/** Today's Planned Dinner from the stored Weekly Plan; `undefined` when the week has no plan. */
+function findTodaysDinner(ctx: AppContext, today: string): PlannedDinner | undefined {
+  return getPlanForWeek(ctx.db, mondayOf(today))?.dinners.find((d) => d.date === today);
+}
+
+function renderDinner(ctx: AppContext, today: string): string {
+  const dinner = findTodaysDinner(ctx, today);
+  if (!dinner) return `<p class="notice">No plan yet. <a href="/plan">Plan this week</a></p>`;
+  const dish = dinner.dishId === null ? undefined : getDish(ctx.db, dinner.dishId);
+  if (!dish) return `<p class="notice">No eligible dish, pick one</p>`;
+  const name = escapeHtml(dish.name);
+  const title = dish.recipeUrl ? `<a href="${escapeHtml(dish.recipeUrl)}">${name}</a>` : name;
+  return `<p class="dish">${title}</p>
+  <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
+}
+
 /**
  * Today view (FR-17a): the first screen. Today's Lunch Entry per active School (FR-5 notice
- * when none) and today's Planned Dinner (placeholder until the planner ships).
+ * when none) and today's Planned Dinner from the stored Weekly Plan.
  */
 export const todayRoutes: FeaturePlugin = async (app, ctx) => {
   app.get("/", async (_req, reply) => {
@@ -42,7 +60,7 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
 </section>
 <section id="dinner">
   <h2>Dinner</h2>
-  <p>No plan yet</p>
+  ${renderDinner(ctx, today)}
 </section>`;
     reply.type("text/html; charset=utf-8");
     return page({ title: "Today", body });
