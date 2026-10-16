@@ -7,6 +7,7 @@ import { SETTING_AGENT_COMMAND } from "./planner/settings.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
 import { planRoutes } from "./plan/routes.js";
+import { shoppingRoutes } from "./shopping/routes.js";
 import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
 import { pantryRoutes } from "./pantry/routes.js";
@@ -61,7 +62,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);

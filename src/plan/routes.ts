@@ -15,6 +15,7 @@ import { generatePlan } from "../planner/generate.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { datesOfWeek, mondayOf } from "../planner/week.js";
 import { weekdayOf } from "../engine/filter.js";
+import { buildShoppingList } from "../shopping/build.js";
 import { localDate } from "../today/routes.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -199,6 +200,7 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
       { replace: false },
     );
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
+    if ("planId" in result) await buildShoppingList(ctx, result.planId); // #31: Shopping List follows the plan (FR-11)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 
@@ -211,7 +213,8 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
       return page({ title: "Regenerate plan", body: renderConfirmRegenerate(weekStart) });
     }
     const { changed } = await ingestWeek(ctx, weekStart, { force: true });
-    await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });
+    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });
+    if ("planId" in result) await buildShoppingList(ctx, result.planId); // #31: the new plan gets a fresh Shopping List
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
