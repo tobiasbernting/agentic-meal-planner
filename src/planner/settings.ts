@@ -17,6 +17,15 @@ export const SETTING_QUICK_DAY_TEMPLATE = "quick_day_template";
 export const SETTING_QUICK_DAY_OVERRIDES = "quick_day_overrides";
 /** Fallback Quick Day limit when the template gives no usable number, FR-6d. */
 export const SETTING_DEFAULT_PREP_LIMIT_MINUTES = "default_prep_limit_minutes";
+/** When the scheduled plan run happens (5-field cron), FR-9. */
+export const SETTING_CRON_EXPRESSION = "cron_expression";
+/** The agent CLI used for all LLM work (ADR-0005); blank/unset = NoAgent, FR-16. */
+export const SETTING_AGENT_COMMAND = "agent_command";
+/** JSON array of Shopping List Sink configs (secrets stay in env vars, never here). */
+export const SETTING_SHOPPING_LIST_SINKS = "shopping_list_sinks";
+
+/** Sunday 18:00 (FR-9). */
+export const DEFAULT_CRON_EXPRESSION = "0 18 * * 0";
 
 export type QuickDayTemplate = Partial<Record<Weekday, number>>;
 export type QuickDayOverrides = Record<string, Partial<Record<Weekday, number | null>>>;

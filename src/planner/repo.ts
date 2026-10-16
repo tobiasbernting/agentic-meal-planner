@@ -65,29 +65,50 @@ export function savePlan(db: Database.Database, plan: PlanWeekResult, generatedA
 export function getPlanForWeek(db: Database.Database, weekStart: string): WeeklyPlan | undefined {
   const row = db.prepare("SELECT * FROM weekly_plan WHERE week_start = ?").get(weekStart) as PlanRow | undefined;
   if (!row) return undefined;
-  const dinners = (
-    db.prepare("SELECT * FROM planned_dinner WHERE plan_id = ? ORDER BY date").all(row.id) as DinnerRow[]
-  ).map((d) => ({
-    date: d.date,
-    dishId: d.dish_id,
-    isQuickDay: d.is_quick_day === 1,
-    lunchThatDay: d.lunch_that_day,
-    rationale: d.selection_rationale,
-    sourceUrl: d.source_url,
-  }));
   return {
     id: row.id,
     weekStart: row.week_start,
     generatedAt: row.generated_at,
     status: row.status,
     degradedReasons: JSON.parse(row.degraded_reasons) as string[],
-    dinners,
+    dinners: listPlannedDinners(db, row.id),
   };
+}
+
+/** The plan's Planned Dinners in date order; empty for an unknown plan id. */
+export function listPlannedDinners(db: Database.Database, planId: number): PlannedDinner[] {
+  return (db.prepare("SELECT * FROM planned_dinner WHERE plan_id = ? ORDER BY date").all(planId) as DinnerRow[]).map(
+    (d) => ({
+      date: d.date,
+      dishId: d.dish_id,
+      isQuickDay: d.is_quick_day === 1,
+      lunchThatDay: d.lunch_that_day,
+      rationale: d.selection_rationale,
+      sourceUrl: d.source_url,
+    }),
+  );
 }
 
 /** FR-9a: locks the week's plan from automatic changes. Returns false when there is no plan. */
 export function confirmPlan(db: Database.Database, weekStart: string): boolean {
   return db.prepare("UPDATE weekly_plan SET status = 'confirmed' WHERE week_start = ?").run(weekStart).changes > 0;
+}
+
+/**
+ * Links a Planned Dinner to the recipe its Ingredients came from (ADR-0003: an LLM-found
+ * recipe is less predictable, so a human can glance at the source). `null` clears it.
+ * Returns false when the plan has no dinner on that date.
+ */
+export function setPlannedDinnerSource(
+  db: Database.Database,
+  planId: number,
+  date: string,
+  sourceUrl: string | null,
+): boolean {
+  return (
+    db.prepare("UPDATE planned_dinner SET source_url = ? WHERE plan_id = ? AND date = ?").run(sourceUrl, planId, date)
+      .changes > 0
+  );
 }
 
 /**

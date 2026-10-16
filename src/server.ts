@@ -10,12 +10,19 @@ const app = await buildApp({ dataDir });
 await app.listen({ port, host: "0.0.0.0" });
 
 // The weekly run (FR-9) lives in the server process, not in buildApp, so tests never start cron.
-// After a plan is stored, build its Shopping List (FR-11); `ctx.llm` is read at call time.
+// `app.ctx` itself is the deps object so `deps.llm` goes through the getter (#35: agent_command without restart).
+// After a plan is stored, build its Shopping List (FR-11).
 const scheduler = startScheduler(
   {
-    db: app.ctx.db,
-    fetchPage: app.ctx.fetchPage,
-    now: app.ctx.now,
+    get db() {
+      return app.ctx.db;
+    },
+    get fetchPage() {
+      return app.ctx.fetchPage;
+    },
+    get now() {
+      return app.ctx.now;
+    },
     get llm() {
       return app.ctx.llm;
     },
@@ -25,6 +32,8 @@ const scheduler = startScheduler(
   },
   readSchedulerOptions(app.ctx.db),
 );
+// Settings (#35) re-arms the schedule through this port when `cron_expression` is saved.
+app.ctx.scheduler = scheduler;
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {

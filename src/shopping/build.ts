@@ -5,8 +5,7 @@
  * Resolution failures degrade: the Dish is left out and named in `degradedReasons`.
  */
 import type Database from "better-sqlite3";
-import { getDish } from "../dishes/repo.js";
-import { resolveWeek, type ResolveDeps } from "../ingredients/resolve.js";
+import { resolvePlanIngredients, type ResolveDeps } from "../ingredients/resolve.js";
 import { matchPantry } from "../pantry/matching.js";
 import { listPantryItems } from "../pantry/repo.js";
 import { aggregateIngredients, type AggregatedItem, type DishIngredients } from "./aggregate.js";
@@ -29,17 +28,18 @@ interface ItemRow {
 }
 
 export async function buildShoppingList(deps: ShoppingListDeps, planId: number): Promise<ShoppingList> {
-  const dishes = plannedDishes(deps.db, planId);
-  // TODO(merge #30): switch to `resolvePlanIngredients(deps, planId)` from src/ingredients/ once it lands.
-  const resolved = await resolveWeek(deps, dishes);
+  // #30: also writes LLM-found recipe source links to planned_dinner.source_url.
+  const entries = await resolvePlanIngredients(deps, planId);
 
   const perDish: DishIngredients[] = [];
   const degradedReasons: string[] = [];
-  resolved.forEach((result, i) => {
-    const dish = dishes[i]!;
-    perDish.push({ dishId: dish.id, ingredients: result.ingredients });
-    if (result.degradedReason) degradedReasons.push(`${dish.name}: ${result.degradedReason}`);
-  });
+  const seen = new Set<number>();
+  for (const { dish, resolved } of entries) {
+    if (seen.has(dish.id)) continue;
+    seen.add(dish.id);
+    perDish.push({ dishId: dish.id, ingredients: resolved.ingredients });
+    if (resolved.degradedReason) degradedReasons.push(`${dish.name}: ${resolved.degradedReason}`);
+  }
 
   const items = aggregateIngredients(perDish);
   const matches = await matchPantry(
@@ -68,17 +68,6 @@ export function getShoppingList(db: Database.Database, planId: number): Shopping
     (row.section === "buy" ? sections.buy : sections.checkPantry).push(item);
   }
   return sections;
-}
-
-function plannedDishes(db: Database.Database, planId: number) {
-  const rows = db
-    .prepare("SELECT dish_id FROM planned_dinner WHERE plan_id = ? AND dish_id IS NOT NULL ORDER BY date")
-    .all(planId) as { dish_id: number }[];
-  const seen = new Set<number>();
-  return rows
-    .filter((r) => !seen.has(r.dish_id) && seen.add(r.dish_id))
-    .map((r) => getDish(db, r.dish_id))
-    .filter((dish) => dish !== undefined);
 }
 
 function replaceItems(db: Database.Database, planId: number, { buy, checkPantry }: ShoppingSections): void {

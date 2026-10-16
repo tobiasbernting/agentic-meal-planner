@@ -7,7 +7,7 @@ import { createDish } from "../dishes/repo.js";
 import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
-import { savePlan } from "../planner/repo.js";
+import { listPlannedDinners, savePlan } from "../planner/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
 
 const WEEK = "2026-10-19";
@@ -93,6 +93,30 @@ describe("buildShoppingList", () => {
     expect(first.degradedReasons).toEqual([`Mystery: ${NO_AGENT_REASON}`]);
     expect(second).toEqual(first);
     expect(getShoppingList(db, planId).buy).toHaveLength(1);
+  });
+
+  it("puts an LLM-found recipe's Ingredients on the list and records its source link on the Planned Dinner (#30)", async () => {
+    const db = freshDb();
+    const burgers = createDish(db, { name: "Burgers" });
+    const planId = savePlan(
+      db,
+      {
+        weekStart: WEEK,
+        dinners: [{ date: "2026-10-19", dishId: burgers, isQuickDay: false, lunchThatDay: null, rationale: "r" }],
+        degradedReasons: [],
+      },
+      NOW.toISOString(),
+    );
+    const llm = new ScriptedLlmAgent({
+      findRecipe: { ok: true, value: { url: "https://recipes.test/burgers", ingredients: [{ name: "buns", quantity: "4" }] } },
+      matchPantryItems: { ok: true, value: [{ ingredient: "buns", pantryId: null }] },
+    });
+
+    const list = await buildShoppingList({ db, llm, fetchPage: noFetch, now: () => NOW }, planId);
+
+    expect(list.buy).toEqual([{ name: "buns", quantity: "4", unit: null, sourceDishIds: [burgers] }]);
+    expect(list.degradedReasons).toEqual([]);
+    expect(listPlannedDinners(db, planId)[0]!.sourceUrl).toBe("https://recipes.test/burgers");
   });
 
   it("is empty for a plan that has not been built", () => {

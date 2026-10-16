@@ -1,8 +1,9 @@
 import Fastify, { type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import type Database from "better-sqlite3";
 import { openDatabase, readSetting } from "./db.js";
-import { createLlmAgent } from "./llm/index.js";
+import { configuredLlmAgent } from "./llm/index.js";
 import type { LlmAgent } from "./llm/types.js";
+import { SETTING_AGENT_COMMAND } from "./planner/settings.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
 import { planRoutes } from "./plan/routes.js";
@@ -10,6 +11,7 @@ import { shoppingRoutes } from "./shopping/routes.js";
 import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
 import { pantryRoutes } from "./pantry/routes.js";
+import { settingsRoutes } from "./settings/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -19,14 +21,31 @@ export interface AppOptions {
   now?: () => Date;
   /** Fetches a web page as text (menu/recipe pages). Defaults to global `fetch`; tests inject fixtures. */
   fetchPage?: FetchPage;
+  /** The running weekly scheduler (#34); tests may inject a fake to observe `reschedule`. */
+  scheduler?: SchedulerPort;
+}
+
+/** What routes need from the scheduler: re-arm the weekly run when `cron_expression` changes. */
+export interface SchedulerPort {
+  reschedule(cronExpression: string): void;
 }
 
 /** Everything a feature's routes plugin can reach. Extend here when a new port is added. */
 export interface AppContext {
   db: Database.Database;
-  llm: LlmAgent;
+  /**
+   * The LLM port. Resolved on every read: when `agent_command` changes in Settings the next
+   * read returns an agent built from the new command (no restart). Read it when you run,
+   * not at plugin registration. An injected `AppOptions.llm` is returned as-is.
+   */
+  readonly llm: LlmAgent;
   now: () => Date;
   fetchPage: FetchPage;
+  /**
+   * The weekly scheduler, set by src/server.ts after `startScheduler` (absent in `buildApp`
+   * alone and in tests). Settings calls `reschedule` so a new cron takes effect without restart.
+   */
+  scheduler?: SchedulerPort;
 }
 
 declare module "fastify" {
@@ -43,7 +62,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);
@@ -51,7 +70,7 @@ async function fetchPageText(url: string): Promise<string> {
   return res.text();
 }
 
-export async function buildApp({ dataDir, llm, now, fetchPage }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ dataDir, llm, now, fetchPage, scheduler }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify();
   const db = openDatabase(dataDir);
   app.addHook("onClose", async () => {
@@ -61,11 +80,15 @@ export async function buildApp({ dataDir, llm, now, fetchPage }: AppOptions): Pr
 
   // No built-in default command: with nothing configured the app runs with NoAgent
   // (FR-16) and never spawns a process. DESIGN.md's `copilot -p` default is a deployment choice.
+  const llmFromSettings = configuredLlmAgent(() => readSetting(db, SETTING_AGENT_COMMAND) ?? process.env.AGENT_COMMAND);
   const ctx: AppContext = {
     db,
-    llm: llm ?? createLlmAgent(readSetting(db, "agent_command") ?? process.env.AGENT_COMMAND),
+    get llm() {
+      return llm ?? llmFromSettings();
+    },
     now: now ?? (() => new Date()),
     fetchPage: fetchPage ?? fetchPageText,
+    ...(scheduler ? { scheduler } : {}),
   };
   app.decorate("ctx", ctx);
   for (const feature of FEATURES) await app.register(feature, ctx);

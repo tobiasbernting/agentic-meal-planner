@@ -57,13 +57,16 @@ const JSON_ONLY_NUDGE =
  * agent failure.
  */
 export class CliAgent implements LlmAgent {
+  /** The configured `agent_command`, trimmed (e.g. `"copilot -p"`). */
+  readonly command: string;
   private readonly cmd: string;
   private readonly baseArgs: string[];
   private readonly run: ProcessRunner;
   private readonly timeoutMs: number;
 
   constructor(agentCommand: string, deps: CliAgentDeps = {}) {
-    const [cmd, ...args] = agentCommand.trim().split(/\s+/);
+    this.command = agentCommand.trim();
+    const [cmd, ...args] = this.command.split(/\s+/);
     this.cmd = cmd ?? "";
     this.baseArgs = args;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -91,9 +94,11 @@ export class CliAgent implements LlmAgent {
     return this.ask(prompt, validateIngredients);
   }
 
-  async findRecipe(dishName: string): Promise<LlmResult<FoundRecipe>> {
+  async findRecipe(dishName: string, options: ExtractIngredientsOptions = {}): Promise<LlmResult<FoundRecipe>> {
+    const adaptation = options.adaptationNotes?.trim();
     const prompt =
       `Find a recipe on the web for the dish "${dishName}" and extract its ingredient list. ` +
+      (adaptation ? `The household adapts this recipe; apply these adaptations: ${adaptation}. ` : "") +
       `Respond with JSON only: {"url": string, "ingredients": array of ${INGREDIENT_SHAPE}}.`;
     return this.ask(prompt, validateFoundRecipe);
   }
