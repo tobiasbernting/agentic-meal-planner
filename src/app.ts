@@ -7,6 +7,7 @@ import { SETTING_AGENT_COMMAND } from "./planner/settings.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
 import { planRoutes } from "./plan/routes.js";
+import type { Env, FetchLike } from "./sinks/types.js";
 import { shoppingRoutes } from "./shopping/routes.js";
 import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
@@ -23,6 +24,10 @@ export interface AppOptions {
   fetchPage?: FetchPage;
   /** The running weekly scheduler (#34); tests may inject a fake to observe `reschedule`. */
   scheduler?: SchedulerPort;
+  /** Env for sink credentials (TRELLO_*); defaults to process.env. Tests pass `{}` or fixtures. */
+  env?: Env;
+  /** Fetch used by sinks; defaults to global fetch. Tests inject a recorder. */
+  fetch?: FetchLike;
 }
 
 /** What routes need from the scheduler: re-arm the weekly run when `cron_expression` changes. */
@@ -46,6 +51,9 @@ export interface AppContext {
    * alone and in tests). Settings calls `reschedule` so a new cron takes effect without restart.
    */
   scheduler?: SchedulerPort;
+  /** Sink env and fetch (#32); passed on to `pushShoppingList(ctx, planId)`. */
+  env?: Env;
+  fetch?: FetchLike;
 }
 
 declare module "fastify" {
@@ -70,7 +78,7 @@ async function fetchPageText(url: string): Promise<string> {
   return res.text();
 }
 
-export async function buildApp({ dataDir, llm, now, fetchPage, scheduler }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, fetch }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify();
   const db = openDatabase(dataDir);
   app.addHook("onClose", async () => {
@@ -89,6 +97,8 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler }: AppO
     now: now ?? (() => new Date()),
     fetchPage: fetchPage ?? fetchPageText,
     ...(scheduler ? { scheduler } : {}),
+    ...(env ? { env } : {}),
+    ...(fetch ? { fetch } : {}),
   };
   app.decorate("ctx", ctx);
   for (const feature of FEATURES) await app.register(feature, ctx);
