@@ -7,17 +7,14 @@
 import type Database from "better-sqlite3";
 import type { FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
-import { addDays } from "../lunch/week.js";
+import { addDays, localDate, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
 import { generatePlan } from "../planner/generate.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
-import { datesOfWeek, mondayOf } from "../planner/week.js";
-import { weekdayOf } from "../engine/filter.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { pushShoppingList } from "../sinks/push.js";
-import { localDate } from "../today/routes.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -128,7 +125,7 @@ ${plan.status === "generated" ? weekForm(weekStart, "/plan/confirm", t(lang, "pl
 ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
 ${degraded}
 ${lunchChanged}
-${datesOfWeek(weekStart)
+${weekDates(weekStart)
   .map((date) => renderDay(db, lang, date, byDate.get(date)))
   .join("\n")}`;
 }

@@ -6,11 +6,9 @@
 import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
-import { addDays } from "../lunch/week.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
-import { mondayOf } from "../planner/week.js";
 import type { FetchPage } from "../plugins/schools/index.js";
-import { localDate } from "../today/routes.js";
+import { comingWeekStart } from "../week.js";
 
 export interface WeeklyRunDeps {
   db: Database.Database;
@@ -30,11 +28,6 @@ export interface WeeklyRunResult {
   weekStart: string;
   ingest: IngestResult;
   plan: GeneratePlanResult;
-}
-
-/** The Monday of the week after the one containing `now` (the week the Sunday run plans). */
-export function comingWeekStart(now: Date): string {
-  return addDays(mondayOf(localDate(now)), 7);
 }
 
 export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunResult> {

@@ -4,7 +4,7 @@
  * from env WEBHOOK_SECRET only, never from settings.
  */
 import type { FetchLike, PushResult, ShoppingListSink } from "./types.js";
-import { cardName } from "./trello.js";
+import { cardName } from "./format.js";
 
 export interface WebhookConfig {
   url: string;

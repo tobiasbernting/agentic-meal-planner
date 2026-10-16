@@ -21,8 +21,7 @@ import {
   type PlannerSettings,
   type QuickDayOverrides,
 } from "../planner/settings.js";
-import { mondayOf } from "../planner/week.js";
-import { localDate } from "../today/routes.js";
+import { localDate, mondayOf } from "../week.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 

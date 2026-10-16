@@ -6,7 +6,7 @@
  * rationale (FR-8). With no agent, selection degrades to round-robin (FR-16).
  */
 import type { Dish, Weekday } from "../dishes/repo.js";
-import { buildCandidateSets, weekdayOf, type DayInput } from "../engine/filter.js";
+import { buildCandidateSets, type DayInput } from "../engine/filter.js";
 import {
   NO_AGENT_REASON,
   NoAgent,
@@ -17,7 +17,7 @@ import {
 } from "../llm/index.js";
 import type { LunchEntry } from "../types.js";
 import { quickDayLimitFor, type PlannerSettings } from "./settings.js";
-import { datesOfWeek } from "./week.js";
+import { weekDates, weekdayOf } from "../week.js";
 
 export const NO_ELIGIBLE_DISH_RATIONALE = "no eligible dish, pick one";
 
@@ -72,7 +72,7 @@ function toCandidate(dish: Dish): CandidateDish {
 }
 
 function toDayInputs(input: PlanWeekInput): DayInput[] {
-  return datesOfWeek(input.weekStart).map((date) => {
+  return weekDates(input.weekStart).map((date) => {
     const weekday = weekdayOf(date);
     return {
       date,

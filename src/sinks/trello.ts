@@ -5,7 +5,7 @@
  * Credentials come from env only (TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID).
  */
 import type { Env, FetchLike, PushResult, ShoppingListSink } from "./types.js";
-import type { AggregatedItem } from "../shopping/aggregate.js";
+import { cardName } from "./format.js";
 
 const API = "https://api.trello.com/1";
 
@@ -14,10 +14,6 @@ export interface TrelloConfig {
   token: string;
   boardId: string;
   fetch?: FetchLike;
-}
-
-export function cardName(item: AggregatedItem): string {
-  return [item.quantity, item.unit, item.name].filter((part) => part !== null && part !== "").join(" ");
 }
 
 export function listName(weekStart: string): string {

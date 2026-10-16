@@ -4,10 +4,8 @@
  * automatically after plan generation (src/plan/routes.ts and src/server.ts).
  */
 import type { FeaturePlugin } from "../app.js";
-import { addDays } from "../lunch/week.js";
+import { addDays, localDate, mondayOf } from "../week.js";
 import { getPlanForWeek } from "../planner/repo.js";
-import { mondayOf } from "../planner/week.js";
-import { localDate } from "../today/routes.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 import type { AggregatedItem } from "./aggregate.js";

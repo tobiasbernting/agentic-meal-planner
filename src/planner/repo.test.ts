@@ -6,7 +6,7 @@ import { openDatabase } from "../db.js";
 import { createDish, deleteDish } from "../dishes/repo.js";
 import { confirmPlan, getPlanForWeek, listRecentlyPlanned, savePlan, setPlannedDinnerSource } from "./repo.js";
 import type { PlanWeekResult } from "./plan-week.js";
-import { datesOfWeek } from "./week.js";
+import { weekDates } from "../week.js";
 
 function freshDb() {
   return openDatabase(mkdtempSync(join(tmpdir(), "planner-repo-")));
@@ -16,7 +16,7 @@ function plan(weekStart: string, dishIds: (number | null)[], degradedReasons: st
   return {
     weekStart,
     degradedReasons,
-    dinners: datesOfWeek(weekStart).map((date, i) => ({
+    dinners: weekDates(weekStart).map((date, i) => ({
       date,
       dishId: dishIds[i] ?? null,
       isQuickDay: i === 1,

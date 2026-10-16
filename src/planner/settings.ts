@@ -6,6 +6,7 @@
 import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
 import { isWeekday, type Weekday } from "../dishes/repo.js";
+import { normaliseName } from "../text.js";
 
 /** Variety Preference window (weeks), FR-7. */
 export const SETTING_VARIETY_WINDOW_WEEKS = "variety_window_weeks";
@@ -54,7 +55,7 @@ function readInt(db: Database.Database, key: string, fallback: number): number {
 }
 
 function readBool(db: Database.Database, key: string, fallback: boolean): boolean {
-  const raw = readSetting(db, key)?.trim().toLowerCase();
+  const raw = normaliseName(readSetting(db, key) ?? "");
   if (raw === "true" || raw === "1") return true;
   if (raw === "false" || raw === "0") return false;
   return fallback;

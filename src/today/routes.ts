@@ -3,15 +3,9 @@ import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
-import { mondayOf } from "../planner/week.js";
+import { localDate, mondayOf } from "../week.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
-
-/** Local calendar date `YYYY-MM-DD` of `d` (the household's clock, not UTC). */
-export function localDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 function renderSchoolLunch(lang: Lang, { school, entry }: SchoolLunch): string {
   const body = entry

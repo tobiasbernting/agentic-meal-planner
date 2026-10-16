@@ -9,7 +9,7 @@ import { NO_AGENT_REASON, NoAgent } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
 import { confirmPlan, savePlan } from "../planner/repo.js";
-import { datesOfWeek } from "../planner/week.js";
+import { weekDates } from "../week.js";
 import { createSchool } from "../schools/repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -44,7 +44,7 @@ describe("GET /plan", () => {
   it("shows all seven days with the dinner's Dish name and rationale, or the no-eligible-dish notice", async () => {
     const app = await start();
     const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
-    const dinners = datesOfWeek(WEEK).map((date) => ({
+    const dinners = weekDates(WEEK).map((date) => ({
       date,
       dishId: date === "2026-10-22" ? null : burgers,
       isQuickDay: date === "2026-10-20",
@@ -58,7 +58,7 @@ describe("GET /plan", () => {
     expect(res.statusCode).toBe(200);
     const days = res.body.match(/<article class="plan-day">/g);
     expect(days).toHaveLength(7);
-    for (const date of datesOfWeek(WEEK)) expect(res.body).toContain(`<time datetime="${date}">`);
+    for (const date of weekDates(WEEK)) expect(res.body).toContain(`<time datetime="${date}">`);
     expect(res.body).toMatch(/Monday[\s\S]*Tuesday[\s\S]*Wednesday[\s\S]*Thursday[\s\S]*Friday[\s\S]*Saturday[\s\S]*Sunday/);
     expect(res.body.match(/Burgers/g)).toHaveLength(6);
     expect(res.body).toContain("burgers on 2026-10-19");
@@ -236,7 +236,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
 });
 
 function emptyDinners() {
-  return datesOfWeek(WEEK).map((date) => ({
+  return weekDates(WEEK).map((date) => ({
     date,
     dishId: null,
     isQuickDay: false,

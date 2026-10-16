@@ -5,7 +5,7 @@ import { createSchoolPlugins, findPlugin, type FetchPage } from "../plugins/scho
 import { listActiveSchools, type School } from "../schools/repo.js";
 import type { LunchEntry, SchoolPlugin } from "../types.js";
 import { listLunchEntries, upsertLunchEntry } from "./repo.js";
-import { weekDates, weekdayDates } from "./week.js";
+import { weekDates, weekdayDates } from "../week.js";
 
 export interface IngestDeps {
   db: Database.Database;
