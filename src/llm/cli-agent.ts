@@ -57,13 +57,16 @@ const JSON_ONLY_NUDGE =
  * agent failure.
  */
 export class CliAgent implements LlmAgent {
+  /** The configured `agent_command`, trimmed (e.g. `"copilot -p"`). */
+  readonly command: string;
   private readonly cmd: string;
   private readonly baseArgs: string[];
   private readonly run: ProcessRunner;
   private readonly timeoutMs: number;
 
   constructor(agentCommand: string, deps: CliAgentDeps = {}) {
-    const [cmd, ...args] = agentCommand.trim().split(/\s+/);
+    this.command = agentCommand.trim();
+    const [cmd, ...args] = this.command.split(/\s+/);
     this.cmd = cmd ?? "";
     this.baseArgs = args;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
