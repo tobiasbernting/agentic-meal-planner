@@ -1,7 +1,7 @@
 import type { FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
-import { addDays } from "../lunch/week.js";
+import { mondayOf } from "../planner/week.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
 /** Local calendar date `YYYY-MM-DD` of `d` (the household's clock, not UTC). */
@@ -55,13 +55,3 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
     return reply.redirect("/", 303);
   });
 };
-
-/** The Monday `YYYY-MM-DD` of the week containing `date`. */
-export function mondayOf(date: string): string {
-  const offset = (weekdayIndex(date) + 6) % 7; // Mon=0 .. Sun=6
-  return addDays(date, -offset);
-}
-
-function weekdayIndex(date: string): number {
-  return new Date(`${date}T00:00:00Z`).getUTCDay();
-}

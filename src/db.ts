@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { SCHEMA_DISHES } from "./dishes/schema.js";
+import { SCHEMA_PLANNER } from "./planner/schema.js";
 import { SCHEMA_SCHOOLS } from "./schools/schema.js";
 import { SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
@@ -23,6 +24,7 @@ const SCHEMA: string[] = [
   SCHEMA_SCHOOLS,
   SCHEMA_LUNCH,
   SCHEMA_PANTRY,
+  SCHEMA_PLANNER,
 ];
 
 /**
