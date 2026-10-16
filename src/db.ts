@@ -3,6 +3,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { SCHEMA_DISHES } from "./dishes/schema.js";
 import { SCHEMA_SCHOOLS } from "./schools/schema.js";
+import { SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
 
 export const DB_FILENAME = "meal-planner.db";
@@ -20,6 +21,7 @@ const SCHEMA: string[] = [
    INSERT OR IGNORE INTO settings (key, value) VALUES ('created_at', datetime('now'));`,
   SCHEMA_DISHES,
   SCHEMA_SCHOOLS,
+  SCHEMA_LUNCH,
   SCHEMA_PANTRY,
 ];
 
