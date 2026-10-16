@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { readSchedulerOptions, startScheduler } from "./scheduler/scheduler.js";
 import { buildShoppingList } from "./shopping/build.js";
+import { pushShoppingList } from "./sinks/push.js";
 
 const port = Number(process.env.PORT ?? 8080);
 // The Docker image sets DATA_DIR=/data; the default here is for local development.
@@ -28,6 +29,7 @@ const scheduler = startScheduler(
     },
     afterPlan: async (planId) => {
       await buildShoppingList(app.ctx, planId);
+      await pushShoppingList(app.ctx, planId); // FR-13: Buy section to sinks; never throws
     },
   },
   readSchedulerOptions(app.ctx.db),

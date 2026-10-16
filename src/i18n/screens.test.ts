@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createDish, getDish } from "../dishes/repo.js";
+import { savePlan } from "../planner/repo.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { createSchool } from "../schools/repo.js";
 import { MAIN_CATEGORIES, MAIN_CATEGORY_KEYS } from "../dishes/categories.js";
@@ -69,6 +70,36 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-10-26" });
     expect(res.body).toContain('<a href="/">Idag</a>');
     expect(res.body).toContain("Måndag");
+  });
+  it("localises the sinks section of the Shopping List (#32, #37)", async () => {
+    const app = await makeApp();
+    const pasta = createDish(app.ctx.db, {
+      name: "Pasta",
+      recipeUrl: null,
+      adaptationNotes: null,
+      prepTimeMinutes: 20,
+      mainCategory: "vegetarian",
+      inRotation: true,
+      preferredDays: [],
+      weekendOnly: false,
+      ingredients: [{ name: "pasta", quantity: 400, unit: "g" }],
+    });
+    const pastaId = typeof pasta === "number" ? pasta : pasta.id;
+    savePlan(
+      app.ctx.db,
+      { weekStart: "2026-10-26", dinners: [{ date: "2026-10-26", dishId: pastaId, isQuickDay: false, lunchThatDay: null, rationale: "r" }], degradedReasons: [] },
+      new Date(2026, 9, 28, 12).toISOString(),
+    );
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: "2026-10-26" } });
+    const sv = (await app.inject({ method: "GET", url: "/shopping?week=2026-10-26" })).body;
+    expect(sv).toContain('<section id="sinks"><h2>Mottagare</h2>');
+    expect(sv).toContain("Skicka igen");
+    expect(sv).not.toContain("Push again");
+    const en = (await app.inject({ method: "GET", url: "/shopping?week=2026-10-26", headers: { cookie: "lang=en" } })).body;
+    expect(en).toContain("Push again");
+    const settings = (await app.inject({ method: "GET", url: "/settings" })).body;
+    expect(settings).toContain("WEBHOOK_SECRET");
+    expect(settings).not.toContain("Shopping List Sinks");
   });
 });
 
