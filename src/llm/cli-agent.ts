@@ -5,6 +5,8 @@ import type {
   LlmAgent,
   LlmResult,
   LunchEntry,
+  MatchPantryInput,
+  PantryMatch,
   SelectDishesInput,
   SelectedDish,
 } from "./types.js";
@@ -97,6 +99,16 @@ export class CliAgent implements LlmAgent {
       `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string}, one per day, in order.` +
       `\n\n${JSON.stringify(input, null, 2)}`;
     return this.ask(prompt, (json) => validateSelection(json, input));
+  }
+
+  async matchPantryItems(input: MatchPantryInput): Promise<LlmResult<PantryMatch[]>> {
+    const prompt =
+      `For each ingredient, decide whether it is one of the household's pantry items (match by meaning, ` +
+      `including translations and the listed aliases; e.g. "whole milk" is the pantry item "milk"). ` +
+      `Use null when no pantry item fits; when unsure, prefer null. ` +
+      `Respond with JSON only: an array of {"ingredient": string, "pantryId": string | null}, one per ingredient, in order.` +
+      `\n\n${JSON.stringify(input, null, 2)}`;
+    return this.ask(prompt, (json) => validatePantryMatches(json, input));
   }
 
   /** Prompt, validate, retry once with a nudge, then degrade. */
@@ -215,6 +227,19 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
     if (typeof date !== "string" || typeof dishId !== "string" || typeof rationale !== "string") return undefined;
     if (!allowed.get(date)?.has(dishId)) return undefined;
     return { date, dishId, rationale };
+  });
+}
+
+/** A pantry match is valid only when every non-null `pantryId` is an id from the input pantry. */
+export function validatePantryMatches(v: unknown, input: MatchPantryInput): PantryMatch[] | undefined {
+  const known = new Set(input.pantry.map((p) => p.id));
+  return validateArray(v, (item) => {
+    if (!isRecord(item) || typeof item.ingredient !== "string") return undefined;
+    const raw = item.pantryId;
+    const pantryId = raw === undefined || raw === null ? null : typeof raw === "number" ? String(raw) : raw;
+    if (typeof pantryId !== "string" && pantryId !== null) return undefined;
+    if (pantryId !== null && !known.has(pantryId)) return undefined;
+    return { ingredient: item.ingredient, pantryId };
   });
 }
 

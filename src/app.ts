@@ -6,6 +6,7 @@ import type { LlmAgent } from "./llm/types.js";
 import { page } from "./ui/layout.js";
 import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
+import { pantryRoutes } from "./pantry/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -32,7 +33,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * Feature route plugins, registered in order. Each feature module exports one
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  */
-const FEATURES: FeaturePlugin[] = [dishRoutes, schoolRoutes];
+const FEATURES: FeaturePlugin[] = [dishRoutes, schoolRoutes, pantryRoutes];
 
 const homeRoutes: FeaturePlugin = async (app) => {
   app.get("/", async (_req, reply) => {
