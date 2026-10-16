@@ -53,10 +53,18 @@ describe("runWeeklyPlanning", () => {
     confirmPlan(db, NEXT_MONDAY);
     const before = getPlanForWeek(db, NEXT_MONDAY);
 
-    const second = await runWeeklyPlanning({ ...deps, now: () => new Date(2026, 9, 11, 19, 0, 0) });
+    createSchool(db, { name: "Skolan", url: "https://example.test/menu" });
+    const fetched: string[] = [];
+    const second = await runWeeklyPlanning({
+      ...deps,
+      fetchPage: async (url) => (fetched.push(url), ""),
+      now: () => new Date(2026, 9, 11, 19, 0, 0),
+    });
 
     expect(first.plan).toMatchObject({ planId: expect.any(Number) });
     expect(second.plan).toEqual({ skipped: "confirmed" });
+    expect(fetched).toEqual([]); // a confirmed week is not even ingested
+    expect(second.ingest).toEqual({ results: [], changed: [] });
     expect(getPlanForWeek(db, NEXT_MONDAY)).toEqual(before);
   });
 

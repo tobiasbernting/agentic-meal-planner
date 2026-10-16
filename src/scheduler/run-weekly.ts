@@ -6,6 +6,7 @@
 import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
+import { getPlanForWeek } from "../planner/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import type { FetchPage } from "../plugins/schools/index.js";
 import { comingWeekStart } from "../week.js";
@@ -32,6 +33,10 @@ export interface WeeklyRunResult {
 
 export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunResult> {
   const weekStart = comingWeekStart(deps.now());
+  // FR-9a: a confirmed week is left alone entirely, so do not even re-fetch its menus.
+  if (getPlanForWeek(deps.db, weekStart)?.status === "confirmed") {
+    return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "confirmed" } };
+  }
   const ingest = await ingestWeek(deps, weekStart);
   const plan = await generatePlan({ db: deps.db, llm: deps.llm, now: () => deps.now().toISOString() }, weekStart, {
     replace: false,

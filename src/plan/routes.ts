@@ -188,6 +188,8 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
+    // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
+    await ingestWeek(ctx, weekStart);
     const result = await generatePlan(
       { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() },
       weekStart,
