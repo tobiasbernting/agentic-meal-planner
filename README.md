@@ -35,6 +35,16 @@ docker run -v meal-planner-data:/data -p 8080:8080 ghcr.io/tobiasbernting/agenti
 
 Then open http://localhost:8080, add your schools' lunch-menu URLs and your favorite dishes.
 
+## Configuration
+
+Shopping List Sinks are set in Settings as a JSON array (empty = Trello when `TRELLO_KEY`, `TRELLO_TOKEN`, `TRELLO_BOARD_ID` are set, else no push):
+
+```json
+[{ "type": "trello" }, { "type": "webhook", "url": "https://ntfy.sh/my-topic", "format": "ntfy" }]
+```
+
+`format` is `ntfy` (default, plain text) or `json` (`{ weekStart, items }`). Only the Buy list is pushed. Secrets come from env, never settings: `WEBHOOK_SECRET` adds a bearer `Authorization` header.
+
 ## Development
 
 Requires Node 24+.

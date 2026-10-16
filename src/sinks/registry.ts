@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
 import { SETTING_SHOPPING_LIST_SINKS } from "../planner/settings.js";
 import { trelloSinkFromEnv } from "./trello.js";
+import { createWebhookSink } from "./webhook.js";
 import type { Env, FetchLike, ShoppingListSink } from "./types.js";
 
 export interface SinkEntry {
@@ -20,6 +21,17 @@ export type SinkFactory = (entry: SinkEntry, env: Env, fetchImpl?: FetchLike) =>
 /** Add new sink types here (one line each). */
 export const SINK_FACTORIES: Record<string, SinkFactory> = {
   trello: (_entry, env, fetchImpl) => trelloSinkFromEnv(env, fetchImpl),
+  webhook: (entry, env, fetchImpl) => {
+    const url = typeof entry.url === "string" ? entry.url.trim() : "";
+    if (!url) return null;
+    const secret = env.WEBHOOK_SECRET?.trim();
+    return createWebhookSink({
+      url,
+      format: entry.format === "json" ? "json" : "ntfy",
+      ...(secret ? { secret } : {}),
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    });
+  },
 };
 
 function parseEntries(raw: string | undefined): SinkEntry[] {
