@@ -62,6 +62,10 @@ _Avoid_: meal, slot
 A dinner date constrained to Dishes under a configured prep-time limit, because the household has activities.
 _Avoid_: busy day, fast day
 
+**Variety Preference**:
+A soft planning preference to avoid Dishes served within a configurable recent window. Never blocks a Dish — weekly staples ("burgers every Friday") are expected; a repeat just earns a rationale.
+_Avoid_: no-repeat rule, cooldown
+
 **Planner Agent**:
 The component that produces the Weekly Plan: deterministic constraint enforcement plus LLM-assisted selection and extraction.
 _Avoid_: AI, scheduler

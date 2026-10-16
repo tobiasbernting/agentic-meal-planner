@@ -15,7 +15,7 @@ A small web interface lets you manage favorite dishes, schools, pantry items, an
 ## Principles
 
 - **Local only.** One Docker image, SQLite inside, no cloud dependency. Cron runs inside the container.
-- **Hybrid planning.** Deterministic code enforces hard constraints (no lunch collisions, quick days, no recent repeats); an LLM agent does the fuzzy work (matching dish names, extracting ingredients from recipe pages, picking among eligible dishes).
+- **Hybrid planning.** Deterministic code enforces hard constraints (no lunch collisions, quick days); an LLM agent does the fuzzy work (matching dish names, extracting ingredients from recipe pages, picking among eligible dishes). Variety is a soft preference — weekly staples like burgers are welcome.
 - **Community school plugins.** School lunch menus come in many formats. Known schools get scraper plugins; unknown URLs fall back to generic LLM extraction. Contributions of new school plugins are the point of open-sourcing this — see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Status
@@ -23,6 +23,7 @@ A small web interface lets you manage favorite dishes, schools, pantry items, an
 Early design. See:
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — architecture, data model, and flows
+- [docs/SPEC.md](./docs/SPEC.md) — v1 functional requirements and acceptance criteria
 - [GLOSSARY.md](./GLOSSARY.md) — the domain language
 - [docs/adr/](./docs/adr/) — recorded design decisions (currently *proposed*, adopted by assumption in an unattended design session and awaiting owner confirmation)
 
