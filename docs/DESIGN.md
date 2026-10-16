@@ -6,14 +6,14 @@ This document is the output of an unattended design session. Every decision belo
 
 | # | Decision | Adopted answer |
 |---|----------|----------------|
-| Q1 | Tech stack | TypeScript end-to-end: Node + Fastify, better-sqlite3, server-rendered HTMX UI. One process, one image. **(assumed)** |
+| Q1 | Tech stack | TypeScript end-to-end: Node + Fastify, better-sqlite3, server-rendered HTMX UI. One process, one image. **(confirmed 2026-10-16 — HTMX explicitly)** |
 | Q2 | Planner shape | Hybrid: deterministic constraint engine + LLM selection. See ADR-0001. **(assumed)** |
-| Q3 | Recipe source | Dish carries a recipe URL; ingredients extracted at plan time; manual entry as fallback. See ADR-0003. **(assumed)** |
+| Q3 | Ingredient source | Three sources, by precedence: manual Ingredients (kid-adapted dishes), recipe URL (LLM extracts), or neither — the LLM finds a recipe from the dish name. Free-text Adaptations ("no chili — kids") modify whatever the source yields. See ADR-0003. **(confirmed 2026-10-16, amended)** |
 | Q4 | Lunch ingestion | School Plugins + generic LLM fallback; multiple schools. See ADR-0004. **(assumed)** |
 | Q5 | Collision rule | Block on exact dish-name match AND on same Main Category; category check configurable, default ON. **(assumed)** |
 | Q6 | Staples | User-managed Pantry Items; matched Ingredients go to "Check pantry". **(assumed)** |
 | Q7 | Quick Days | Recurring weekly template (e.g. Tue/Thu) with per-week override in the UI; Dish carries an optional max-prep-time tag. **(assumed)** |
-| Q8 | Delivery | Web UI only in v1; weekly cron Sunday evening plans the coming Mon–Sun week; manual "regenerate" button. **(assumed)** |
+| Q8 | Delivery | Web UI plus push of the Shopping List's "Buy" section to a shopping-list app (Bring! in v1, behind a sink interface — ADR-0006). Generation day/time configurable (default Sunday 18:00, plans the coming Mon–Sun week); manual "regenerate" button. **(confirmed 2026-10-16, amended)** |
 
 Round-2 resolutions (all **(assumed)**):
 
@@ -49,12 +49,13 @@ Round-2 resolutions (all **(assumed)**):
 │   3. Selection      — LlmAgent.selectDishes (ADR-0005)             │
 │   4. Ingredients    — fetch recipe URLs, LlmAgent.extractIngredients│
 │   5. Shopping list  — aggregate, split Pantry Items out (Q6)       │
+│   6. Push           — "Buy" section → Bring! (ADR-0006)            │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Data model (SQLite)
 
-- **dish** — id, name, recipe_url?, max_prep_time_minutes?, main_category?, notes?
+- **dish** — id, name, recipe_url?, adaptation_notes?, max_prep_time_minutes?, main_category?
 - **dish_ingredient** — dish_id, name, quantity?, unit? (manual entries for dishes without a URL)
 - **school** — id, name, url, plugin_id? (null → LLM fallback), active
 - **lunch_entry** — school_id, date, raw_text, normalized_name?, fetched_at (unique on school_id+date)
@@ -62,7 +63,7 @@ Round-2 resolutions (all **(assumed)**):
 - **planned_dinner** — plan_id, date, dish_id, is_quick_day, lunch_that_day?, selection_rationale?
 - **pantry_item** — id, name, aliases (comma-separated for fuzzy matching)
 - **shopping_list_item** — plan_id, name, quantity?, unit?, section (`buy` | `check_pantry`), source_dish_id
-- **settings** — key/value: no_repeat_weeks, category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression, default_prep_limit_minutes
+- **settings** — key/value: no_repeat_weeks, category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sink (JSON config; Bring! credentials come from env vars, never this table)
 
 ## Key interfaces
 
@@ -83,7 +84,7 @@ interface LlmAgent {
 }
 ```
 
-Both interfaces have exactly one production implementation in v1 (a plugins directory + a `copilot -p` subprocess wrapper, respectively), plus deterministic fallbacks.
+Both interfaces ship with one production implementation in v1 (a plugins directory + a subprocess wrapper around the configured `agent_command`), plus deterministic fallbacks. `LlmAgent` additionally has a `findRecipe(dishName: string): Promise<{ url: string; ingredients: Ingredient[] }>` method used when a Dish has neither URL nor manual Ingredients (Q3).
 
 ## Flows
 
@@ -92,12 +93,13 @@ Both interfaces have exactly one production implementation in v1 (a plugins dire
 2. Build per-day constraint sets: lunch dish names + Main Categories; Quick Day prep limits from the template with this week's overrides.
 3. Deterministic filter: eligible Favorite Dishes per day (no name/category collision, prep-time OK, not planned within `no_repeat_weeks`).
 4. `selectDishes` over the eligible sets → Weekly Plan + Planned Dinners (with rationale for transparency).
-5. For each planned Dish with a recipe URL: fetch → `extractIngredients` (cached per URL + content hash). Manual ingredients used as-is.
+5. Resolve Ingredients per planned Dish, by precedence: manual Ingredients → recipe URL (fetch → `extractIngredients`, cached per URL + content hash) → the LLM finds a recipe from the dish name and extracts from that. Adaptations ("no chili — kids") are applied by the LLM during extraction, so the list reflects what you actually cook.
 6. Aggregate into Shopping List; anything fuzzy-matching a Pantry Item (name or alias) goes to "Check pantry".
+7. Push the "Buy" section to the configured shopping-list sink (Bring! in v1 — ADR-0006); "Check pantry" stays in the app.
 
 **Regenerate** — same pipeline on demand from the UI; replaces the current plan for that week.
 
-**Add a favorite dish** — UI form: name + (recipe URL | manual ingredients) + optional prep time + Main Category. That's the whole UX; friction here kills the product.
+**Add a favorite dish** — UI form: name + optional recipe URL, manual Ingredients, and/or Adaptation notes + optional prep time + Main Category. All of URL/Ingredients/neither are valid; if neither is given, the LLM finds a recipe at plan time. That's the whole UX; friction here kills the product.
 
 ## Open questions parked for later rounds
 

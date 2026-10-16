@@ -8,7 +8,7 @@ It plans next week's dinners around three inputs:
 2. **Your kids' school lunch menus** — scraped from the schools' published URLs, so dinner never repeats what the kids already had for lunch.
 3. **Your week's constraints** — days that need a quick dinner (activities), dishes you had recently, and the pantry staples you buy anyway.
 
-Every week, a **Planner Agent** (running programmatically, e.g. `copilot -p` on a cron schedule inside the Docker container) produces a **Weekly Plan** and a **Shopping List**. Staple ingredients (flour, milk, cream, …) are separated into a "Check pantry" section, since you usually pick those up during the week anyway.
+Every week — on a configurable day, default Sunday evening — a **Planner Agent** (running programmatically via a configurable agent CLI such as `copilot -p`, `claude -p`, or `codex exec`, inside the Docker container on a cron schedule) produces a **Weekly Plan** and a **Shopping List**. The list's "Buy" section is pushed to your shopping-list app (Bring! in v1); staple ingredients (flour, milk, cream, …) stay behind in a "Check pantry" section, since you usually pick those up during the week anyway.
 
 A small web interface lets you manage favorite dishes, schools, pantry items, and quick-day settings, and view the current plan and shopping list.
 

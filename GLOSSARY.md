@@ -22,6 +22,10 @@ _Avoid_: instructions, cooking page
 A single line item a Recipe requires, optionally with quantity and unit.
 _Avoid_: item, product
 
+**Adaptation**:
+A household's standing modification to a Dish ("no chili — the kids"), applied to whatever source the Dish's Ingredients came from.
+_Avoid_: tweak, note
+
 **Main Category**:
 The broad food group a Dish belongs to (pasta, fish, chicken, …), used to avoid serving the same kind of food the kids had for lunch.
 _Avoid_: cuisine, type
