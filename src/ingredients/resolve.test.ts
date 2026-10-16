@@ -6,7 +6,9 @@ import type Database from "better-sqlite3";
 import { openDatabase } from "../db.js";
 import { createDish, getDish } from "../dishes/repo.js";
 import { ScriptedLlmAgent } from "../llm/index.js";
-import { resolveIngredients, resolveWeek } from "./resolve.js";
+import { getPlanForWeek, savePlan } from "../planner/repo.js";
+import { datesOfWeek } from "../planner/week.js";
+import { resolveIngredients, resolvePlanIngredients, resolveWeek } from "./resolve.js";
 
 const dbs: Database.Database[] = [];
 
@@ -22,6 +24,7 @@ afterEach(() => {
 
 const RECIPE_URL = "https://recipes.example/pancakes";
 const RECIPE_PAGE = "<html>Pancakes: 3 dl flour, 2 eggs, 6 dl milk, chili</html>";
+const FOUND_URL = "https://recipes.example/burgers";
 
 function fetcher(pages: Record<string, string>, fetched: string[] = []) {
   return async (url: string) => {
@@ -175,14 +178,115 @@ describe("resolveIngredients", () => {
     expect(llm.calls).toEqual([]);
   });
 
-  it("a Dish with neither manual Ingredients nor a URL resolves to source none (FR-2; #30 adds the LLM-found recipe)", async () => {
+  it("a Dish with neither manual Ingredients nor a URL gets an LLM-found recipe (FR-2) with its source link", async () => {
     const db = freshDb();
     const id = createDish(db, { name: "Burgers" });
-    const llm = new ScriptedLlmAgent({ findRecipe: { ok: true, value: { url: "x", ingredients: [{ name: "buns" }] } } });
+    const llm = new ScriptedLlmAgent({
+      findRecipe: {
+        ok: true,
+        value: { url: FOUND_URL, ingredients: [{ name: "buns", quantity: "4" }, { name: "minced beef", quantity: 500, unit: "g" }] },
+      },
+    });
+    const fetched: string[] = [];
 
-    const result = await resolveIngredients({ db, llm, fetchPage: fetcher({}) }, getDish(db, id)!);
+    const result = await resolveIngredients({ db, llm, fetchPage: fetcher({}, fetched) }, getDish(db, id)!);
 
-    expect(result).toEqual({ ingredients: [], source: "none" });
+    expect(result).toEqual({
+      ingredients: [
+        { name: "buns", quantity: 4, unit: null },
+        { name: "minced beef", quantity: 500, unit: "g" },
+      ],
+      source: "llm",
+      sourceUrl: FOUND_URL,
+    });
+    expect(fetched).toEqual([]);
+    expect(llm.calls).toEqual([{ method: "findRecipe", args: ["Burgers", { adaptationNotes: undefined }] }]);
+  });
+
+  it("degrades to source none with the agent's reason when no recipe is found, and retries next resolve", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Burgers" });
+    const llm = new ScriptedLlmAgent();
+    const deps = { db, llm, fetchPage: fetcher({}) };
+
+    const result = await resolveIngredients(deps, getDish(db, id)!);
+    await resolveIngredients(deps, getDish(db, id)!);
+
+    expect(result).toEqual({ ingredients: [], source: "none", degradedReason: "no scripted response for findRecipe" });
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  it("searches once per Dish name and Adaptation: a repeated week reuses the found recipe", async () => {
+    const db = freshDb();
+    const plain = createDish(db, { name: "Burgers" });
+    const adapted = createDish(db, { name: "Burgers", adaptationNotes: "no pickles — the kids" });
+    const llm = new ScriptedLlmAgent({
+      findRecipe: (_name, { adaptationNotes }) => ({
+        ok: true,
+        value: { url: FOUND_URL, ingredients: adaptationNotes ? [{ name: "buns" }] : [{ name: "buns" }, { name: "pickles" }] },
+      }),
+    });
+    const deps = { db, llm, fetchPage: fetcher({}) };
+
+    const first = await resolveIngredients(deps, getDish(db, plain)!);
+    const again = await resolveIngredients(deps, getDish(db, plain)!);
+    const adaptedResult = await resolveIngredients(deps, getDish(db, adapted)!);
+    const adaptedAgain = await resolveIngredients(deps, getDish(db, adapted)!);
+
+    expect(first).toEqual({ ingredients: [{ name: "buns", quantity: null, unit: null }, { name: "pickles", quantity: null, unit: null }], source: "llm", sourceUrl: FOUND_URL });
+    expect(again).toEqual(first);
+    expect(adaptedResult.ingredients.map((i) => i.name)).toEqual(["buns"]);
+    expect(adaptedAgain).toEqual(adaptedResult);
+    expect(llm.calls.map((c) => c.args)).toEqual([
+      ["Burgers", { adaptationNotes: undefined }],
+      ["Burgers", { adaptationNotes: "no pickles — the kids" }],
+    ]);
+  });
+});
+
+describe("resolvePlanIngredients", () => {
+  it("resolves every Planned Dinner with a Dish, in date order, and stores the LLM-found source link on the dinner", async () => {
+    const db = freshDb();
+    const tacos = createDish(db, { name: "Tacos", ingredients: [{ name: "tortillas", quantity: null, unit: null }] });
+    const pancakes = createDish(db, { name: "Pancakes", recipeUrl: RECIPE_URL });
+    const burgers = createDish(db, { name: "Burgers" });
+    const dates = datesOfWeek("2026-10-12");
+    const planId = savePlan(
+      db,
+      {
+        weekStart: "2026-10-12",
+        degradedReasons: [],
+        dinners: dates.map((date, i) => ({
+          date,
+          dishId: [burgers, null, tacos, pancakes, burgers, null, null][i]!,
+          isQuickDay: false,
+          lunchThatDay: null,
+          rationale: "r",
+        })),
+      },
+      "2026-10-11T18:00:00.000Z",
+    );
+    const llm = new ScriptedLlmAgent({
+      extractIngredients: { ok: true, value: [{ name: "flour" }] },
+      findRecipe: { ok: true, value: { url: FOUND_URL, ingredients: [{ name: "buns" }] } },
+    });
+
+    const results = await resolvePlanIngredients({ db, llm, fetchPage: fetcher({ [RECIPE_URL]: RECIPE_PAGE }) }, planId);
+
+    expect(results.map((r) => [r.dinner.date, r.dish.name, r.resolved.source, r.resolved.ingredients.map((i) => i.name)])).toEqual([
+      ["2026-10-12", "Burgers", "llm", ["buns"]],
+      ["2026-10-14", "Tacos", "manual", ["tortillas"]],
+      ["2026-10-15", "Pancakes", "url", ["flour"]],
+      ["2026-10-16", "Burgers", "llm", ["buns"]],
+    ]);
+    expect(results.map((r) => r.dinner.sourceUrl)).toEqual([FOUND_URL, null, null, FOUND_URL]);
+    expect(getPlanForWeek(db, "2026-10-12")!.dinners.map((d) => d.sourceUrl)).toEqual([FOUND_URL, null, null, null, FOUND_URL, null, null]);
+    expect(llm.calls.filter((c) => c.method === "findRecipe")).toHaveLength(1);
+  });
+
+  it("returns an empty list for an unknown plan", async () => {
+    const db = freshDb();
+    expect(await resolvePlanIngredients({ db, llm: new ScriptedLlmAgent(), fetchPage: fetcher({}) }, 999)).toEqual([]);
   });
 });
 

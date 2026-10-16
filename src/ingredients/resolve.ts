@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { Dish, Ingredient } from "../dishes/repo.js";
+import { getDish, type Dish, type Ingredient } from "../dishes/repo.js";
 import type { Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
+import { listPlannedDinners, setPlannedDinnerSource, type PlannedDinner } from "../planner/repo.js";
 import type { FetchPage } from "../plugins/schools/index.js";
 
 export interface ResolveDeps {
@@ -12,12 +13,12 @@ export interface ResolveDeps {
   now?: () => Date;
 }
 
-export type IngredientSource = "manual" | "url" | "none";
+export type IngredientSource = "manual" | "url" | "llm" | "none";
 
 export interface ResolvedIngredients {
   ingredients: Ingredient[];
   source: IngredientSource;
-  /** The Recipe URL the list came from (`source: "url"`). */
+  /** The Recipe URL the list came from (`source: "url"`) or the LLM-found recipe's link (`source: "llm"`). */
   sourceUrl?: string;
   /** Set when the list is empty because extraction was unavailable (fetch or agent failure). */
   degradedReason?: string;
@@ -32,22 +33,88 @@ export interface ResolvedIngredients {
  *    extraction is cached per url + content hash + Adaptation notes. Fetching is cheap
  *    and happens on every resolve (it is how we learn the hash); the expensive LLM call
  *    runs once per distinct page content. Adaptations are applied during extraction.
- * 3. Neither: `source: "none"` with an empty list. Ticket #30 hooks the LLM-found
- *    recipe (`llm.findRecipe`) in here.
+ * 3. Neither: the LLM finds a recipe from the Dish name (`llm.findRecipe`, FR-2) and
+ *    extracts from it, Adaptations applied; the result is cached per name + Adaptation
+ *    (`found_recipe`) and carries `sourceUrl` for the Planned Dinner's link. When the
+ *    agent cannot find one: `source: "none"` with an empty list and `degradedReason`.
  *
  * Never throws for fetch or agent failure: the result degrades with `degradedReason`.
  */
 export async function resolveIngredients(deps: ResolveDeps, dish: Dish): Promise<ResolvedIngredients> {
   if (dish.ingredients.length > 0) return { ingredients: dish.ingredients, source: "manual" };
   if (dish.recipeUrl) return resolveFromUrl(deps, dish.recipeUrl, dish.adaptationNotes ?? "");
-  // #30: LLM-found recipe path goes here (llm.findRecipe(dish.name)).
-  return { ingredients: [], source: "none" };
+  return resolveFromLlm(deps, dish.name, dish.adaptationNotes ?? "");
+}
+
+async function resolveFromLlm(deps: ResolveDeps, dishName: string, adaptationNotes: string): Promise<ResolvedIngredients> {
+  const cached = readFoundRecipe(deps.db, dishName, adaptationNotes);
+  if (cached) return { ingredients: cached.ingredients, source: "llm", sourceUrl: cached.url };
+
+  const result = await deps.llm.findRecipe(dishName, { adaptationNotes: adaptationNotes || undefined });
+  if (!result.ok) return { ingredients: [], source: "none", degradedReason: result.reason };
+  const ingredients = result.value.ingredients.map(toIngredient);
+  writeFoundRecipe(deps.db, dishName, adaptationNotes, result.value.url, ingredients, (deps.now?.() ?? new Date()).toISOString());
+  return { ingredients, source: "llm", sourceUrl: result.value.url };
+}
+
+function readFoundRecipe(
+  db: Database.Database,
+  dishName: string,
+  adaptationNotes: string,
+): { url: string; ingredients: Ingredient[] } | undefined {
+  const row = db
+    .prepare("SELECT url, ingredients_json FROM found_recipe WHERE dish_name = ? AND adaptation_notes = ?")
+    .get(dishName, adaptationNotes) as { url: string; ingredients_json: string } | undefined;
+  return row ? { url: row.url, ingredients: JSON.parse(row.ingredients_json) as Ingredient[] } : undefined;
+}
+
+function writeFoundRecipe(
+  db: Database.Database,
+  dishName: string,
+  adaptationNotes: string,
+  url: string,
+  ingredients: Ingredient[],
+  foundAt: string,
+): void {
+  db.prepare(
+    `INSERT INTO found_recipe (dish_name, adaptation_notes, url, ingredients_json, found_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(dish_name, adaptation_notes) DO UPDATE
+       SET url = excluded.url, ingredients_json = excluded.ingredients_json, found_at = excluded.found_at`,
+  ).run(dishName, adaptationNotes, url, JSON.stringify(ingredients), foundAt);
 }
 
 /** Convenience for a week's Planned Dinners: one result per Dish, in input order. */
 export async function resolveWeek(deps: ResolveDeps, dishes: Dish[]): Promise<ResolvedIngredients[]> {
   const results: ResolvedIngredients[] = [];
   for (const dish of dishes) results.push(await resolveIngredients(deps, dish));
+  return results;
+}
+
+export interface PlanDinnerIngredients {
+  /** The Planned Dinner as stored after this resolve (`sourceUrl` filled for an LLM-found recipe). */
+  dinner: PlannedDinner;
+  dish: Dish;
+  resolved: ResolvedIngredients;
+}
+
+/**
+ * Resolves the Ingredients of every Planned Dinner of a Weekly Plan that has a Dish (date
+ * order; dinners without a Dish are omitted) and stores the LLM-found recipe link on the
+ * dinner (`planned_dinner.source_url`, ADR-0003). The Shopping List (#31) builds on this.
+ */
+export async function resolvePlanIngredients(deps: ResolveDeps, planId: number): Promise<PlanDinnerIngredients[]> {
+  const results: PlanDinnerIngredients[] = [];
+  for (const dinner of listPlannedDinners(deps.db, planId)) {
+    const dish = dinner.dishId === null ? undefined : getDish(deps.db, dinner.dishId);
+    if (!dish) continue;
+    const resolved = await resolveIngredients(deps, dish);
+    if (resolved.source === "llm" && resolved.sourceUrl) {
+      setPlannedDinnerSource(deps.db, planId, dinner.date, resolved.sourceUrl);
+      dinner.sourceUrl = resolved.sourceUrl;
+    }
+    results.push({ dinner, dish, resolved });
+  }
   return results;
 }
 

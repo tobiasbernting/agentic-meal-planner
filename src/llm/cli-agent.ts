@@ -91,9 +91,11 @@ export class CliAgent implements LlmAgent {
     return this.ask(prompt, validateIngredients);
   }
 
-  async findRecipe(dishName: string): Promise<LlmResult<FoundRecipe>> {
+  async findRecipe(dishName: string, options: ExtractIngredientsOptions = {}): Promise<LlmResult<FoundRecipe>> {
+    const adaptation = options.adaptationNotes?.trim();
     const prompt =
       `Find a recipe on the web for the dish "${dishName}" and extract its ingredient list. ` +
+      (adaptation ? `The household adapts this recipe; apply these adaptations: ${adaptation}. ` : "") +
       `Respond with JSON only: {"url": string, "ingredients": array of ${INGREDIENT_SHAPE}}.`;
     return this.ask(prompt, validateFoundRecipe);
   }
