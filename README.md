@@ -34,3 +34,23 @@ docker run -v meal-planner-data:/data -p 8080:8080 ghcr.io/tobiasbernting/agenti
 ```
 
 Then open http://localhost:8080, add your schools' lunch-menu URLs and your favorite dishes.
+
+## Development
+
+Requires Node 24+.
+
+```sh
+npm ci
+npm run dev          # serves on http://localhost:8080, SQLite in ./data (set DATA_DIR / PORT to override)
+npm test             # vitest
+npm run typecheck
+```
+
+Build and run the container locally:
+
+```sh
+docker build -t meal-planner .
+docker run -v meal-planner-data:/data -p 8080:8080 meal-planner
+```
+
+The SQLite file lives at `/data/meal-planner.db` inside the container, so it survives restarts as long as the volume does. The container runs as the unprivileged `node` user (uid 1000); a named volume works out of the box, while a bind mount (`-v ./data:/data`) must be writable by that uid.
