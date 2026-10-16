@@ -13,6 +13,7 @@ import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
 import { pantryRoutes } from "./pantry/routes.js";
 import { settingsRoutes } from "./settings/routes.js";
+import { langRoutes } from "./i18n/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -70,7 +71,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, langRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);

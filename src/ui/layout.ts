@@ -28,6 +28,11 @@ export interface PageOptions {
   lang?: Lang;
 }
 
+/** Language switch button; posts to /lang, which returns to the page via the Referer. */
+function langButton(value: Lang, label: string, current: Lang): string {
+  return `<button type="submit" name="lang" value="${value}"${value === current ? ' aria-current="true" disabled' : ""}>${label}</button>`;
+}
+
 export function page({ title, body, lang = DEFAULT_LANG }: PageOptions): string {
   const nav = NAV.map((n) => `<a href="${escapeHtml(n.href)}">${escapeHtml(t(lang, n.label))}</a>`).join(" ");
   return `<!doctype html>
@@ -39,6 +44,7 @@ export function page({ title, body, lang = DEFAULT_LANG }: PageOptions): string 
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
       body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 0 auto; padding: 1rem; }
+      .lang-switch { margin: 0.25rem 0; }
       nav a { margin-right: 0.75rem; }
       label { display: block; margin-top: 0.5rem; }
       input, select, textarea, button { font-size: 1rem; max-width: 100%; }
@@ -46,6 +52,7 @@ export function page({ title, body, lang = DEFAULT_LANG }: PageOptions): string 
   </head>
   <body>
     <nav>${nav}</nav>
+    <form method="post" action="/lang" class="lang-switch">${langButton("sv", "Svenska", lang)} | ${langButton("en", "English", lang)}</form>
     <main>
 ${body}
     </main>
