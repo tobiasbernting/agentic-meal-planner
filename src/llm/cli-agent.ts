@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type {
+  ExtractIngredientsOptions,
   FoundRecipe,
   Ingredient,
   LlmAgent,
@@ -81,9 +82,14 @@ export class CliAgent implements LlmAgent {
     return this.ask(prompt, validateLunchEntries);
   }
 
-  async extractIngredients(recipePageContent: string): Promise<LlmResult<Ingredient[]>> {
+  async extractIngredients(
+    recipePageContent: string,
+    options: ExtractIngredientsOptions = {},
+  ): Promise<LlmResult<Ingredient[]>> {
+    const adaptation = options.adaptationNotes?.trim();
     const prompt =
       `Extract the ingredient list from this recipe page. ` +
+      (adaptation ? `The household adapts this recipe; apply these adaptations: ${adaptation}. ` : "") +
       `Respond with JSON only: an array of ${INGREDIENT_SHAPE}.\n\n${recipePageContent}`;
     return this.ask(prompt, validateIngredients);
   }

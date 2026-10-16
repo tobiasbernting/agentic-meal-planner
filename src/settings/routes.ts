@@ -3,6 +3,7 @@
  * collision toggle, default prep limit, `agent_command` and Shopping List Sink config.
  * Keys and defaults live in src/planner/settings.ts; this module only renders and validates.
  */
+import cron from "node-cron";
 import type { FeaturePlugin } from "../app.js";
 import { readSetting, writeSetting } from "../db.js";
 import { WEEKDAYS, type Weekday } from "../dishes/repo.js";
@@ -77,11 +78,10 @@ ${notice(error)}
 
 type SettingsForm = Partial<Record<string, string>>;
 
-/** A 5-field cron expression with the usual tokens (`*`, numbers, `,` `-` `/`); #34's scheduler parses it for real. */
-const CRON_FIELD = /^(\*|\d+)(-\d+)?(\/\d+)?(,(\*|\d+)(-\d+)?(\/\d+)?)*$/;
+/** Validated by node-cron itself, so what Settings accepts is exactly what the scheduler (#34) can run. */
 export function isCronExpression(value: string): boolean {
-  const fields = value.trim().split(/\s+/);
-  return fields.length === 5 && fields.every((f) => CRON_FIELD.test(f));
+  const trimmed = value.trim();
+  return trimmed.length > 0 && cron.validate(trimmed);
 }
 
 function parseMinutes(raw: string | undefined): number | undefined {
@@ -100,7 +100,9 @@ function isJsonArray(text: string): boolean {
 }
 
 /** Key/value pairs to store, or the first validation error. */
-function parseSettingsForm(body: SettingsForm): { values: Record<string, string> } | { error: string } {
+function parseSettingsForm(
+  body: SettingsForm,
+): { values: Record<string, string>; cronExpression: string } | { error: string } {
   const template: PlannerSettings["quickDayTemplate"] = {};
   for (const d of WEEKDAYS) {
     const raw = body[`quick_day_${d}`]?.trim() ?? "";
@@ -113,18 +115,19 @@ function parseSettingsForm(body: SettingsForm): { values: Record<string, string>
   if (defaultPrepLimit === undefined) return { error: "Default prep limit must be a whole number of minutes." };
   const varietyWindow = parseMinutes(body.variety_window_weeks);
   if (varietyWindow === undefined) return { error: "Variety window must be a whole number of weeks." };
-  const cron = body.cron_expression?.trim() ?? "";
-  if (!isCronExpression(cron)) return { error: "Plan schedule must be a 5-field cron expression, e.g. 0 18 * * 0." };
+  const cronExpression = body.cron_expression?.trim() ?? "";
+  if (!isCronExpression(cronExpression)) return { error: "Plan schedule must be a valid cron expression, e.g. 0 18 * * 0." };
   const sinks = body.shopping_list_sinks?.trim() || "[]";
   if (!isJsonArray(sinks)) return { error: "Shopping List Sinks must be a JSON array." };
 
   return {
+    cronExpression,
     values: {
       [SETTING_QUICK_DAY_TEMPLATE]: JSON.stringify(template),
       [SETTING_DEFAULT_PREP_LIMIT_MINUTES]: String(defaultPrepLimit),
       [SETTING_VARIETY_WINDOW_WEEKS]: String(varietyWindow),
       [SETTING_CATEGORY_COLLISION_ENABLED]: body.category_collision_enabled !== undefined ? "true" : "false",
-      [SETTING_CRON_EXPRESSION]: cron,
+      [SETTING_CRON_EXPRESSION]: cronExpression,
       [SETTING_AGENT_COMMAND]: body.agent_command?.trim() ?? "",
       [SETTING_SHOPPING_LIST_SINKS]: sinks,
     },
@@ -183,7 +186,8 @@ function parseOverrideForm(body: SettingsForm): { week: string; days: Record<Wee
   return { week, days };
 }
 
-export const settingsRoutes: FeaturePlugin = async (app, { db, now }) => {
+export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
+  const { db, now } = ctx;
   const html = (reply: { type(t: string): unknown }) => reply.type("text/html; charset=utf-8");
 
   const currentView = (): SettingsView => ({
@@ -207,6 +211,8 @@ export const settingsRoutes: FeaturePlugin = async (app, { db, now }) => {
     db.transaction(() => {
       for (const [key, value] of Object.entries(parsed.values)) writeSetting(db, key, value);
     })();
+    // The running scheduler (#34) picks up the new schedule without a restart; absent in tests.
+    ctx.scheduler?.reschedule(parsed.cronExpression);
     return reply.redirect("/settings", 303);
   });
 

@@ -105,6 +105,30 @@ describe("Settings page", () => {
     expect(readSetting(app.ctx.db, "cron_expression")).toBeUndefined();
     expect(readSetting(app.ctx.db, "shopping_list_sinks")).toBeUndefined();
   });
+
+  it("re-arms the running scheduler with the saved cron expression (no restart)", async () => {
+    const rescheduled: string[] = [];
+    const app = await buildApp({
+      dataDir: mkdtempSync(join(tmpdir(), "mp-settings-http-")),
+      scheduler: { reschedule: (cronExpression) => void rescheduled.push(cronExpression) },
+    });
+    apps.push(app);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/settings",
+      payload: { cron_expression: "61 25 * * *", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" },
+    });
+    const saved = await app.inject({
+      method: "POST",
+      url: "/settings",
+      payload: { cron_expression: "15 7 * * 1", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" },
+    });
+
+    expect(rejected.statusCode).toBe(400);
+    expect(saved.statusCode).toBe(303);
+    expect(rescheduled).toEqual(["15 7 * * 1"]);
+  });
 });
 
 describe("agent_command", () => {

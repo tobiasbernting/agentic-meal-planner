@@ -21,6 +21,7 @@ export class NoAgent implements LlmAgent {
     return { ok: false, reason: NO_AGENT_REASON };
   }
 
+  /** Unavailable regardless of Adaptation notes. */
   async extractIngredients(): Promise<LlmResult<Ingredient[]>> {
     return { ok: false, reason: NO_AGENT_REASON };
   }

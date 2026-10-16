@@ -6,6 +6,7 @@ import { SCHEMA_PLANNER } from "./planner/schema.js";
 import { SCHEMA_SCHOOLS } from "./schools/schema.js";
 import { SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
+import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
 
 export const DB_FILENAME = "meal-planner.db";
 
@@ -25,6 +26,7 @@ const SCHEMA: string[] = [
   SCHEMA_LUNCH,
   SCHEMA_PANTRY,
   SCHEMA_PLANNER,
+  SCHEMA_INGREDIENTS,
 ];
 
 /**
