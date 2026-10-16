@@ -10,18 +10,24 @@ School lunch menus are published in countless formats. This project handles them
 If the generic fallback works for your school but is flaky, or you want it fast and free, contribute a plugin:
 
 ```ts
-// src/plugins/schools/my-school.ts
-import type { SchoolPlugin, LunchEntry } from "../../types.js";
+// src/plugins/schools/my-school.ts  (copy src/plugins/schools/example-json.ts for a complete one)
+import type { SchoolPlugin } from "../../types.js";
+import type { FetchPage } from "./index.js";
 
-export const mySchool: SchoolPlugin = {
-  id: "my-school-se",
-  claims: (url) => url.includes("my-school.se"),
-  async scrape(url, weekStart) {
-    // fetch url, parse HTML/PDF/JSON, return one entry per served lunch
-    return [{ date: new Date("2026-10-19"), rawText: "Pasta bolognese" } /* … */];
-  },
-};
+export function mySchool(fetchPage: FetchPage): SchoolPlugin {
+  return {
+    id: "my-school-se",
+    claims: (url) => url.includes("my-school.se"),
+    async scrape(url, weekStart /* the week's Monday, "YYYY-MM-DD" */) {
+      const page = await fetchPage(url); // never call fetch() directly: tests inject fetchPage
+      // parse HTML/PDF/JSON, return one entry per date (several dishes: join with "\n")
+      return [{ date: "2026-10-19", rawText: "Pasta bolognese" } /* … */];
+    },
+  };
+}
 ```
+
+Then add `mySchool(fetchPage)` to the array in `src/plugins/schools/index.ts` and a colocated `my-school.test.ts` that feeds a saved page through `fetchPage` (see `example-json.test.ts`).
 
 Rules of thumb:
 
