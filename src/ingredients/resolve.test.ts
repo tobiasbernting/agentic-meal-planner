@@ -7,7 +7,7 @@ import { openDatabase } from "../db.js";
 import { createDish, getDish } from "../dishes/repo.js";
 import { ScriptedLlmAgent } from "../llm/index.js";
 import { getPlanForWeek, savePlan } from "../planner/repo.js";
-import { datesOfWeek } from "../planner/week.js";
+import { weekDates } from "../week.js";
 import { resolveIngredients, resolvePlanIngredients, resolveWeek } from "./resolve.js";
 
 const dbs: Database.Database[] = [];
@@ -250,7 +250,7 @@ describe("resolvePlanIngredients", () => {
     const tacos = createDish(db, { name: "Tacos", ingredients: [{ name: "tortillas", quantity: null, unit: null }] });
     const pancakes = createDish(db, { name: "Pancakes", recipeUrl: RECIPE_URL });
     const burgers = createDish(db, { name: "Burgers" });
-    const dates = datesOfWeek("2026-10-12");
+    const dates = weekDates("2026-10-12");
     const planId = savePlan(
       db,
       {

@@ -12,7 +12,7 @@ import type { LunchEntry } from "../types.js";
 import { planWeek } from "./plan-week.js";
 import { getPlanForWeek, listRecentlyPlanned, savePlan } from "./repo.js";
 import { readPlannerSettings } from "./settings.js";
-import { datesOfWeek } from "./week.js";
+import { weekDates } from "../week.js";
 
 export type LunchLoader = (db: Database.Database, weekStart: string) => Record<string, LunchEntry[]>;
 
@@ -30,7 +30,7 @@ export interface GeneratePlanDeps {
  * per date (its `rawText` may hold several lines). Paused Schools do not constrain dinner.
  */
 export const loadStoredLunch: LunchLoader = (db, weekStart) => {
-  const dates = datesOfWeek(weekStart);
+  const dates = weekDates(weekStart);
   const from = dates[0]!;
   const to = dates[dates.length - 1]!;
   const byDate: Record<string, LunchEntry[]> = {};

@@ -1,3 +1,4 @@
+import type { MainCategory } from "../dishes/categories.js";
 import type {
   ExtractIngredientsOptions,
   FoundRecipe,
@@ -18,6 +19,7 @@ export interface ScriptedResponses {
   extractIngredients?: Scripted<[recipePageContent: string, options: ExtractIngredientsOptions], Ingredient[]>;
   findRecipe?: Scripted<[dishName: string, options: ExtractIngredientsOptions], FoundRecipe>;
   selectDishes?: Scripted<[input: SelectDishesInput], SelectedDish[]>;
+  suggestMainCategory?: Scripted<[dishName: string, candidates: MainCategory[]], MainCategory | null>;
   matchPantryItems?: Scripted<[input: MatchPantryInput], PantryMatch[]>;
 }
 
@@ -50,6 +52,10 @@ export class ScriptedLlmAgent implements LlmAgent {
 
   selectDishes(input: SelectDishesInput) {
     return this.reply("selectDishes", [input]);
+  }
+
+  suggestMainCategory(dishName: string, candidates: MainCategory[]) {
+    return this.reply("suggestMainCategory", [dishName, candidates]);
   }
 
   matchPantryItems(input: MatchPantryInput) {

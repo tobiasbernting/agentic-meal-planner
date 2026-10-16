@@ -8,6 +8,7 @@ import type { FeaturePlugin } from "../app.js";
 import { readSetting, writeSetting } from "../db.js";
 import { WEEKDAYS, type Weekday } from "../dishes/repo.js";
 import {
+  DEFAULT_AGENT_COMMAND,
   DEFAULT_CRON_EXPRESSION,
   SETTING_AGENT_COMMAND,
   SETTING_CATEGORY_COLLISION_ENABLED,
@@ -16,13 +17,16 @@ import {
   SETTING_QUICK_DAY_OVERRIDES,
   SETTING_QUICK_DAY_TEMPLATE,
   SETTING_SHOPPING_LIST_SINKS,
+  SETTING_TIMEZONE,
+  householdToday,
+  isTimezone,
+  readTimezone,
   SETTING_VARIETY_WINDOW_WEEKS,
   readPlannerSettings,
   type PlannerSettings,
   type QuickDayOverrides,
 } from "../planner/settings.js";
-import { mondayOf } from "../planner/week.js";
-import { localDate } from "../today/routes.js";
+import { mondayOf } from "../week.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -33,6 +37,7 @@ interface SettingsView {
   cronExpression: string;
   agentCommand: string;
   shoppingListSinks: string;
+  timezone: string;
 }
 
 function quickDayFields(lang: Lang, template: PlannerSettings["quickDayTemplate"]): string {
@@ -58,9 +63,10 @@ ${notice(error)}
   <p><a href="/settings/quick-days">${t(lang, "settings.overrideLink")}</a></p>
   <label>${t(lang, "settings.defaultPrepLimit")} <input type="number" min="0" name="default_prep_limit_minutes" value="${planner.defaultPrepLimitMinutes}" /></label>
   <label>${t(lang, "settings.cron")} <input name="cron_expression" value="${escapeHtml(view.cronExpression)}" /></label>
+  <label>${t(lang, "settings.timezone")} <input name="timezone" value="${escapeHtml(view.timezone)}" placeholder="Europe/Stockholm" /></label>
   <label>${t(lang, "settings.varietyWindow")} <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
   <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> ${t(lang, "settings.collision")}</label>
-  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" /></label>
+  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
   <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">${t(lang, "common.save")}</button>
 </form>`;
@@ -94,7 +100,7 @@ function isJsonArray(text: string): boolean {
 function parseSettingsForm(
   lang: Lang,
   body: SettingsForm,
-): { values: Record<string, string>; cronExpression: string } | { error: string } {
+): { values: Record<string, string>; cronExpression: string; timezone?: string } | { error: string } {
   const template: PlannerSettings["quickDayTemplate"] = {};
   for (const d of WEEKDAYS) {
     const raw = body[`quick_day_${d}`]?.trim() ?? "";
@@ -109,17 +115,21 @@ function parseSettingsForm(
   if (varietyWindow === undefined) return { error: t(lang, "settings.error.variety") };
   const cronExpression = body.cron_expression?.trim() ?? "";
   if (!isCronExpression(cronExpression)) return { error: t(lang, "settings.error.cron") };
+  const timezone = body.timezone?.trim() ?? "";
+  if (timezone && !isTimezone(timezone)) return { error: t(lang, "settings.error.timezone") };
   const sinks = body.shopping_list_sinks?.trim() || "[]";
   if (!isJsonArray(sinks)) return { error: t(lang, "settings.error.sinks") };
 
   return {
     cronExpression,
+    ...(timezone ? { timezone } : {}),
     values: {
       [SETTING_QUICK_DAY_TEMPLATE]: JSON.stringify(template),
       [SETTING_DEFAULT_PREP_LIMIT_MINUTES]: String(defaultPrepLimit),
       [SETTING_VARIETY_WINDOW_WEEKS]: String(varietyWindow),
       [SETTING_CATEGORY_COLLISION_ENABLED]: body.category_collision_enabled !== undefined ? "true" : "false",
       [SETTING_CRON_EXPRESSION]: cronExpression,
+      [SETTING_TIMEZONE]: timezone,
       [SETTING_AGENT_COMMAND]: body.agent_command?.trim() ?? "",
       [SETTING_SHOPPING_LIST_SINKS]: sinks,
     },
@@ -185,6 +195,7 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
   const currentView = (): SettingsView => ({
     planner: readPlannerSettings(db),
     cronExpression: readSetting(db, SETTING_CRON_EXPRESSION) ?? DEFAULT_CRON_EXPRESSION,
+    timezone: readTimezone(db) ?? "",
     agentCommand: readSetting(db, SETTING_AGENT_COMMAND) ?? "",
     shoppingListSinks: readSetting(db, SETTING_SHOPPING_LIST_SINKS) ?? "[]",
   });
@@ -205,7 +216,7 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
       for (const [key, value] of Object.entries(parsed.values)) writeSetting(db, key, value);
     })();
     // The running scheduler (#34) picks up the new schedule without a restart; absent in tests.
-    ctx.scheduler?.reschedule(parsed.cronExpression);
+    ctx.scheduler?.reschedule(parsed.cronExpression, parsed.timezone);
     return reply.redirect("/settings", 303);
   });
 
@@ -214,7 +225,7 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.get<{ Querystring: { week?: string } }>("/settings/quick-days", async (req, reply) => {
     const lang = langOf(req);
-    const week = req.query.week ?? mondayOf(localDate(now()));
+    const week = req.query.week ?? mondayOf(householdToday(db, now()));
     if (!isMondayIso(week)) return reply.code(400).send(t(lang, "settings.error.week"));
     html(reply);
     return quickDaysPage(lang, readPlannerSettings(db), week);

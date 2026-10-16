@@ -1,5 +1,5 @@
 import type { LunchEntry, SchoolPlugin } from "../../types.js";
-import { weekDates } from "../../lunch/week.js";
+import { weekDates } from "../../week.js";
 
 /** Fetches a menu URL and returns its body as text. Injected so plugins never touch the network in tests. */
 export type FetchPage = (url: string) => Promise<string>;

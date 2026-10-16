@@ -5,11 +5,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
-import { NO_AGENT_REASON, NoAgent } from "../llm/index.js";
+import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
-import { confirmPlan, savePlan } from "../planner/repo.js";
-import { datesOfWeek } from "../planner/week.js";
+import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
+import { weekDates } from "../week.js";
 import { createSchool } from "../schools/repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -44,7 +44,7 @@ describe("GET /plan", () => {
   it("shows all seven days with the dinner's Dish name and rationale, or the no-eligible-dish notice", async () => {
     const app = await start();
     const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
-    const dinners = datesOfWeek(WEEK).map((date) => ({
+    const dinners = weekDates(WEEK).map((date) => ({
       date,
       dishId: date === "2026-10-22" ? null : burgers,
       isQuickDay: date === "2026-10-20",
@@ -58,7 +58,7 @@ describe("GET /plan", () => {
     expect(res.statusCode).toBe(200);
     const days = res.body.match(/<article class="plan-day">/g);
     expect(days).toHaveLength(7);
-    for (const date of datesOfWeek(WEEK)) expect(res.body).toContain(`<time datetime="${date}">`);
+    for (const date of weekDates(WEEK)) expect(res.body).toContain(`<time datetime="${date}">`);
     expect(res.body).toMatch(/Monday[\s\S]*Tuesday[\s\S]*Wednesday[\s\S]*Thursday[\s\S]*Friday[\s\S]*Saturday[\s\S]*Sunday/);
     expect(res.body.match(/Burgers/g)).toHaveLength(6);
     expect(res.body).toContain("burgers on 2026-10-19");
@@ -136,6 +136,21 @@ describe("POST /plan/generate", () => {
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body.match(/Burgers/g)).toHaveLength(7);
     expect(view.body).toContain("no agent configured");
+  });
+
+  it("ingests the week's lunch first so the category collision rule applies (FR-4, FR-6b)", async () => {
+    const llm = new ScriptedLlmAgent({
+      extractLunchMenu: { ok: true, value: [{ date: "2026-10-20", rawText: "Fiskgratäng", mainCategory: "fish" }] },
+    });
+    const app = await start({ llm, fetchPage: async () => "<html>menu</html>" });
+    createDish(app.ctx.db, { name: "Fish and chips", mainCategory: "fish", prepTimeMinutes: 20 });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    const dinners = getPlanForWeek(app.ctx.db, WEEK)!.dinners;
+    expect(dinners.find((d) => d.date === "2026-10-20")?.dishId).toBeNull();
+    expect(dinners.find((d) => d.date === "2026-10-21")?.dishId).not.toBeNull();
   });
 
   it("does not replace a confirmed plan and says so (FR-9a)", async () => {
@@ -236,7 +251,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
 });
 
 function emptyDinners() {
-  return datesOfWeek(WEEK).map((date) => ({
+  return weekDates(WEEK).map((date) => ({
     date,
     dishId: null,
     isQuickDay: false,

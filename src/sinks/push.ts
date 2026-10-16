@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { getPlanById } from "./plan-lookup.js";
+import { getPlanById } from "../planner/repo.js";
 import { getShoppingList } from "../shopping/build.js";
 import { recordPush } from "./repo.js";
 import { configuredSinks } from "./registry.js";

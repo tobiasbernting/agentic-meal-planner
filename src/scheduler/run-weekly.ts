@@ -6,11 +6,11 @@
 import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
-import { addDays } from "../lunch/week.js";
+import { readTimezone } from "../planner/settings.js";
+import { getPlanForWeek } from "../planner/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
-import { mondayOf } from "../planner/week.js";
 import type { FetchPage } from "../plugins/schools/index.js";
-import { localDate } from "../today/routes.js";
+import { comingWeekStart } from "../week.js";
 
 export interface WeeklyRunDeps {
   db: Database.Database;
@@ -32,13 +32,12 @@ export interface WeeklyRunResult {
   plan: GeneratePlanResult;
 }
 
-/** The Monday of the week after the one containing `now` (the week the Sunday run plans). */
-export function comingWeekStart(now: Date): string {
-  return addDays(mondayOf(localDate(now)), 7);
-}
-
 export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunResult> {
-  const weekStart = comingWeekStart(deps.now());
+  const weekStart = comingWeekStart(deps.now(), readTimezone(deps.db));
+  // FR-9a: a confirmed week is left alone entirely, so do not even re-fetch its menus.
+  if (getPlanForWeek(deps.db, weekStart)?.status === "confirmed") {
+    return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "confirmed" } };
+  }
   const ingest = await ingestWeek(deps, weekStart);
   const plan = await generatePlan({ db: deps.db, llm: deps.llm, now: () => deps.now().toISOString() }, weekStart, {
     replace: false,

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { openDatabase } from "../db.js";
+import { openDatabase, writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { listLunchEntries } from "../lunch/repo.js";
@@ -45,6 +45,16 @@ describe("runWeeklyPlanning", () => {
     expect(stored?.dinners[0]?.lunchThatDay).toBe("Fiskpinnar");
   });
 
+  it("plans the coming week of the configured timezone", async () => {
+    const db = freshDb();
+    writeSetting(db, "timezone", "Europe/Stockholm");
+    const instant = new Date("2026-10-11T23:30:00Z"); // Sunday in UTC, already Monday in Stockholm
+
+    const result = await runWeeklyPlanning({ db, llm: new NoAgent(), fetchPage: async () => "", now: () => instant });
+
+    expect(result.weekStart).toBe("2026-10-19");
+  });
+
   it("skips a confirmed plan for that week and leaves it untouched (FR-9a)", async () => {
     const db = freshDb();
     createDish(db, { name: "A", prepTimeMinutes: 20 });
@@ -53,10 +63,18 @@ describe("runWeeklyPlanning", () => {
     confirmPlan(db, NEXT_MONDAY);
     const before = getPlanForWeek(db, NEXT_MONDAY);
 
-    const second = await runWeeklyPlanning({ ...deps, now: () => new Date(2026, 9, 11, 19, 0, 0) });
+    createSchool(db, { name: "Skolan", url: "https://example.test/menu" });
+    const fetched: string[] = [];
+    const second = await runWeeklyPlanning({
+      ...deps,
+      fetchPage: async (url) => (fetched.push(url), ""),
+      now: () => new Date(2026, 9, 11, 19, 0, 0),
+    });
 
     expect(first.plan).toMatchObject({ planId: expect.any(Number) });
     expect(second.plan).toEqual({ skipped: "confirmed" });
+    expect(fetched).toEqual([]); // a confirmed week is not even ingested
+    expect(second.ingest).toEqual({ results: [], changed: [] });
     expect(getPlanForWeek(db, NEXT_MONDAY)).toEqual(before);
   });
 

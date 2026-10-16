@@ -1,17 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ScriptedLlmAgent } from "../llm/index.js";
-import { matchPantry, normaliseName } from "./matching.js";
+import { matchPantry } from "./matching.js";
 import type { PantryItem } from "./repo.js";
 
 const milk: PantryItem = { id: 1, name: "mjölk", aliases: ["milk"] };
 const flour: PantryItem = { id: 2, name: "flour", aliases: ["mjöl", "vetemjöl"] };
 const pantry = [milk, flour];
-
-describe("normaliseName", () => {
-  it("trims, lowercases and collapses whitespace", () => {
-    expect(normaliseName("  Whole \t  Milk ")).toBe("whole milk");
-  });
-});
 
 describe("matchPantry", () => {
   it("matches an Ingredient to a Pantry Item by alias without calling the LLM", async () => {

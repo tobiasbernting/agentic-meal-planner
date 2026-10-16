@@ -13,6 +13,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
     DATA_DIR=/data
+# Time zone for "today" and the weekly run. Override with `-e TZ=Europe/Stockholm`, or set the time zone in Settings.
+ENV TZ=UTC
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./

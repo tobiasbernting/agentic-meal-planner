@@ -3,7 +3,8 @@
  * no network. Filters Favorite Dishes per dinner date by the hard rules; the LLM selection
  * step (FR-7) picks among what is left.
  */
-import { WEEKDAYS, type Dish, type Weekday } from "../dishes/repo.js";
+import type { Dish, Weekday } from "../dishes/repo.js";
+import { normaliseName } from "../text.js";
 import type { LunchEntry } from "../types.js";
 
 /** One dinner date's inputs to the filter. */
@@ -33,23 +34,12 @@ export interface FilterResult {
   excluded: Exclusion[];
 }
 
-/** Weekday key of an ISO `YYYY-MM-DD` date, UTC-safe (no local-timezone drift). */
-export function weekdayOf(date: string): Weekday {
-  const index = new Date(`${date}T00:00:00Z`).getUTCDay(); // 0 = Sunday
-  return WEEKDAYS[(index + 6) % 7]!;
-}
-
-/** Exact-normalised comparison: trim, lowercase, collapse whitespace. No diacritic folding. */
-export function normalizeName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 function lunchNameMatch(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefined {
-  const wanted = normalizeName(dish.name);
+  const wanted = normaliseName(dish.name);
   return lunch.find(
     (entry) =>
-      normalizeName(entry.rawText) === wanted ||
-      (entry.normalizedName !== undefined && normalizeName(entry.normalizedName) === wanted),
+      normaliseName(entry.rawText) === wanted ||
+      (entry.normalizedName !== undefined && normaliseName(entry.normalizedName) === wanted),
   );
 }
 

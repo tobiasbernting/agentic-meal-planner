@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Dish, Weekday } from "../dishes/repo.js";
 import type { LunchEntry } from "../types.js";
-import { buildCandidateSets, filterEligibleDishes, weekdayOf, type DayInput } from "./filter.js";
+import { buildCandidateSets, filterEligibleDishes, type DayInput } from "./filter.js";
+import { weekdayOf } from "../week.js";
 
 function dish(overrides: Partial<Dish> & { name: string }): Dish {
   return {

@@ -43,7 +43,7 @@ describe("Settings page", () => {
     expect(res.body).toContain('name="variety_window_weeks" value="3"');
     expect(res.body).toContain('name="category_collision_enabled" checked');
     expect(res.body).toContain('name="default_prep_limit_minutes" value="30"');
-    expect(res.body).toContain('name="agent_command" value=""');
+    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot -p"');
     expect(res.body).toContain('name="shopping_list_sinks">[]</textarea>');
   });
 
@@ -107,6 +107,37 @@ describe("Settings page", () => {
     expect(readSetting(app.ctx.db, "shopping_list_sinks")).toBeUndefined();
   });
 
+  it("stores a valid IANA timezone, rejects an unknown one, and blank clears it", async () => {
+    const app = await start();
+    const base = { cron_expression: "0 18 * * 0", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" };
+
+    const bad = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Mars/Olympus" } });
+    const good = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Europe/Stockholm" } });
+    const shown = await app.inject({ method: "GET", url: "/settings" });
+    const cleared = await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "" } });
+
+    expect(bad.statusCode).toBe(400);
+    expect(good.statusCode).toBe(303);
+    expect(shown.body).toContain('name="timezone" value="Europe/Stockholm"');
+    expect(cleared.statusCode).toBe(303);
+    expect(readSetting(app.ctx.db, "timezone")).toBe("");
+  });
+
+  it("passes the saved timezone to the running scheduler", async () => {
+    const calls: [string, string | undefined][] = [];
+    const app = await buildApp({
+      dataDir: mkdtempSync(join(tmpdir(), "mp-settings-http-")),
+      scheduler: { reschedule: (cronExpression, timezone) => void calls.push([cronExpression, timezone]) },
+    });
+    apps.push(app);
+    const base = { cron_expression: "0 18 * * 0", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" };
+
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, timezone: "Europe/Stockholm" } });
+    await app.inject({ method: "POST", url: "/settings", payload: base });
+
+    expect(calls).toEqual([["0 18 * * 0", "Europe/Stockholm"], ["0 18 * * 0", undefined]]);
+  });
+
   it("re-arms the running scheduler with the saved cron expression (no restart)", async () => {
     const rescheduled: string[] = [];
     const app = await buildApp({
@@ -154,6 +185,15 @@ describe("agent_command", () => {
     expect((first as CliAgent).command).toBe("myagent --json");
     expect((second as CliAgent).command).toBe("otheragent -p");
     expect(app.ctx.llm).toBeInstanceOf(NoAgent);
+  });
+
+  it("falls back to AGENT_COMMAND (the server default) when the saved command is blank", async () => {
+    vi.stubEnv("AGENT_COMMAND", "copilot -p");
+    const app = await start();
+
+    await app.inject(form(""));
+
+    expect((app.ctx.llm as CliAgent).command).toBe("copilot -p");
   });
 
   it("keeps the same agent instance while the command is unchanged", async () => {

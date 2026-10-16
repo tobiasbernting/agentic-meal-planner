@@ -5,7 +5,7 @@
  * ("2 dl + 1 msk") so nothing is silently lost.
  */
 import type { Ingredient } from "../dishes/repo.js";
-import { normaliseName } from "../pantry/matching.js";
+import { normaliseName } from "../text.js";
 
 export interface DishIngredients {
   dishId: number;

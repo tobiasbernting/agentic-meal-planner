@@ -33,7 +33,7 @@ export interface AppOptions {
 
 /** What routes need from the scheduler: re-arm the weekly run when `cron_expression` changes. */
 export interface SchedulerPort {
-  reschedule(cronExpression: string): void;
+  reschedule(cronExpression: string, timezone?: string): void;
 }
 
 /** Everything a feature's routes plugin can reach. Extend here when a new port is added. */
@@ -87,9 +87,10 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
   });
   await app.register(import("@fastify/formbody"));
 
-  // No built-in default command: with nothing configured the app runs with NoAgent
-  // (FR-16) and never spawns a process. DESIGN.md's `copilot -p` default is a deployment choice.
-  const llmFromSettings = configuredLlmAgent(() => readSetting(db, SETTING_AGENT_COMMAND) ?? process.env.AGENT_COMMAND);
+  // No built-in default command here: with nothing configured buildApp runs with NoAgent
+  // (FR-16) and never spawns a process, so tests stay agent-free. src/server.ts applies the
+  // FR-15 `copilot -p` default via AGENT_COMMAND. A blank saved command means "not set".
+  const llmFromSettings = configuredLlmAgent(() => readSetting(db, SETTING_AGENT_COMMAND)?.trim() || process.env.AGENT_COMMAND);
   const ctx: AppContext = {
     db,
     get llm() {

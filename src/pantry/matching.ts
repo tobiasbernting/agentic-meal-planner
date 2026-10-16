@@ -1,10 +1,6 @@
 import type { LlmAgent } from "../llm/index.js";
+import { normaliseName } from "../text.js";
 import type { PantryItem } from "./repo.js";
-
-/** Trim, lowercase, collapse whitespace: the deterministic comparison key (FR-11). */
-export function normaliseName(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
 
 /**
  * Maps each Ingredient name to the Pantry Item it belongs to, or null for "Buy" (FR-11).
