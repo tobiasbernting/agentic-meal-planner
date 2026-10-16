@@ -16,7 +16,7 @@ type Scripted<Args extends unknown[], T> = LlmResult<T> | ((...args: Args) => Ll
 export interface ScriptedResponses {
   extractLunchMenu?: Scripted<[pageContent: string, weekStart: string], LunchEntry[]>;
   extractIngredients?: Scripted<[recipePageContent: string, options: ExtractIngredientsOptions], Ingredient[]>;
-  findRecipe?: Scripted<[dishName: string], FoundRecipe>;
+  findRecipe?: Scripted<[dishName: string, options: ExtractIngredientsOptions], FoundRecipe>;
   selectDishes?: Scripted<[input: SelectDishesInput], SelectedDish[]>;
   matchPantryItems?: Scripted<[input: MatchPantryInput], PantryMatch[]>;
 }
@@ -44,8 +44,8 @@ export class ScriptedLlmAgent implements LlmAgent {
     return this.reply("extractIngredients", [recipePageContent, options]);
   }
 
-  findRecipe(dishName: string) {
-    return this.reply("findRecipe", [dishName]);
+  findRecipe(dishName: string, options: ExtractIngredientsOptions = {}) {
+    return this.reply("findRecipe", [dishName, options]);
   }
 
   selectDishes(input: SelectDishesInput) {

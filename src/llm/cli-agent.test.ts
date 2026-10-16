@@ -161,6 +161,18 @@ describe("CliAgent.findRecipe", () => {
     });
     expect(calls[0]!.args.at(-1)).toContain("Tacos");
   });
+
+  it("asks the agent to apply the Adaptation notes when given", async () => {
+    const reply = '{"url": "https://example.com/tacos", "ingredients": []}';
+    const { run, calls } = scriptedRunner([reply, reply]);
+    const agent = new CliAgent("copilot -p", { run });
+
+    await agent.findRecipe("Tacos", { adaptationNotes: "no chili — the kids" });
+    await agent.findRecipe("Tacos");
+
+    expect(calls[0]!.args.at(-1)).toMatch(/apply these adaptations: no chili — the kids/);
+    expect(calls[1]!.args.at(-1)).not.toMatch(/adaptation/i);
+  });
 });
 
 describe("CliAgent.matchPantryItems", () => {

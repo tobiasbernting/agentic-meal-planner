@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../db.js";
 import { createDish, deleteDish } from "../dishes/repo.js";
-import { confirmPlan, getPlanForWeek, listRecentlyPlanned, savePlan } from "./repo.js";
+import { confirmPlan, getPlanForWeek, listRecentlyPlanned, savePlan, setPlannedDinnerSource } from "./repo.js";
 import type { PlanWeekResult } from "./plan-week.js";
 import { datesOfWeek } from "./week.js";
 
@@ -90,6 +90,20 @@ describe("confirmPlan", () => {
     expect(confirmPlan(db, "2026-10-12")).toBe(true);
     expect(getPlanForWeek(db, "2026-10-12")?.status).toBe("confirmed");
     expect(confirmPlan(db, "2026-10-19")).toBe(false);
+  });
+});
+
+describe("setPlannedDinnerSource", () => {
+  it("stores the recipe link on one Planned Dinner (ADR-0003) and reads it back", () => {
+    const db = freshDb();
+    const a = createDish(db, { name: "A" });
+    const planId = savePlan(db, plan("2026-10-12", [a, a, a, a, a, a, a]), "2026-10-11T18:00:00.000Z");
+
+    expect(setPlannedDinnerSource(db, planId, "2026-10-14", "https://recipes.example/a")).toBe(true);
+    expect(setPlannedDinnerSource(db, planId, "2026-10-19", "https://recipes.example/a")).toBe(false);
+
+    const dinners = getPlanForWeek(db, "2026-10-12")!.dinners;
+    expect(dinners.map((d) => d.sourceUrl)).toEqual([null, null, "https://recipes.example/a", null, null, null, null]);
   });
 });
 
