@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
+import { createDish } from "../dishes/repo.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
+import { NO_ELIGIBLE_DISH_RATIONALE, type PlannedDinnerDraft } from "../planner/plan-week.js";
+import { savePlan } from "../planner/repo.js";
 import { createSchool, setSchoolActive } from "../schools/repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -67,12 +70,64 @@ describe("GET / (Today view)", () => {
     expect(res.body).not.toContain("Paused School");
   });
 
-  it("has a dinner placeholder section for the Planned Dinner", async () => {
-    const app = await start();
+  describe("dinner section (FR-17a)", () => {
+    const WEEK_START = "2026-10-19";
+    const dinner = (overrides: Partial<PlannedDinnerDraft>): PlannedDinnerDraft => ({
+      date: TODAY,
+      dishId: null,
+      isQuickDay: false,
+      lunchThatDay: null,
+      rationale: "",
+      ...overrides,
+    });
 
-    const res = await app.inject({ method: "GET", url: "/" });
+    it("shows today's Planned Dinner: Dish name, recipe link and rationale", async () => {
+      const app = await start();
+      const dishId = createDish(app.ctx.db, { name: "Tacos", recipeUrl: "https://recipes.example/tacos" });
+      savePlan(
+        app.ctx.db,
+        {
+          weekStart: WEEK_START,
+          dinners: [
+            dinner({ date: "2026-10-20", dishId, rationale: "yesterday's pick" }),
+            dinner({ dishId, rationale: "quick on a busy evening" }),
+          ],
+          degradedReasons: [],
+        },
+        NOW.toISOString(),
+      );
 
-    expect(res.body).toMatch(/<section id="dinner">[\s\S]*No plan yet/);
+      const res = await app.inject({ method: "GET", url: "/" });
+
+      const section = res.body.match(/<section id="dinner">[\s\S]*?<\/section>/)![0];
+      expect(section).toContain("Tacos");
+      expect(section).toContain(`<a href="https://recipes.example/tacos"`);
+      expect(section).toContain("quick on a busy evening");
+      expect(section).not.toContain("yesterday's pick");
+      expect(section).not.toContain("No plan yet");
+    });
+
+    it("says there is no plan yet, with a link to /plan, before a plan exists", async () => {
+      const app = await start();
+
+      const res = await app.inject({ method: "GET", url: "/" });
+
+      expect(res.body).toMatch(/<section id="dinner">[\s\S]*No plan yet[\s\S]*<a href="\/plan">/);
+    });
+
+    it("tells the household to pick a dish when today's dinner has no eligible Dish", async () => {
+      const app = await start();
+      savePlan(
+        app.ctx.db,
+        { weekStart: WEEK_START, dinners: [dinner({ rationale: NO_ELIGIBLE_DISH_RATIONALE })], degradedReasons: [] },
+        NOW.toISOString(),
+      );
+
+      const res = await app.inject({ method: "GET", url: "/" });
+
+      expect(res.body).toMatch(/<section id="dinner">[\s\S]*No eligible dish, pick one/);
+      expect(res.body).not.toContain("No plan yet");
+    });
   });
 });
 
