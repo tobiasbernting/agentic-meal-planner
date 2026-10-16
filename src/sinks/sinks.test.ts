@@ -19,12 +19,20 @@ const NOW = new Date(2026, 9, 21, 18, 30);
 const WEEK = "2026-10-19";
 const ENV = { TRELLO_KEY: "k", TRELLO_TOKEN: "t0ken", TRELLO_BOARD_ID: "b1" };
 
+/** Records calls and fakes a Trello board: POSTed lists show up in later GETs of the board's open lists. */
 function recorder(failOn?: (url: string) => boolean) {
   const calls: { url: string; method?: string }[] = [];
+  const lists: { id: string; name: string }[] = [];
   const fetch: FetchLike = async (url, init) => {
     calls.push({ url, ...(init?.method ? { method: init.method } : {}) });
     if (failOn?.(url)) return { ok: false, status: 401, json: async () => ({}) };
-    return { ok: true, status: 200, json: async () => ({ id: "list1" }) };
+    if (init?.method === "POST" && /\/boards\/b1\/lists\?/.test(url)) {
+      const list = { id: `list${lists.length + 1}`, name: new URL(url).searchParams.get("name") ?? "" };
+      lists.push(list);
+      return { ok: true, status: 200, json: async () => list };
+    }
+    if (init?.method === undefined || init.method === "GET") return { ok: true, status: 200, json: async () => lists };
+    return { ok: true, status: 200, json: async () => ({ id: "x" }) };
   };
   return { calls, fetch };
 }
@@ -43,14 +51,34 @@ describe("Trello sink", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(calls).toHaveLength(3);
-    expect(calls[0]!.url).toContain("/1/boards/b1/lists?");
-    expect(calls[0]!.url).toContain("name=Shopping+2026-10-19");
-    expect(calls[1]!.url).toContain("/1/cards?");
-    expect(calls[1]!.url).toContain("idList=list1");
-    expect(calls[1]!.url).toContain("name=400+g+pasta");
-    expect(calls[2]!.url).toContain("name=salt&");
-    expect(calls.every((c) => c.method === "POST")).toBe(true);
+    expect(calls).toHaveLength(4);
+    expect(calls[0]!.url).toContain("/1/boards/b1/lists?filter=open");
+    expect(calls[1]!.url).toContain("/1/boards/b1/lists?");
+    expect(calls[1]!.url).toContain("name=Shopping+2026-10-19");
+    expect(calls[2]!.url).toContain("/1/cards?");
+    expect(calls[2]!.url).toContain("idList=list1");
+    expect(calls[2]!.url).toContain("name=400+g+pasta");
+    expect(calls[3]!.url).toContain("name=salt&");
+    expect(calls.slice(1).every((c) => c.method === "POST")).toBe(true);
+  });
+
+  it("pushing the same week again reuses its list after archiving the old cards (one list per week)", async () => {
+    const { calls, fetch } = recorder();
+    const sink = createTrelloSink({ key: "k", token: "t", boardId: "b1", fetch });
+    const items = [{ name: "pasta", quantity: "400", unit: "g", sourceDishIds: [1] }];
+
+    await sink.push({ weekStart: WEEK, items });
+    calls.length = 0;
+    const second = await sink.push({ weekStart: WEEK, items });
+
+    expect(second.ok).toBe(true);
+    expect(calls.filter((c) => /\/boards\/b1\/lists\?.*name=/.test(c.url))).toHaveLength(0); // no second list created
+    const archive = calls.find((c) => c.url.includes("/lists/list1/archiveAllCards"));
+    expect(archive?.method).toBe("POST");
+    const cards = calls.filter((c) => c.url.includes("/1/cards?"));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.url).toContain("idList=list1");
+    expect(calls.indexOf(archive!)).toBeLessThan(calls.indexOf(cards[0]!));
   });
 
   it("returns an error (no secrets) instead of throwing on HTTP or network failure", async () => {

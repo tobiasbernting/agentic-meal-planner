@@ -1,7 +1,8 @@
 /**
- * Trello sink (FR-13, ADR-0006): each week's Buy list becomes a NEW list on the board named
+ * Trello sink (FR-13, ADR-0006): each week's Buy list becomes a list on the board named
  * `Shopping <Monday YYYY-MM-DD>`, with one card per item named `<qty> <unit> <name>`.
- * One-way: the board is never read back. Pushing twice creates two lists (no dedupe).
+ * Pushing the same week again reuses its open list (cards archived first): one list per week.
+ * Only the board's open list names are read, never cards.
  * Credentials come from env only (TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID).
  */
 import type { Env, FetchLike, PushResult, ShoppingListSink } from "./types.js";
@@ -24,6 +25,13 @@ export function createTrelloSink({ key, token, boardId, fetch: fetchImpl }: Trel
   const doFetch: FetchLike = fetchImpl ?? ((url, init) => fetch(url, init));
   const auth = `key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}`;
 
+  async function get(path: string, params: Record<string, string>): Promise<unknown> {
+    const query = new URLSearchParams(params).toString();
+    const res = await doFetch(`${API}${path}?${query}&${auth}`, { method: "GET" });
+    if (!res.ok) throw new Error(`Trello HTTP ${res.status} on GET ${path}`);
+    return res.json();
+  }
+
   async function post(path: string, params: Record<string, string>): Promise<{ id?: string }> {
     const query = new URLSearchParams(params).toString();
     const res = await doFetch(`${API}${path}?${query}&${auth}`, { method: "POST" });
@@ -35,7 +43,16 @@ export function createTrelloSink({ key, token, boardId, fetch: fetchImpl }: Trel
     id: "trello",
     async push({ weekStart, items }): Promise<PushResult> {
       try {
-        const list = await post(`/boards/${encodeURIComponent(boardId)}/lists`, { name: listName(weekStart), pos: "bottom" });
+        const name = listName(weekStart);
+        const open = await get(`/boards/${encodeURIComponent(boardId)}/lists`, { filter: "open" });
+        const existing = Array.isArray(open) ? (open as { id?: string; name?: string }[]).find((l) => l.name === name && l.id) : undefined;
+        let list: { id?: string };
+        if (existing) {
+          list = existing;
+          await post(`/lists/${encodeURIComponent(existing.id!)}/archiveAllCards`, {});
+        } else {
+          list = await post(`/boards/${encodeURIComponent(boardId)}/lists`, { name, pos: "bottom" });
+        }
         if (!list.id) throw new Error("Trello returned no list id");
         for (const item of items) await post("/cards", { idList: list.id, name: cardName(item), pos: "bottom" });
         return { ok: true, detail: `${listName(weekStart)}: ${items.length} cards` };
