@@ -1,0 +1,106 @@
+/**
+ * Typed readers over the `settings` table for the keys the Planner Agent uses (docs/DESIGN.md).
+ * Every key has a default so a fresh database plans without any configuration. Ticket #35
+ * builds the Settings UI on these exported key constants.
+ */
+import type Database from "better-sqlite3";
+import { readSetting } from "../db.js";
+import { isWeekday, type Weekday } from "../dishes/repo.js";
+
+/** Variety Preference window (weeks), FR-7. */
+export const SETTING_VARIETY_WINDOW_WEEKS = "variety_window_weeks";
+/** FR-6b Main Category collision rule, `"true"` | `"false"`. */
+export const SETTING_CATEGORY_COLLISION_ENABLED = "category_collision_enabled";
+/** Recurring Quick Day template: JSON `{ "<weekday>": <minutes> }`. */
+export const SETTING_QUICK_DAY_TEMPLATE = "quick_day_template";
+/** Per-week overrides: JSON `{ "<weekStart>": { "<weekday>": <minutes> | null } }`; `null` = not a Quick Day that week. */
+export const SETTING_QUICK_DAY_OVERRIDES = "quick_day_overrides";
+/** Fallback Quick Day limit when the template gives no usable number, FR-6d. */
+export const SETTING_DEFAULT_PREP_LIMIT_MINUTES = "default_prep_limit_minutes";
+
+export type QuickDayTemplate = Partial<Record<Weekday, number>>;
+export type QuickDayOverrides = Record<string, Partial<Record<Weekday, number | null>>>;
+
+export interface PlannerSettings {
+  varietyWindowWeeks: number;
+  categoryCollisionEnabled: boolean;
+  quickDayTemplate: QuickDayTemplate;
+  quickDayOverrides: QuickDayOverrides;
+  defaultPrepLimitMinutes: number;
+}
+
+export const DEFAULT_PLANNER_SETTINGS: PlannerSettings = {
+  varietyWindowWeeks: 3,
+  categoryCollisionEnabled: true,
+  quickDayTemplate: { tue: 30 },
+  quickDayOverrides: {},
+  defaultPrepLimitMinutes: 30,
+};
+
+function readInt(db: Database.Database, key: string, fallback: number): number {
+  const raw = readSetting(db, key);
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+function readBool(db: Database.Database, key: string, fallback: boolean): boolean {
+  const raw = readSetting(db, key)?.trim().toLowerCase();
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  return fallback;
+}
+
+function readJsonObject(db: Database.Database, key: string): Record<string, unknown> | undefined {
+  const raw = readSetting(db, key);
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function toWeekdayMap<T>(obj: Record<string, unknown>, accept: (v: unknown) => v is T): Partial<Record<Weekday, T>> {
+  const out: Partial<Record<Weekday, T>> = {};
+  for (const [k, v] of Object.entries(obj)) if (isWeekday(k) && accept(v)) out[k] = v;
+  return out;
+}
+
+const isMinutes = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const isMinutesOrNull = (v: unknown): v is number | null => v === null || isMinutes(v);
+
+export function readPlannerSettings(db: Database.Database): PlannerSettings {
+  const d = DEFAULT_PLANNER_SETTINGS;
+  const template = readJsonObject(db, SETTING_QUICK_DAY_TEMPLATE);
+  const overridesRaw = readJsonObject(db, SETTING_QUICK_DAY_OVERRIDES);
+  const quickDayOverrides: QuickDayOverrides = {};
+  for (const [weekStart, v] of Object.entries(overridesRaw ?? {})) {
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      quickDayOverrides[weekStart] = toWeekdayMap(v as Record<string, unknown>, isMinutesOrNull);
+    }
+  }
+  return {
+    varietyWindowWeeks: readInt(db, SETTING_VARIETY_WINDOW_WEEKS, d.varietyWindowWeeks),
+    categoryCollisionEnabled: readBool(db, SETTING_CATEGORY_COLLISION_ENABLED, d.categoryCollisionEnabled),
+    quickDayTemplate: template ? toWeekdayMap(template, isMinutes) : { ...d.quickDayTemplate },
+    quickDayOverrides,
+    defaultPrepLimitMinutes: readInt(db, SETTING_DEFAULT_PREP_LIMIT_MINUTES, d.defaultPrepLimitMinutes),
+  };
+}
+
+/**
+ * FR-6d: the Quick Day limit for one weekday of one week, or `null` when it is not a Quick Day.
+ * Precedence: this week's override (a `null` override cancels the template) → template →
+ * `default_prep_limit_minutes` when the template names the day but gives no usable limit (0).
+ */
+export function quickDayLimitFor(settings: PlannerSettings, weekStart: string, weekday: Weekday): number | null {
+  const override = settings.quickDayOverrides[weekStart];
+  let limit: number | null | undefined = override && weekday in override ? override[weekday] : undefined;
+  if (limit === undefined) limit = settings.quickDayTemplate[weekday];
+  if (limit === undefined || limit === null) return null;
+  return limit > 0 ? limit : settings.defaultPrepLimitMinutes;
+}
