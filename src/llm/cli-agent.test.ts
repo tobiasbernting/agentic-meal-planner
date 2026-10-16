@@ -40,6 +40,17 @@ describe("CliAgent.extractIngredients", () => {
     expect(calls[0]!.stdin).toBe(calls[0]!.args.at(-1));
   });
 
+  it("asks the agent to apply the Adaptation notes when given", async () => {
+    const { run, calls } = scriptedRunner(['[{"name": "flour"}]', '[{"name": "flour"}]']);
+    const agent = new CliAgent("copilot -p", { run });
+
+    await agent.extractIngredients("page", { adaptationNotes: "no chili — the kids" });
+    await agent.extractIngredients("page");
+
+    expect(calls[0]!.args.at(-1)).toMatch(/apply these adaptations: no chili — the kids/);
+    expect(calls[1]!.args.at(-1)).not.toMatch(/adaptation/i);
+  });
+
   it("extracts the JSON from code fences and surrounding prose", async () => {
     const { run } = scriptedRunner([
       'Sure! Here is the list:\n```json\n[{"name": "eggs", "quantity": 6}]\n```\nLet me know if you need anything else.',

@@ -6,6 +6,7 @@ export type {
   LlmAgent,
   LlmResult,
   Ingredient,
+  ExtractIngredientsOptions,
   LunchEntry,
   Dish,
   SelectDishesInput,
