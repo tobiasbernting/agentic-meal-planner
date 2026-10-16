@@ -18,21 +18,12 @@ import { weekdayOf } from "../engine/filter.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { localDate } from "../today/routes.js";
+import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
-NAV.push({ href: "/plan", label: "Plan" });
+NAV.push({ href: "/plan", label: "nav.plan" });
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
-
-const WEEKDAY_LABELS = {
-  mon: "Monday",
-  tue: "Tuesday",
-  wed: "Wednesday",
-  thu: "Thursday",
-  fri: "Friday",
-  sat: "Saturday",
-  sun: "Sunday",
-} as const;
 
 interface PlanQuery {
   week?: string;
@@ -72,37 +63,37 @@ function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
-function renderLunch({ school, entry }: SchoolLunch): string {
+function renderLunch(lang: Lang, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">No lunch data</p>`;
+    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
   return `<article class="school-lunch"><h4>${escapeHtml(school.name)}</h4>${body}</article>`;
 }
 
-function renderDinner(db: Database.Database, dinner: PlannedDinner | undefined): string {
-  if (!dinner) return `<p class="notice">No dinner planned</p>`;
+function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner | undefined): string {
+  if (!dinner) return `<p class="notice">${t(lang, "plan.noDinner")}</p>`;
   const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
-  const name = dish ? `<strong>${escapeHtml(dish.name)}</strong>` : `<span class="notice">No eligible dish, pick one</span>`;
+  const name = dish ? `<strong>${escapeHtml(dish.name)}</strong>` : `<span class="notice">${t(lang, "common.noEligibleDish")}</span>`;
   return `<p class="dinner">${name}</p>
 <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 
-function renderDay(db: Database.Database, date: string, dinner: PlannedDinner | undefined): string {
-  const weekday = WEEKDAY_LABELS[weekdayOf(date)];
-  const quick = dinner?.isQuickDay ? ` <span class="quick-day">Quick Day</span>` : "";
+function renderDay(db: Database.Database, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
+  const weekday = weekdayName(lang, weekdayOf(date));
+  const quick = dinner?.isQuickDay ? ` <span class="quick-day">${t(lang, "plan.quickDay")}</span>` : "";
   const lunches = listLunchForDate(db, date);
   const lunch =
     lunches.length === 0
-      ? `<p class="notice">No lunch data</p>`
-      : lunches.map(renderLunch).join("\n");
+      ? `<p class="notice">${t(lang, "common.noLunchData")}</p>`
+      : lunches.map((l) => renderLunch(lang, l)).join("\n");
   return `<article class="plan-day">
   <h3>${weekday} <time datetime="${date}">${date}</time>${quick}</h3>
-  <section class="lunch"><h4>Lunch</h4>${lunch}</section>
-  <section class="dinner"><h4>Dinner</h4>${renderDinner(db, dinner)}</section>
+  <section class="lunch"><h4>${t(lang, "common.lunch")}</h4>${lunch}</section>
+  <section class="dinner"><h4>${t(lang, "common.dinner")}</h4>${renderDinner(db, lang, dinner)}</section>
 </article>`;
 }
 
@@ -123,22 +114,22 @@ function datesWithChangedLunch(db: Database.Database, plan: WeeklyPlan): string[
     .map((dinner) => dinner.date);
 }
 
-function renderPlan(db: Database.Database, weekStart: string, plan: WeeklyPlan): string {
+function renderPlan(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan): string {
   const byDate = new Map(plan.dinners.map((d) => [d.date, d]));
   const degraded =
     plan.degradedReasons.length === 0
       ? ""
-      : `<p class="notice">Degraded plan: ${plan.degradedReasons.map(escapeHtml).join("; ")}</p>`;
+      : `<p class="notice">${t(lang, "plan.degraded")}: ${plan.degradedReasons.map(escapeHtml).join("; ")}</p>`;
   const changedDates = datesWithChangedLunch(db, plan);
   const lunchChanged =
-    changedDates.length === 0 ? "" : `<p class="notice">${NOTICES["lunch-changed"]}: ${changedDates.join(", ")}</p>`;
-  return `<p>Status: ${escapeHtml(plan.status)}</p>
-${plan.status === "generated" ? weekForm(weekStart, "/plan/confirm", "Confirm plan") : ""}
-${weekForm(weekStart, "/plan/regenerate", "Regenerate plan")}
+    changedDates.length === 0 ? "" : `<p class="notice">${t(lang, "plan.notice.lunch-changed")}: ${changedDates.join(", ")}</p>`;
+  return `<p>${t(lang, "plan.status")}: ${escapeHtml(t(lang, `plan.status.${plan.status}`))}</p>
+${plan.status === "generated" ? weekForm(weekStart, "/plan/confirm", t(lang, "plan.confirm")) : ""}
+${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
 ${degraded}
 ${lunchChanged}
 ${datesOfWeek(weekStart)
-  .map((date) => renderDay(db, date, byDate.get(date)))
+  .map((date) => renderDay(db, lang, date, byDate.get(date)))
   .join("\n")}`;
 }
 
@@ -153,44 +144,49 @@ function weekForm(weekStart: string, action: string, label: string, hidden: Reco
 </form>`;
 }
 
-function renderNoPlan(weekStart: string): string {
-  return `<p class="notice">No plan for this week.</p>
-${weekForm(weekStart, "/plan/generate", "Generate plan")}`;
+function renderNoPlan(lang: Lang, weekStart: string): string {
+  return `<p class="notice">${t(lang, "plan.none")}</p>
+${weekForm(weekStart, "/plan/generate", t(lang, "plan.generate"))}`;
 }
 
 /** FR-9a: a confirmed plan is only replaced after the user says so again. */
-function renderConfirmRegenerate(weekStart: string): string {
-  return `<h1>Regenerate plan</h1>
-<p class="notice">This plan is confirmed. Regenerating replaces it for the week of <time datetime="${weekStart}">${weekStart}</time>.</p>
-${weekForm(weekStart, "/plan/regenerate", "Replace confirmed plan", { confirmed_override: "1" })}
-<p><a href="/plan?week=${weekStart}">Keep the confirmed plan</a></p>`;
+function renderConfirmRegenerate(lang: Lang, weekStart: string): string {
+  return `<h1>${t(lang, "plan.regenerate")}</h1>
+<p class="notice">${t(lang, "plan.confirmedIntro")} <time datetime="${weekStart}">${weekStart}</time>.</p>
+${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.replaceConfirmed"), { confirmed_override: "1" })}
+<p><a href="/plan?week=${weekStart}">${t(lang, "plan.keepConfirmed")}</a></p>`;
 }
 
-const NOTICES: Record<string, string> = {
-  confirmed: "This plan is confirmed and was not replaced.",
-  "plan-confirmed": "Plan confirmed",
-  "lunch-changed": "Lunch menu changed since this plan was made",
-};
+const NOTICES = {
+  confirmed: "plan.notice.confirmed",
+  "plan-confirmed": "plan.notice.plan-confirmed",
+  "lunch-changed": "plan.notice.lunch-changed",
+} as const;
+
+function isNotice(key: string | undefined): key is keyof typeof NOTICES {
+  return key !== undefined && Object.hasOwn(NOTICES, key);
+}
 
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
+    const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, localDate(ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    let notice = req.query.notice ? NOTICES[req.query.notice] : undefined;
+    let notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
     if (req.query.notice === "lunch-changed") {
       const changes = describeChanges(ctx.db, req.query.changed);
-      notice = `${NOTICES["lunch-changed"]}${changes.length ? `: ${changes.join(", ")}` : ""}`;
+      notice = `${t(lang, NOTICES["lunch-changed"])}${changes.length ? `: ${changes.join(", ")}` : ""}`;
     }
-    const body = `<h1>Weekly Plan</h1>
+    const body = `<h1>${t(lang, "plan.heading")}</h1>
 <p>
-  <a href="/plan?week=${addDays(weekStart, -7)}">Previous week</a>
-  Week of <time datetime="${weekStart}">${weekStart}</time>
-  <a href="/plan?week=${addDays(weekStart, 7)}">Next week</a>
+  <a href="/plan?week=${addDays(weekStart, -7)}">${t(lang, "week.prev")}</a>
+  ${t(lang, "week.of")} <time datetime="${weekStart}">${weekStart}</time>
+  <a href="/plan?week=${addDays(weekStart, 7)}">${t(lang, "week.next")}</a>
 </p>
 ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
-${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
+${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStart)}`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: "Plan", body });
+    return page({ title: t(lang, "plan.title"), body, lang });
   });
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
@@ -210,8 +206,9 @@ ${plan ? renderPlan(ctx.db, weekStart, plan) : renderNoPlan(weekStart)}`;
   app.post<{ Body: RegenerateForm }>("/plan/regenerate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, localDate(ctx.now()));
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
+      const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
-      return page({ title: "Regenerate plan", body: renderConfirmRegenerate(weekStart) });
+      return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang });
     }
     const { changed } = await ingestWeek(ctx, weekStart, { force: true });
     const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });

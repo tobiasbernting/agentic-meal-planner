@@ -1,4 +1,5 @@
 import type { FeaturePlugin } from "../app.js";
+import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 import {
   createSchool,
@@ -11,7 +12,7 @@ import {
   type SchoolInput,
 } from "./repo.js";
 
-NAV.push({ href: "/schools", label: "Schools" });
+NAV.push({ href: "/schools", label: "nav.schools" });
 
 interface SchoolForm {
   name?: string;
@@ -21,8 +22,6 @@ interface SchoolForm {
 interface SchoolParams {
   id: string;
 }
-
-const INVALID_SCHOOL = "A School needs a name and exactly one menu URL.";
 
 /** A School has exactly one menu URL and a name; anything else is rejected. */
 function parseSchoolForm(body: SchoolForm): SchoolInput | undefined {
@@ -36,62 +35,62 @@ function action(school: School, verb: string, label: string): string {
   return `<form method="post" action="/schools/${school.id}/${verb}" style="display:inline"><button type="submit">${label}</button></form>`;
 }
 
-function schoolRow(school: School): string {
-  const status = school.active ? "" : " <em>(Paused)</em>";
-  const toggle = school.active ? action(school, "pause", "Pause") : action(school, "resume", "Resume");
+function schoolRow(lang: Lang, school: School): string {
+  const status = school.active ? "" : ` <em>(${t(lang, "schools.paused")})</em>`;
+  const toggle = school.active ? action(school, "pause", t(lang, "schools.pause")) : action(school, "resume", t(lang, "schools.resume"));
   return `<li>
   <strong>${escapeHtml(school.name)}</strong>${status} &mdash; <a href="${escapeHtml(school.url)}">${escapeHtml(school.url)}</a>
-  <a href="/schools/${school.id}/edit">Edit</a> ${toggle} ${action(school, "delete", "Delete")}
+  <a href="/schools/${school.id}/edit">${t(lang, "common.edit")}</a> ${toggle} ${action(school, "delete", t(lang, "common.delete"))}
 </li>`;
 }
 
-function schoolFields(school?: SchoolInput): string {
-  return `<label>Name <input name="name" required value="${escapeHtml(school?.name ?? "")}" /></label>
-  <label>Menu URL <input name="url" type="url" required value="${escapeHtml(school?.url ?? "")}" /></label>`;
+function schoolFields(lang: Lang, school?: SchoolInput): string {
+  return `<label>${t(lang, "common.name")} <input name="name" required value="${escapeHtml(school?.name ?? "")}" /></label>
+  <label>${t(lang, "schools.menuUrl")} <input name="url" type="url" required value="${escapeHtml(school?.url ?? "")}" /></label>`;
 }
 
 function notice(error?: string): string {
   return error ? `<p role="alert">${escapeHtml(error)}</p>` : "";
 }
 
-function listPage(schools: School[], error?: string): string {
-  const body = `<h1>Schools</h1>
+function listPage(lang: Lang, schools: School[], error?: string): string {
+  const body = `<h1>${t(lang, "schools.title")}</h1>
 ${notice(error)}
 <ul>
-${schools.map(schoolRow).join("\n")}
+${schools.map((s) => schoolRow(lang, s)).join("\n")}
 </ul>
-<h2>Add a School</h2>
+<h2>${t(lang, "schools.addHeading")}</h2>
 <form method="post" action="/schools">
-  ${schoolFields()}
-  <button type="submit">Add</button>
+  ${schoolFields(lang)}
+  <button type="submit">${t(lang, "common.add")}</button>
 </form>`;
-  return page({ title: "Schools", body });
+  return page({ title: t(lang, "schools.title"), body, lang });
 }
 
-function editPage(school: School, error?: string): string {
-  const body = `<h1>Edit School</h1>
+function editPage(lang: Lang, school: School, error?: string): string {
+  const body = `<h1>${t(lang, "schools.editHeading")}</h1>
 ${notice(error)}
 <form method="post" action="/schools/${school.id}">
-  ${schoolFields(school)}
-  <button type="submit">Save</button>
+  ${schoolFields(lang, school)}
+  <button type="submit">${t(lang, "common.save")}</button>
 </form>
-<p><a href="/schools">Back to Schools</a></p>`;
-  return page({ title: "Edit School", body });
+<p><a href="/schools">${t(lang, "schools.back")}</a></p>`;
+  return page({ title: t(lang, "schools.editTitle"), body, lang });
 }
 
 export const schoolRoutes: FeaturePlugin = async (app, { db }) => {
   const html = (reply: { type(t: string): unknown }) => reply.type("text/html; charset=utf-8");
 
-  app.get("/schools", async (_req, reply) => {
+  app.get("/schools", async (req, reply) => {
     html(reply);
-    return listPage(listSchools(db));
+    return listPage(langOf(req), listSchools(db));
   });
 
   app.post<{ Body: SchoolForm }>("/schools", async (req, reply) => {
     const input = parseSchoolForm(req.body);
     if (!input) {
       html(reply.code(400));
-      return listPage(listSchools(db), INVALID_SCHOOL);
+      return listPage(langOf(req), listSchools(db), t(langOf(req), "schools.invalid"));
     }
     createSchool(db, input);
     return reply.redirect("/schools", 303);
@@ -99,18 +98,18 @@ export const schoolRoutes: FeaturePlugin = async (app, { db }) => {
 
   app.get<{ Params: SchoolParams }>("/schools/:id/edit", async (req, reply) => {
     const school = getSchool(db, Number(req.params.id));
-    if (!school) return reply.code(404).send("School not found");
+    if (!school) return reply.code(404).send(t(langOf(req), "schools.notFound"));
     html(reply);
-    return editPage(school);
+    return editPage(langOf(req), school);
   });
 
   app.post<{ Params: SchoolParams; Body: SchoolForm }>("/schools/:id", async (req, reply) => {
     const school = getSchool(db, Number(req.params.id));
-    if (!school) return reply.code(404).send("School not found");
+    if (!school) return reply.code(404).send(t(langOf(req), "schools.notFound"));
     const input = parseSchoolForm(req.body);
     if (!input) {
       html(reply.code(400));
-      return editPage(school, INVALID_SCHOOL);
+      return editPage(langOf(req), school, t(langOf(req), "schools.invalid"));
     }
     updateSchool(db, school.id, input);
     return reply.redirect("/schools", 303);

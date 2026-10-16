@@ -4,6 +4,7 @@ import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
 import { mondayOf } from "../planner/week.js";
+import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
 /** Local calendar date `YYYY-MM-DD` of `d` (the household's clock, not UTC). */
@@ -12,14 +13,14 @@ export function localDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function renderSchoolLunch({ school, entry }: SchoolLunch): string {
+function renderSchoolLunch(lang: Lang, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">No lunch data</p>`;
+    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
   return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
 }
 
@@ -28,11 +29,11 @@ function findTodaysDinner(ctx: AppContext, today: string): PlannedDinner | undef
   return getPlanForWeek(ctx.db, mondayOf(today))?.dinners.find((d) => d.date === today);
 }
 
-function renderDinner(ctx: AppContext, today: string): string {
+function renderDinner(ctx: AppContext, lang: Lang, today: string): string {
   const dinner = findTodaysDinner(ctx, today);
-  if (!dinner) return `<p class="notice">No plan yet. <a href="/plan">Plan this week</a></p>`;
+  if (!dinner) return `<p class="notice">${t(lang, "today.noPlan")} <a href="/plan">${t(lang, "today.planThisWeek")}</a></p>`;
   const dish = dinner.dishId === null ? undefined : getDish(ctx.db, dinner.dishId);
-  if (!dish) return `<p class="notice">No eligible dish, pick one</p>`;
+  if (!dish) return `<p class="notice">${t(lang, "common.noEligibleDish")}</p>`;
   const name = escapeHtml(dish.name);
   const title = dish.recipeUrl ? `<a href="${escapeHtml(dish.recipeUrl)}">${name}</a>` : name;
   return `<p class="dish">${title}</p>
@@ -44,26 +45,27 @@ function renderDinner(ctx: AppContext, today: string): string {
  * when none) and today's Planned Dinner from the stored Weekly Plan.
  */
 export const todayRoutes: FeaturePlugin = async (app, ctx) => {
-  app.get("/", async (_req, reply) => {
+  app.get("/", async (req, reply) => {
+    const lang = langOf(req);
     const today = localDate(ctx.now());
     const lunches = listLunchForDate(ctx.db, today);
     const schools =
       lunches.length === 0
-        ? `<p>No Schools yet. <a href="/schools">Add a School</a> to see today's lunch.</p>`
-        : lunches.map(renderSchoolLunch).join("\n");
-    const body = `<h1>Meal Planner</h1>
+        ? `<p>${t(lang, "today.noSchools")} <a href="/schools">${t(lang, "today.addSchool")}</a> ${t(lang, "today.toSeeLunch")}</p>`
+        : lunches.map((l) => renderSchoolLunch(lang, l)).join("\n");
+    const body = `<h1>${t(lang, "app.name")}</h1>
 <p><time datetime="${today}">${today}</time></p>
 <section id="lunch">
-  <h2>School lunch</h2>
+  <h2>${t(lang, "today.schoolLunch")}</h2>
   ${schools}
-  <form method="post" action="/lunch/refresh"><button type="submit">Refresh lunch menus</button></form>
+  <form method="post" action="/lunch/refresh"><button type="submit">${t(lang, "today.refresh")}</button></form>
 </section>
 <section id="dinner">
-  <h2>Dinner</h2>
-  ${renderDinner(ctx, today)}
+  <h2>${t(lang, "common.dinner")}</h2>
+  ${renderDinner(ctx, lang, today)}
 </section>`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: "Today", body });
+    return page({ title: t(lang, "today.title"), body, lang });
   });
 
   // Manual lunch refresh (FR-4): ingest the current week for every active School, then back to Today.

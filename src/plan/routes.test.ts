@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
+import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { NO_AGENT_REASON, NoAgent } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
@@ -19,7 +20,7 @@ const WEEK = "2026-10-19";
 
 async function start(options: Partial<AppOptions> = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "mp-plan-"));
-  const app = await buildApp({ dataDir, now: () => NOW, ...options });
+  const app = withEnglish(await buildApp({ dataDir, now: () => NOW, ...options }));
   apps.push(app);
   return app;
 }

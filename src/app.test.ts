@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+import { withEnglish } from "./i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "./llm/fake.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
 async function start() {
   const dataDir = mkdtempSync(join(tmpdir(), "mp-app-"));
-  const app = await buildApp({ dataDir });
+  const app = withEnglish(await buildApp({ dataDir }));
   apps.push(app);
   return app;
 }
