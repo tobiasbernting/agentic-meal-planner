@@ -1,7 +1,7 @@
 # LLM executed as a configurable CLI agent subprocess
 
 ---
-Status: proposed (execution-as-subprocess adopted by assumption 2026-10-16; CLI configurability confirmed by owner 2026-10-16)
+Status: Accepted (CLI configurability confirmed by owner 2026-10-16; subprocess execution adopted by assumption)
 ---
 
 The Planner Agent invokes the LLM by shelling out to an agentic CLI — never a direct model API. **Which** CLI is a deployment setting (`agent_command`, default `copilot -p`); Copilot CLI, Claude Code, Codex, opencode, or anything that takes a prompt on the command line and prints a result will do. Prompts request structured JSON output; the response is validated and retried once before degrading.

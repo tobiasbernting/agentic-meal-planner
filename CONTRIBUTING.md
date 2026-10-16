@@ -18,7 +18,7 @@ export const mySchool: SchoolPlugin = {
   claims: (url) => url.includes("my-school.se"),
   async scrape(url, weekStart) {
     // fetch url, parse HTML/PDF/JSON, return one entry per served lunch
-    return [{ date: "2026-10-19", rawText: "Pasta bolognese" } /* … */];
+    return [{ date: new Date("2026-10-19"), rawText: "Pasta bolognese" } /* … */];
   },
 };
 ```

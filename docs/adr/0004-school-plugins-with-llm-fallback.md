@@ -1,7 +1,7 @@
 # School lunch ingestion: plugin interface with LLM fallback
 
 ---
-Status: proposed (adopted by assumption in an unattended design session, awaiting owner confirmation)
+Status: Accepted (confirmed by owner 2026-10-16)
 ---
 
 Each School is configured as one or more menu URLs. Ingestion goes through a plugin interface — `scrape(url, week) → LunchEntry[]` — with plugins per known site/format living in the repo so contributors can add their kids' schools. When no plugin claims a URL, a generic fallback fetches the page (or PDF) and asks the LLM to extract the week's lunches as structured data.

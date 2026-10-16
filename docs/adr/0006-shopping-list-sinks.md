@@ -1,13 +1,19 @@
-# Shopping list sinks: webhook (ntfy default), Bring!, Home Assistant
+# Shopping list sinks: Trello (primary), generic webhook (optional)
 
 ---
-Status: proposed (direction confirmed by owner 2026-10-16; sink selection amended 2026-10-16 after integration research)
+Status: Accepted (amended 2026-10-16: Trello replaces Bring!/Home Assistant as the primary sink, after the owner ruled out both)
 ---
 
-The "Buy" section of each Shopping List is pushed outward so the list is on the phone in the store. Three sinks ship in v1 behind a `ShoppingListSink` interface (`push(items) → void`), all optional and composable:
+The "Buy" section of each Shopping List is pushed outward so the list is on the phone in the store. Sinks sit behind a `ShoppingListSink` interface (`push(items) → void`), all optional and composable:
 
-1. **Generic webhook, with ntfy as the batteries-included default.** Zero-auth POST to a configurable URL; the project owns both ends of the contract, so breakage risk is minimal, and contributors can wire up any other service without maintained per-service code.
-2. **Bring!** — the de facto shopping-list app in Sweden/DACH: shared household lists, categories, phone-native. Integration via the community TypeScript wrapper (email+password auth, credentials from env vars, never the database). Risk: unofficial API; mitigated by pinning/vendoring and by the other sinks.
-3. **Home Assistant** `todo`/`shopping_list` — the owner runs HA, and the planner reaches it over the LAN (no inbound internet exposure needed). HA doubles as a fan-out hub: automations sync the list onward (e.g. to Bring!'s cloud, which only needs *outbound* access) and to every family member's Companion app. Official, stable REST API.
+1. **Trello (primary, v1).** Each week's Buy list becomes a new list on the shared shopping board, named by its Monday date. The push is one-way: the app creates cards and never reads the board back, so ticking items off stays in Trello. Trello's REST API is free and self-serve (API key and token), works for personal accounts, and its free workspace covers the owner and their partner. The household uses the same board for house planning, which is outside this app's scope (see SPEC non-goals).
+2. **Generic webhook (optional, v1).** Zero-auth POST to a configurable URL, with ntfy as the reference default. The project owns both ends of the contract, so breakage risk is minimal, and contributors can wire up any other service without maintained per-service code.
 
-Rejected as v1 built-ins: Todoist (official API but not shopping-specific — a webhook example instead), AnyList/OurGroceries (US-centric; welcome as contributions), Listonic/Google Keep/Matlistan (no usable API), Mealie (overlapping product). Push failures degrade gracefully: the list stays in the app and the UI surfaces the error.
+Rejected as v1 built-ins:
+- **Bring!**: not used by the household.
+- **Home Assistant**: not reachable from outside the home network, and the household has no need for its fan-out.
+- **MS To Do and Todoist**: MS To Do's API support for personal accounts could not be confirmed, and Todoist's board view is more basic than Trello's.
+- **Self-hosted boards (Vikunja, Wekan, Planka)**: need a server that the partner's phone can reach, which the design does not provide.
+- **AnyList, OurGroceries, Listonic, Google Keep, Matlistan**: no usable public API, or US-centric. Welcome as contributions.
+
+Push failures degrade gracefully: the list stays in the app and the UI surfaces the error.
