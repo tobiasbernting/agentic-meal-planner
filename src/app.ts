@@ -1,13 +1,15 @@
 import Fastify, { type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import type Database from "better-sqlite3";
 import { openDatabase, readSetting } from "./db.js";
-import { createLlmAgent } from "./llm/index.js";
+import { configuredLlmAgent } from "./llm/index.js";
 import type { LlmAgent } from "./llm/types.js";
+import { SETTING_AGENT_COMMAND } from "./planner/settings.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
 import { dishRoutes } from "./dishes/routes.js";
 import { schoolRoutes } from "./schools/routes.js";
 import { pantryRoutes } from "./pantry/routes.js";
+import { settingsRoutes } from "./settings/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -22,7 +24,12 @@ export interface AppOptions {
 /** Everything a feature's routes plugin can reach. Extend here when a new port is added. */
 export interface AppContext {
   db: Database.Database;
-  llm: LlmAgent;
+  /**
+   * The LLM port. Resolved on every read: when `agent_command` changes in Settings the next
+   * read returns an agent built from the new command (no restart). Read it when you run,
+   * not at plugin registration. An injected `AppOptions.llm` is returned as-is.
+   */
+  readonly llm: LlmAgent;
   now: () => Date;
   fetchPage: FetchPage;
 }
@@ -41,7 +48,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, dishRoutes, schoolRoutes, pantryRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);
@@ -59,9 +66,12 @@ export async function buildApp({ dataDir, llm, now, fetchPage }: AppOptions): Pr
 
   // No built-in default command: with nothing configured the app runs with NoAgent
   // (FR-16) and never spawns a process. DESIGN.md's `copilot -p` default is a deployment choice.
+  const llmFromSettings = configuredLlmAgent(() => readSetting(db, SETTING_AGENT_COMMAND) ?? process.env.AGENT_COMMAND);
   const ctx: AppContext = {
     db,
-    llm: llm ?? createLlmAgent(readSetting(db, "agent_command") ?? process.env.AGENT_COMMAND),
+    get llm() {
+      return llm ?? llmFromSettings();
+    },
     now: now ?? (() => new Date()),
     fetchPage: fetchPage ?? fetchPageText,
   };

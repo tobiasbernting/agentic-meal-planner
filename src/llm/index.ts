@@ -27,3 +27,21 @@ export function createLlmAgent(agentCommand: string | undefined, deps?: CliAgent
   if (!command) return new NoAgent();
   return new CliAgent(command, deps);
 }
+
+/**
+ * An agent resolver that follows the configured command: each call re-reads it through
+ * `readCommand` and rebuilds the agent only when the command changed, so a new
+ * `agent_command` saved in Settings is used by the next run without a restart.
+ */
+export function configuredLlmAgent(readCommand: () => string | undefined, deps?: CliAgentDeps): () => LlmAgent {
+  let command: string | undefined;
+  let agent: LlmAgent | undefined;
+  return () => {
+    const next = readCommand()?.trim() || undefined;
+    if (!agent || next !== command) {
+      command = next;
+      agent = createLlmAgent(next, deps);
+    }
+    return agent;
+  };
+}
