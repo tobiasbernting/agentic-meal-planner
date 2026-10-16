@@ -62,9 +62,14 @@ export interface PantryMatch {
   pantryId: string | null;
 }
 
+/** Options for Ingredient extraction: the Dish's Adaptation notes are applied during extraction (ADR-0003). */
+export interface ExtractIngredientsOptions {
+  adaptationNotes?: string;
+}
+
 export interface LlmAgent {
   extractLunchMenu(pageContent: string, weekStart: string): Promise<LlmResult<LunchEntry[]>>;
-  extractIngredients(recipePageContent: string): Promise<LlmResult<Ingredient[]>>;
+  extractIngredients(recipePageContent: string, options?: ExtractIngredientsOptions): Promise<LlmResult<Ingredient[]>>;
   /** Used when a Dish has neither a recipe URL nor manual Ingredients. */
   findRecipe(dishName: string): Promise<LlmResult<FoundRecipe>>;
   selectDishes(input: SelectDishesInput): Promise<LlmResult<SelectedDish[]>>;
