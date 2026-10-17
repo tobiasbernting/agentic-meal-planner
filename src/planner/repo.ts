@@ -193,21 +193,23 @@ export function listPlannedDatesForDish(db: Database.Database, dishId: number): 
 /**
  * Before a Dish is deleted: empties its Planned Dinners in unconfirmed plans (the rationale,
  * recipe link and that date's degraded reasons described the Dish, so they go) so the day reads
- * as empty and offers a Swap. Confirmed plans are untouched.
+ * as empty and offers a Swap. Confirmed plans are untouched. Runs in the caller's transaction,
+ * with the Dish's delete.
  */
 export function clearDishFromUnconfirmedPlans(db: Database.Database, dishId: number): void {
-  db.transaction(() => {
-    const days = db
-      .prepare(
-        `SELECT pd.plan_id AS plan_id, pd.date AS date FROM planned_dinner pd JOIN weekly_plan wp ON wp.id = pd.plan_id
-         WHERE pd.dish_id = ? AND wp.status = 'generated'`,
-      )
-      .all(dishId) as { plan_id: number; date: string }[];
-    for (const { plan_id, date } of days) {
-      db.prepare("UPDATE planned_dinner SET selection_rationale = '', source_url = NULL WHERE plan_id = ? AND date = ?").run(plan_id, date);
-      const row = db.prepare("SELECT degraded_reasons FROM weekly_plan WHERE id = ?").get(plan_id) as { degraded_reasons: string };
-      const kept = parseDegradedReasons(row.degraded_reasons).filter((r) => r.date !== date);
-      db.prepare("UPDATE weekly_plan SET degraded_reasons = ? WHERE id = ?").run(JSON.stringify(kept), plan_id);
-    }
-  })();
+  const clearDay = db.prepare("UPDATE planned_dinner SET selection_rationale = '', source_url = NULL WHERE plan_id = ? AND date = ?");
+  const readReasons = db.prepare("SELECT degraded_reasons FROM weekly_plan WHERE id = ?");
+  const writeReasons = db.prepare("UPDATE weekly_plan SET degraded_reasons = ? WHERE id = ?");
+  const days = db
+    .prepare(
+      `SELECT pd.plan_id AS plan_id, pd.date AS date FROM planned_dinner pd JOIN weekly_plan wp ON wp.id = pd.plan_id
+       WHERE pd.dish_id = ? AND wp.status = 'generated'`,
+    )
+    .all(dishId) as { plan_id: number; date: string }[];
+  for (const { plan_id, date } of days) {
+    clearDay.run(plan_id, date);
+    const row = readReasons.get(plan_id) as { degraded_reasons: string };
+    const kept = parseDegradedReasons(row.degraded_reasons).filter((r) => r.date !== date);
+    writeReasons.run(JSON.stringify(kept), plan_id);
+  }
 }
