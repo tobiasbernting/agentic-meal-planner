@@ -109,6 +109,19 @@ describe("the service worker script", () => {
     expect(config.texts.en).toMatchObject({ banner: "Shown from copy, updated {time}", saved: "Saved, will sync when the app next reaches home" });
   });
 
+  it("carries the texts saying when Pending Changes are replayed, in both languages", async () => {
+    const { config } = await workerScript();
+
+    expect(config.texts.en).toMatchObject({
+      replayNextOpen: "Replayed the next time the app is opened at home",
+      replayBackground: "Replayed in the background when the phone is back home, and on the next open",
+    });
+    expect(config.texts.sv).toMatchObject({
+      replayNextOpen: "Skickas nästa gång appen öppnas hemma",
+      replayBackground: "Skickas i bakgrunden när telefonen är hemma igen, och nästa gång appen öppnas",
+    });
+  });
+
   it("carries the synthetic pages as full shell pages with back-link and text placeholders", async () => {
     const { config } = await workerScript();
 

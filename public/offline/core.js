@@ -8,6 +8,10 @@ const PASSTHROUGH_PATHS = ["/plan-run/banner", "/logs/stream", "/health", "/sw.j
 
 const MANIFEST_PATH = "/manifest.webmanifest";
 
+/** The worker's own pages, served from config.frames; an offline htmx write redirects to the first. */
+const SAVED_PATH = "/offline/saved";
+const REQUIRES_CONNECTION_PATH = "/offline/requires-connection";
+
 /** The empty element page() in src/ui/layout.ts puts once on every page. */
 const BANNER_MARKER = '<div id="offline-banner"></div>';
 
@@ -51,7 +55,7 @@ function findRoute(patterns, path) {
  * What the worker should do with a request.
  * @param {Request} request
  * @param {{ queueable: string[], onlineOnly: string[], pages: string[] }} config
- * @returns {{ kind: "asset" } | { kind: "page", cacheable: boolean } | { kind: "queueable-write" | "online-only-write", route: string } | { kind: "passthrough" }}
+ * @returns {{ kind: "asset" } | { kind: "page", cacheable: boolean } | { kind: "offline-page", page: "saved" | "requiresConnection" } | { kind: "queueable-write" | "online-only-write", route: string } | { kind: "passthrough" }}
  */
 export function classify(request, config) {
   const path = new URL(request.url).pathname;
@@ -64,6 +68,8 @@ export function classify(request, config) {
   }
   if (request.method !== "GET") return { kind: "passthrough" };
   if (path.startsWith("/assets/") || path === MANIFEST_PATH) return { kind: "asset" };
+  if (path === SAVED_PATH) return { kind: "offline-page", page: "saved" };
+  if (path === REQUIRES_CONNECTION_PATH) return { kind: "offline-page", page: "requiresConnection" };
   if (request.headers.has("HX-Request") || PASSTHROUGH_PATHS.includes(path)) return { kind: "passthrough" };
   return { kind: "page", cacheable: findRoute(config.pages, path) !== undefined };
 }
@@ -153,6 +159,23 @@ function htmlResponse(body, status) {
 }
 
 /**
+ * Where a back link may point: the path and query of a same-origin URL or path, else home.
+ * Used for a write's referrer and for the `?back=` of the worker's own pages.
+ * @param {string | null | undefined} value an absolute URL or a path
+ * @param {string} origin the app's origin
+ */
+export function backPath(value, origin) {
+  if (!value) return "/";
+  let url;
+  try {
+    url = new URL(value, origin);
+  } catch {
+    return "/";
+  }
+  return url.origin === new URL(origin).origin ? url.pathname + url.search : "/";
+}
+
+/**
  * The response the worker gives when the network failed.
  * @param {ReturnType<typeof classify>} classification
  * @param {{
@@ -178,10 +201,91 @@ export function offlineResponseFor(classification, context) {
     case "online-only-write":
       return htmx ? new Response(null, { status: 204 }) : requiresConnection();
     case "queueable-write":
-      return htmx ? new Response(null, { status: 204 }) : htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+      if (htmx) return new Response(null, { status: 204, headers: { "HX-Redirect": `${SAVED_PATH}?back=${encodeURIComponent(back)}` } });
+      return htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+    case "offline-page":
+      return classification.page === "saved" ? htmlResponse(fillFrame(frames.saved, texts.saved, back), 200) : requiresConnection();
     case "asset":
       return new Response(null, { status: 404 });
     default:
       return new Response(null, { status: 204 });
   }
+}
+
+/**
+ * A Pending Change as the worker stores it in IndexedDB (ADR-0007).
+ * @typedef {{
+ *   id: string,
+ *   method: "POST",
+ *   url: string,
+ *   body: string,
+ *   contentType: string,
+ *   key: string,
+ *   createdAt: string,
+ *   state: "pending" | "failed",
+ *   reason?: string,
+ * }} PendingChange
+ */
+
+/**
+ * The Pending Change for a queueable form post that could not reach the server. Its id and its
+ * Idempotency-Key are two separate UUIDs.
+ * @param {{ url: string, body: string, contentType: string, now: Date, uuid: () => string }} write
+ * @returns {PendingChange}
+ */
+export function newPendingChange({ url, body, contentType, now, uuid }) {
+  const id = uuid();
+  const key = uuid();
+  return { id, method: "POST", url, body, contentType, key, createdAt: now.toISOString(), state: "pending" };
+}
+
+/**
+ * The order to replay Pending Changes in: oldest first, the given order for equal timestamps.
+ * Returns a new array.
+ * @template {{ createdAt: string }} T
+ * @param {readonly T[]} queue
+ * @returns {T[]}
+ */
+export function replayOrder(queue) {
+  return queue.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}
+
+/**
+ * The fetch that replays a Pending Change. Always the stored Idempotency-Key, so the server
+ * applies the change once however often it is replayed (src/offline/idempotency.ts).
+ * @param {PendingChange} entry
+ * @returns {{ url: string, init: RequestInit }}
+ */
+export function replayRequest(entry) {
+  return {
+    url: entry.url,
+    init: {
+      method: entry.method,
+      headers: { "content-type": entry.contentType, "Idempotency-Key": entry.key },
+      body: entry.body,
+      redirect: "follow",
+    },
+  };
+}
+
+/**
+ * Reverses escapeHtml (and src/ui/layout.ts's), which is all the server's escaping does.
+ * @param {string} html
+ */
+function unescapeHtml(html) {
+  return html.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
+}
+
+/**
+ * What a replay's response means for its Pending Change. A network error never gets here: the
+ * glue keeps the change and stops the run.
+ * @param {number} status
+ * @param {string} bodyHtml the response body, read for a refusal's notice
+ * @returns {{ kind: "drop" } | { kind: "failed", reason: string } | { kind: "keep" }}
+ */
+export function replayOutcome(status, bodyHtml) {
+  if (status < 400) return { kind: "drop" };
+  if (status >= 500) return { kind: "keep" };
+  const notice = /<span class="notice-text">([^<]*)<\/span>/.exec(bodyHtml);
+  return { kind: "failed", reason: notice ? unescapeHtml(notice[1]) : `HTTP ${status}` };
 }
