@@ -27,6 +27,11 @@ export interface PlanRunDetails {
 
 export type PlanRunState = { inFlight: InFlightPlanRun } | { outcome: PlanRunOutcome };
 
+/** True when `state` is a run in flight rather than an outcome. */
+export function isInFlightState(state: PlanRunState | undefined): state is { inFlight: InFlightPlanRun } {
+  return state !== undefined && "inFlight" in state;
+}
+
 export interface PlanRunRegistry {
   /** Registers a Plan Run for the week; false (and nothing changes) when one is already in flight. */
   start(weekStart: string, run: { runId: string; startedAt: Date }): boolean;
@@ -38,13 +43,15 @@ export interface PlanRunRegistry {
   fail(weekStart: string, at: Date, message: string): void;
   /** The week's in-flight run, else its last outcome, else undefined. */
   get(weekStart: string): PlanRunState | undefined;
+  /** True while the week has a Plan Run in flight. */
+  isInFlight(weekStart: string): boolean;
 }
 
 export function createPlanRunRegistry(): PlanRunRegistry {
   const weeks = new Map<string, PlanRunState>();
   const inFlight = (weekStart: string) => {
     const state = weeks.get(weekStart);
-    return state && "inFlight" in state ? state.inFlight : undefined;
+    return isInFlightState(state) ? state.inFlight : undefined;
   };
   return {
     start(weekStart, { runId, startedAt }) {
@@ -69,6 +76,9 @@ export function createPlanRunRegistry(): PlanRunRegistry {
     },
     get(weekStart) {
       return weeks.get(weekStart);
+    },
+    isInFlight(weekStart) {
+      return inFlight(weekStart) !== undefined;
     },
   };
 }

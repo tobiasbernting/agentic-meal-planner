@@ -187,16 +187,12 @@ async function finishPlan(
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
   // Read the ports at run time: `ctx.llm` follows the Settings agent command.
   const ingestDeps = () => ({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now });
-  const inFlight = (weekStart: string) => {
-    const run = ctx.planRuns.get(weekStart);
-    return run !== undefined && "inFlight" in run;
-  };
 
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    const runInFlight = inFlight(weekStart);
+    const runInFlight = ctx.planRuns.isInFlight(weekStart);
     let notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
     if (req.query.notice === "lunch-changed") {
       const changes = describeChanges(ctx.db, req.query.changed);
@@ -243,7 +239,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     // FR-9a: generate never replaces a confirmed plan.
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed") return reply.redirect(`/plan?week=${weekStart}&notice=confirmed`, 303);
     return startRun(req, reply, weekStart, "generate");
@@ -253,7 +249,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
   // week's plan, and reports stored Lunch Entries that changed. No silent re-plan.
   app.post<{ Body: RegenerateForm }>("/plan/regenerate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
       const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
@@ -266,7 +262,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
   // Regenerate in progress would overwrite the plan the user just confirmed.
   app.post<{ Body: GenerateForm }>("/plan/confirm", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     confirmPlan(ctx.db, weekStart);
     return reply.redirect(`/plan?week=${weekStart}&notice=plan-confirmed`, 303);
   });
