@@ -25,6 +25,7 @@ import { describeDegraded, type DegradedReason } from "../planner/degraded.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, weekNav } from "../ui/almanac.js";
+import { swapControl } from "../swap/routes.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
@@ -119,14 +120,23 @@ ${runInFlight ? "" : `<div class="actions">${weekForm(weekStart, "/plan/generate
 
 /**
  * The seven almanac rows, all open (density `full`). Per-day hooks for later tickets:
- * `swapHtml` takes the Swap control (#81; until then the almanac's disabled placeholder) and
+ * `swapHtml` takes the Swap control (#81; empty when Swap is unavailable) and
  * `extraHtml` the day's degraded reasons (#80).
  */
-function renderDays(db: Database.Database, lang: Lang, weekStart: string, today: string): string {
-  const days = almanac(db, lang);
-  const reasons = getPlanForWeek(db, weekStart)?.degradedReasons ?? [];
+function renderDays(ctx: AppContext, lang: Lang, weekStart: string, today: string): string {
+  const days = almanac(ctx.db, lang);
+  const reasons = getPlanForWeek(ctx.db, weekStart)?.degradedReasons ?? [];
+  const next = `/plan?week=${weekStart}`;
   return weekDates(weekStart)
-    .map((date) => days.day({ date, density: "full", today: date === today, extraHtml: degradedNotices(lang, reasons, date) }))
+    .map((date) =>
+      days.day({
+        date,
+        density: "full",
+        today: date === today,
+        swapHtml: swapControl(ctx, lang, date, next),
+        extraHtml: degradedNotices(lang, reasons, date),
+      }),
+    )
     .join("\n");
 }
 
@@ -207,7 +217,7 @@ ${weekNav(lang, weekStart, "/plan")}
 ${message ? notice({ text: message, role: "status" }) : ""}
 ${plan ? renderPlanTop(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlanTop(lang, weekStart, runInFlight)}
 ${planRunBanner(ctx, lang, weekStart)}
-${renderDays(ctx.db, lang, weekStart, today)}`;
+${renderDays(ctx, lang, weekStart, today)}`;
     reply.type("text/html; charset=utf-8");
     return page({ title: t(lang, "plan.title"), body, lang, tab: "plan" });
   });

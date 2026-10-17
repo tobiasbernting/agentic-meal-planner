@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { almanac } from "../almanac/day.js";
+import { swapControl } from "../swap/routes.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { runLogger } from "../logging/logger.js";
 import { listDishes } from "../dishes/repo.js";
@@ -42,7 +43,17 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
     const density = (date: string): DayDensity => (date === today ? "full" : date === tomorrow ? "half" : "compact");
     const days = almanac(ctx.db, lang);
     const noPlanHtml = `<p>${t(lang, "today.noPlan")} <a href="/plan">${t(lang, "today.planThisWeek")}</a></p>`;
-    const rows = dates.map((date) => days.day({ date, density: density(date), today: date === today, noPlanHtml })).join("\n");
+    const rows = dates
+      .map((date) =>
+        days.day({
+          date,
+          density: density(date),
+          today: date === today,
+          noPlanHtml,
+          swapHtml: date === today ? swapControl(ctx, lang, date, "/") : undefined,
+        }),
+      )
+      .join("\n");
     const refresh =
       listSchools(ctx.db).length > 0
         ? `<form method="post" action="/lunch/refresh"><button type="submit" class="quiet">${t(lang, "today.refresh")}</button></form>`

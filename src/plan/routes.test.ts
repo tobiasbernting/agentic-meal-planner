@@ -58,7 +58,7 @@ describe("GET /plan", () => {
     for (const date of weekDates(WEEK)) expect(row(res.body, date)).toContain("No plan");
   });
 
-  it("opens all seven days with Dish, minutes, Quick Day tag, rationale and a Swap placeholder, or the no-eligible-dish notice", async () => {
+  it("opens all seven days with Dish, minutes, Quick Day tag, rationale and Byt, or the no-eligible-dish notice", async () => {
     const app = await start();
     const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
     const dinners = weekDates(WEEK).map((date) => ({
@@ -79,7 +79,7 @@ describe("GET /plan", () => {
     expect(monday).toContain('<div class="day-dinner">Burgers</div>');
     expect(monday).toContain("20 min");
     expect(monday).toContain('<p class="why">burgers on 2026-10-19</p>');
-    expect(monday).toMatch(/<button type="button" disabled>Swap dish<\/button>/);
+    expect(monday).toMatch(/<a class="button" href="\/plan\/swap\?date=2026-10-19[^"]*"[^>]*>Swap dish<\/a>/);
     expect(row(res.body, "2026-10-25")).toContain("burgers on 2026-10-25");
     expect(row(res.body, "2026-10-20")).toContain("Quick Day");
     expect(res.body.match(/Quick Day/g)).toHaveLength(1);
