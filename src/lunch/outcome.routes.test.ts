@@ -6,7 +6,7 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/fake.js";
 import { createSchool } from "../schools/repo.js";
-import { getIngestOutcome } from "./outcome.js";
+import { getIngestOutcome, recordIngestOutcome } from "./outcome.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -73,5 +73,34 @@ describe("Ingest Outcome recording", () => {
 
     await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
     expect(getIngestOutcome(app.ctx.db, school.id)).toMatchObject({ status: "cached", reason: null });
+  });
+});
+
+describe("Schools page", () => {
+  it("shows each School's latest Ingest Outcome with reason and time", async () => {
+    const app = await start({ fetchPage: failingFetch, llm: failingAgent() });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    createSchool(app.ctx.db, { name: "Southside", url: "https://south.example/menu" });
+
+    const before = await app.inject({ method: "GET", url: "/schools" });
+    expect(before.body).toContain("No ingest attempt yet");
+
+    await app.inject({ method: "POST", url: "/lunch/refresh" });
+    const res = await app.inject({ method: "GET", url: "/schools" });
+
+    expect(res.body).toContain("No menu data");
+    expect(res.body).toContain("fetch failed: connection refused");
+    expect(res.body).toContain(`<time datetime="${NOW.toISOString()}">`);
+    expect(res.body).not.toContain("No ingest attempt yet");
+  });
+
+  it("labels fetched and cached outcomes in Swedish", async () => {
+    const app = await start();
+    const school = createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    recordIngestOutcome(app.ctx.db, { schoolId: school.id, weekStart: WEEK, status: "fetched", reason: null, recordedAt: NOW.toISOString() });
+
+    const res = await app.inject({ method: "GET", url: "/schools", headers: { cookie: "lang=sv" } });
+
+    expect(res.body).toContain("Hämtad");
   });
 });

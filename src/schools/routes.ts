@@ -1,5 +1,6 @@
 import type { FeaturePlugin } from "../app.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
+import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 import {
   createSchool,
@@ -35,12 +36,20 @@ function action(school: School, verb: string, label: string): string {
   return `<form method="post" action="/schools/${school.id}/${verb}" style="display:inline"><button type="submit">${label}</button></form>`;
 }
 
-function schoolRow(lang: Lang, school: School): string {
+function outcomeLine(lang: Lang, outcome: IngestOutcome | undefined): string {
+  if (!outcome) return `<p class="ingest-outcome">${t(lang, "schools.outcome.none")}</p>`;
+  const reason = outcome.reason ? `: ${escapeHtml(outcome.reason)}` : "";
+  const at = escapeHtml(outcome.recordedAt);
+  return `<p class="ingest-outcome">${t(lang, `schools.outcome.${outcome.status}`)}${reason} <time datetime="${at}">${at}</time></p>`;
+}
+
+function schoolRow(lang: Lang, school: School, outcome?: IngestOutcome): string {
   const status = school.active ? "" : ` <em>(${t(lang, "schools.paused")})</em>`;
   const toggle = school.active ? action(school, "pause", t(lang, "schools.pause")) : action(school, "resume", t(lang, "schools.resume"));
   return `<li>
   <strong>${escapeHtml(school.name)}</strong>${status} &mdash; <a href="${escapeHtml(school.url)}">${escapeHtml(school.url)}</a>
   <a href="/schools/${school.id}/edit">${t(lang, "common.edit")}</a> ${toggle} ${action(school, "delete", t(lang, "common.delete"))}
+  ${outcomeLine(lang, outcome)}
 </li>`;
 }
 
@@ -53,11 +62,12 @@ function notice(error?: string): string {
   return error ? `<p role="alert">${escapeHtml(error)}</p>` : "";
 }
 
-function listPage(lang: Lang, schools: School[], error?: string): string {
+function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], error?: string): string {
+  const bySchool = new Map(outcomes.map((o) => [o.schoolId, o]));
   const body = `<h1>${t(lang, "schools.title")}</h1>
 ${notice(error)}
 <ul>
-${schools.map((s) => schoolRow(lang, s)).join("\n")}
+${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id))).join("\n")}
 </ul>
 <h2>${t(lang, "schools.addHeading")}</h2>
 <form method="post" action="/schools">
@@ -83,14 +93,14 @@ export const schoolRoutes: FeaturePlugin = async (app, { db }) => {
 
   app.get("/schools", async (req, reply) => {
     html(reply);
-    return listPage(langOf(req), listSchools(db));
+    return listPage(langOf(req), listSchools(db), listIngestOutcomes(db));
   });
 
   app.post<{ Body: SchoolForm }>("/schools", async (req, reply) => {
     const input = parseSchoolForm(req.body);
     if (!input) {
       html(reply.code(400));
-      return listPage(langOf(req), listSchools(db), t(langOf(req), "schools.invalid"));
+      return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), t(langOf(req), "schools.invalid"));
     }
     createSchool(db, input);
     return reply.redirect("/schools", 303);
