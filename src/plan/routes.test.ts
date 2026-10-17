@@ -134,8 +134,8 @@ describe("GET /plan", () => {
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=sv" } });
 
     expect(res.body).toContain('aria-label="Vecka 43"');
-    expect(top(res.body)).toMatch(/v\. 42 <span aria-hidden="true">‹<\/span>/);
-    expect(top(res.body)).toMatch(/<span aria-hidden="true">›<\/span> v\. 44/);
+    expect(top(res.body)).toMatch(/<span aria-hidden="true">‹<\/span> v\. 42/);
+    expect(top(res.body)).toMatch(/v\. 44 <span aria-hidden="true">›<\/span>/);
     expect(top(res.body)).toContain("Status: genererad");
     expect(top(res.body)).toContain("Bekräfta planen");
     expect(top(res.body)).toContain("Generera planen igen");
@@ -202,8 +202,8 @@ describe("GET /plan", () => {
 
     expect(res.body).toContain('aria-label="Week 44"');
     expect(row(res.body, "2026-10-26")).toContain('<time datetime="2026-10-26">');
-    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-10-19" rel="prev"[^>]*>wk 43 <span aria-hidden="true">‹<\/span><\/a>/);
-    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-11-02" rel="next"[^>]*><span aria-hidden="true">›<\/span> wk 45<\/a>/);
+    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-10-19" rel="prev"[^>]*><span aria-hidden="true">‹<\/span> wk 43<\/a>/);
+    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-11-02" rel="next"[^>]*>wk 45 <span aria-hidden="true">›<\/span><\/a>/);
     expect((await app.inject({ method: "GET", url: "/plan?week=garbage" })).body).toContain(`id="day-${WEEK}"`);
   });
 
@@ -213,8 +213,8 @@ describe("GET /plan", () => {
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-12-28" });
 
     expect(res.body).toContain('aria-label="Week 53"');
-    expect(top(res.body)).toContain("wk 52 ");
-    expect(top(res.body)).toContain("</span> wk 1</a>");
+    expect(top(res.body)).toContain("</span> wk 52</a>");
+    expect(top(res.body)).toContain("wk 1 <span");
   });
 });
 

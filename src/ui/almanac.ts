@@ -24,7 +24,7 @@ export function weekHead(lang: Lang, date: string): string {
 }
 
 /**
- * Week navigation under the week landmark, "v. 41 ‹" and "› v. 43": links to `path?week=<monday>`
+ * Week navigation under the week landmark, "‹ v. 41" and "v. 43 ›": links to `path?week=<monday>`
  * for the neighbouring ISO weeks. Plan and Shopping share it.
  */
 export function weekNav(lang: Lang, weekStart: string, path: string): string {
@@ -34,8 +34,8 @@ export function weekNav(lang: Lang, weekStart: string, path: string): string {
   const name = (key: "week.prev" | "week.next", date: string) =>
     `${escapeHtml(t(lang, key))}, ${escapeHtml(t(lang, "week.label", { n: isoWeek(date) }))}`;
   return `<nav class="week-nav" aria-label="${escapeHtml(t(lang, "week.nav"))}">
-<a href="${path}?week=${prev}" rel="prev" aria-label="${name("week.prev", prev)}">${abbr} ${isoWeek(prev)} <span aria-hidden="true">‹</span></a>
-<a href="${path}?week=${next}" rel="next" aria-label="${name("week.next", next)}"><span aria-hidden="true">›</span> ${abbr} ${isoWeek(next)}</a>
+<a href="${path}?week=${prev}" rel="prev" aria-label="${name("week.prev", prev)}"><span aria-hidden="true">‹</span> ${abbr} ${isoWeek(prev)}</a>
+<a href="${path}?week=${next}" rel="next" aria-label="${name("week.next", next)}">${abbr} ${isoWeek(next)} <span aria-hidden="true">›</span></a>
 </nav>`;
 }
 

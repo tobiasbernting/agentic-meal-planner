@@ -110,6 +110,7 @@ export const en = {
   "shopping.sendFailed": "Could not send to {sink}: {error}",
   "shopping.failedLabel": "Failed",
   "shopping.pushAgain": "Send again",
+  "shopping.noSink": "No recipient set up",
   "shopping.notPushed": "Not pushed anywhere",
   "shopping.unknownError": "unknown error",
   "shopping.notice.run-in-progress": "A Plan Run is in progress for this week. The Shopping List was not changed.",
