@@ -6,7 +6,7 @@
  */
 import type { FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { addDays, mondayOf } from "../week.js";
+import { addDays, resolveWeek } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
@@ -19,18 +19,12 @@ import { planRunBanner } from "../plan-run/routes.js";
 
 NAV.push({ href: "/shopping", label: "nav.shopping" });
 
-const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
-
 interface ShoppingQuery {
   week?: string;
 }
 
 interface BuildForm {
   weekStart?: string;
-}
-
-function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
 function renderItem(item: AggregatedItem): string {
@@ -70,8 +64,9 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    const run = ctx.planRuns.get(weekStart);
-    const rebuild = (label: string) => (run && "inFlight" in run ? "" : buildForm(weekStart, label));
+    const runInFlight = ctx.planRuns.isInFlight(weekStart);
+    /** The Build or Rebuild form, or nothing while the week's Plan Run is in flight. */
+    const buildFormUnlessInFlight = (label: string) => (runInFlight ? "" : buildForm(weekStart, label));
     let content: string;
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
@@ -80,10 +75,10 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
       content =
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
-${rebuild(t(lang, "shopping.build"))}`
+${buildFormUnlessInFlight(t(lang, "shopping.build"))}`
           : `${renderSection(lang, "buy", t(lang, "shopping.buy"), buy)}
 ${renderSection(lang, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
-${rebuild(t(lang, "shopping.rebuild"))}
+${buildFormUnlessInFlight(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
     }
     const body = `<h1>${t(lang, "shopping.title")}</h1>

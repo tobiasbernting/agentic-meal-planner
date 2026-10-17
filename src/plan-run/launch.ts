@@ -1,27 +1,15 @@
-import type { LunchChange } from "../lunch/ingest.js";
 import { runWithRunId } from "../logging/run-context.js";
-import type { Logger } from "../logging/logger.js";
 import type { OnProgress } from "./phase.js";
-import { logPlanRunProgress } from "./progress-log.js";
-import type { PlanRunRegistry } from "./registry.js";
+import type { PlanRunDetails } from "./registry.js";
+import { trackPlanRun, type TrackPlanRunDeps } from "./track.js";
 
-export interface LaunchPlanRunDeps {
-  planRuns: PlanRunRegistry;
-  now: () => Date;
-  /** The run logger (already bound to the run's component); Phase records go to its `plan-run` child. */
-  log: Logger;
-}
-
-/** What a finished pipeline hands back for the outcome. */
-export interface PlanRunDetails {
-  lunchChanged?: LunchChange[];
-}
+export type LaunchPlanRunDeps = TrackPlanRunDeps;
 
 /**
- * Registers a Plan Run for the week and starts `pipeline` without awaiting it. Every Phase
- * report updates the registry and is logged; the pipeline runs under `runId` so shared loggers
- * tag its records. Returns false, starting nothing, when the week already has a run in flight.
- * A throw from the pipeline is logged at error level and ends the run as failed.
+ * Registers a Plan Run for the week and starts `pipeline` without awaiting it, tracked by
+ * `trackPlanRun` (see there for what a failure leaves stored); it runs under `runId` so shared
+ * loggers tag its records. Returns false, starting nothing, when the week already has a run in
+ * flight. Anything thrown after the run is tracked (ending it, logging) is logged at error level.
  */
 export function launchPlanRun(
   deps: LaunchPlanRunDeps,
@@ -29,19 +17,19 @@ export function launchPlanRun(
   pipeline: (onProgress: OnProgress) => Promise<PlanRunDetails | void>,
 ): boolean {
   if (!deps.planRuns.start(weekStart, { runId, startedAt: deps.now() })) return false;
-  const logProgress = logPlanRunProgress(deps.log, weekStart);
-  const onProgress: OnProgress = (event) => {
-    deps.planRuns.report(weekStart, event);
-    logProgress(event);
+  let pipelineError: unknown;
+  const tracked = async (onProgress: OnProgress) => {
+    try {
+      return await pipeline(onProgress);
+    } catch (error) {
+      pipelineError = error;
+      throw error;
+    }
   };
   // Runs synchronously up to the pipeline's first await, so its first Phase is in the registry on return.
-  void runWithRunId(runId, () => new Promise<PlanRunDetails | void>((resolve) => resolve(pipeline(onProgress)))).then(
-    (details) => deps.planRuns.finish(weekStart, deps.now(), details ?? {}),
-    (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      deps.log.child({ component: "plan-run" }).error({ weekStart, err: message }, "plan run failed");
-      deps.planRuns.fail(weekStart, deps.now(), message);
-    },
-  );
+  void runWithRunId(runId, () => trackPlanRun(deps, weekStart, tracked, (details) => details ?? {})).catch((error: unknown) => {
+    if (error === pipelineError) return; // trackPlanRun has logged it and marked the run failed
+    deps.log.child({ component: "plan-run" }).error({ weekStart, err: error instanceof Error ? error.message : String(error) }, "plan run tracking failed");
+  });
   return true;
 }

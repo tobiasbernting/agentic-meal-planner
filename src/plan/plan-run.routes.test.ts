@@ -143,6 +143,25 @@ describe("Plan Run started from the Plan page", () => {
     expect(llm.calls.filter((c) => c.method === "selectDishes")).toHaveLength(1);
   });
 
+  it("withholds Confirm while a Regenerate is in flight and refuses a confirm posted meanwhile (FR-9a)", async () => {
+    const held = deferred<LlmResult<SelectedDish[]>>();
+    const app = await start({ llm: new ScriptedLlmAgent({ selectDishes: () => held.promise }) });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(burgers), degradedReasons: [] }, NOW.toISOString());
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    const during = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(during.body).not.toContain('action="/plan/confirm"');
+    const confirm = await app.inject({ method: "POST", url: "/plan/confirm", payload: { weekStart: WEEK } });
+
+    expect(confirm.statusCode).toBe(303);
+    expect(confirm.headers.location).toBe(`/plan?week=${WEEK}&notice=run-in-progress`);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).toContain("Status: generated");
+    held.resolve({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).toContain('action="/plan/confirm"');
+  });
+
   it("runs two different weeks at the same time", async () => {
     const holds = [deferred<LlmResult<SelectedDish[]>>(), deferred<LlmResult<SelectedDish[]>>()];
     let call = 0;
@@ -264,6 +283,29 @@ describe("a Plan Run that throws", () => {
     expect(before.dinners).toHaveLength(7);
     expect(before.shoppingList?.join("")).toContain("<li>400 g pasta</li>");
     expect({ dinners: await dinners(), shoppingList: await shoppingList() }).toEqual(before);
+  });
+
+  it("keeps the new plan when a Regenerate throws after Dish selection (the plan is saved before ingredients)", async () => {
+    let stew = 0;
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({ ok: true, value: input.days.map((d) => ({ date: d.date, dishId: String(stew), rationale: "r" })) }),
+      findRecipe: () => {
+        throw new Error("recipe search exploded");
+      },
+    });
+    const app = await start({ llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    stew = createDish(app.ctx.db, { name: "Stew", prepTimeMinutes: 20 });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(burgers), degradedReasons: [] }, NOW.toISOString());
+
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    await planRunSettled(app, WEEK);
+
+    const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(view.body.match(/<strong>Stew<\/strong>/g)).toHaveLength(7);
+    expect(view.body).not.toContain("<strong>Burgers</strong>");
+    expect(view.body).toContain("Plan Run failed 18:30: recipe search exploded");
+    expect(view.body).toContain('action="/plan/regenerate"');
   });
 
   it("offers Regenerate again after a failure, and the next run replaces the failed outcome", async () => {

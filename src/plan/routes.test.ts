@@ -207,9 +207,9 @@ describe("POST /plan/generate", () => {
     const north = createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
     upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
 
-    const res = await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
-    expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).not.toContain("Lunch menu changed");
   });
 
   it("does not replace a confirmed plan and says so (FR-9a)", async () => {

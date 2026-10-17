@@ -88,7 +88,7 @@ describe("runWeeklyPlanning", () => {
     const db = freshDb();
     createDish(db, { name: "A", prepTimeMinutes: 20 });
     const seen: number[] = [];
-    const deps = { db, llm: new NoAgent(), fetchPage: async () => "", now: () => SUNDAY, afterPlan: async (planId: number) => void seen.push(planId) };
+    const deps = { db, llm: new NoAgent(), fetchPage: async () => "", now: () => SUNDAY, afterPlan: async ({ planId }: { planId: number }) => void seen.push(planId) };
 
     const first = await runWeeklyPlanning(deps);
     confirmPlan(db, NEXT_MONDAY);
@@ -130,7 +130,7 @@ describe("runWeeklyPlanning", () => {
       fetchPage,
       now: () => SUNDAY,
       log: logger.child({ runId }),
-      afterPlan: (planId, log, onProgress) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
+      afterPlan: ({ planId, log, onProgress }) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
     });
 
     const planRun = records.filter((r) => r.component === "plan-run");
@@ -221,5 +221,29 @@ describe("runWeeklyPlanning", () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("runWeeklyPlanning that throws", () => {
+  it("logs the error under the cron run id, marks the run failed, and rethrows", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    const planRuns = createPlanRunRegistry();
+    const { logger, records } = createCapturingLogger();
+    const runId = "cron-2026-10-11T16:00:00.000Z";
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        throw new Error("agent exploded");
+      },
+    });
+
+    await expect(runWeeklyPlanning({ db, llm, fetchPage: async () => "", now: () => SUNDAY, log: logger.child({ runId }), planRuns })).rejects.toThrow(
+      "agent exploded",
+    );
+
+    expect(records).toContainEqual(
+      expect.objectContaining({ level: "error", component: "plan-run", runId, weekStart: NEXT_MONDAY, err: "agent exploded" }),
+    );
+    expect(planRuns.get(NEXT_MONDAY)).toMatchObject({ outcome: { kind: "failed", message: "agent exploded" } });
   });
 });
