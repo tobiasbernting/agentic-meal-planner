@@ -56,8 +56,17 @@ function extraLines(db: Database.Database, weekStart: string): ShoppingLine[] {
   return rows.map((r) => ({ name: r.name, quantity: r.quantity, unit: null, sourceDishIds: [], checked: false, extraId: r.id }));
 }
 
-function checkedNames(db: Database.Database, weekStart: string): Set<string> {
-  const rows = db.prepare("SELECT name FROM shopping_checked WHERE week_start = ?").all(weekStart) as { name: string }[];
+export function removeLine(db: Database.Database, weekStart: string, name: string): void {
+  db.prepare("INSERT OR IGNORE INTO shopping_removed (week_start, name) VALUES (?, ?)").run(weekStart, normaliseName(name));
+}
+
+export function restoreLine(db: Database.Database, weekStart: string, name: string): void {
+  db.prepare("DELETE FROM shopping_removed WHERE week_start = ? AND name = ?").run(weekStart, normaliseName(name));
+}
+
+function namesIn(db: Database.Database, table: "shopping_checked" | "shopping_removed", weekStart: string | undefined): Set<string> {
+  if (!weekStart) return new Set();
+  const rows = db.prepare(`SELECT name FROM ${table} WHERE week_start = ?`).all(weekStart) as { name: string }[];
   return new Set(rows.map((r) => r.name));
 }
 
@@ -68,12 +77,15 @@ function checkedLast(lines: ShoppingLine[]): ShoppingLine[] {
 
 /** An unknown plan (`weekStart` undefined) has no edits: every line open, nothing removed. */
 export function applyEdits(db: Database.Database, weekStart: string | undefined, { buy, checkPantry }: ShoppingSections): StoredShoppingList {
-  const checked = weekStart ? checkedNames(db, weekStart) : new Set<string>();
+  const checked = namesIn(db, "shopping_checked", weekStart);
+  const removed = namesIn(db, "shopping_removed", weekStart);
   const extras = weekStart ? extraLines(db, weekStart) : [];
   const line = (item: ShoppingLine | AggregatedItem): ShoppingLine => ({ ...item, checked: checked.has(normaliseName(item.name)) });
+  const isRemoved = (item: AggregatedItem) => removed.has(normaliseName(item.name));
+  const kept = (items: AggregatedItem[]) => items.filter((item) => !isRemoved(item));
   return {
-    buy: checkedLast([...buy, ...extras].map(line)),
-    checkPantry: checkedLast(checkPantry.map(line)),
-    removed: [],
+    buy: checkedLast([...kept(buy), ...extras].map(line)),
+    checkPantry: checkedLast(kept(checkPantry).map(line)),
+    removed: [...buy, ...checkPantry].filter(isRemoved).map(line),
   };
 }

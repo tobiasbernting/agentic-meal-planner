@@ -121,6 +121,12 @@ export const sv: Dictionary = {
   "shopping.extraQuantity": "Mängd (valfritt)",
   "shopping.addExtra": "Lägg till",
   "shopping.deleteExtraFor": "Ta bort {name}",
+  "shopping.remove": "Ta bort",
+  "shopping.removeFor": "Ta bort {name} från veckans lista",
+  "shopping.restore": "Återställ",
+  "shopping.restoreFor": "Återställ {name}",
+  "count.removed.one": "{n} borttagen",
+  "count.removed.other": "{n} borttagna",
 
   "dishes.title": "Rätter",
   "dishes.add": "Lägg till rätt",

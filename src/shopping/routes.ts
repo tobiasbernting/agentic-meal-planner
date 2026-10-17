@@ -19,7 +19,7 @@ import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, buyFingerprint, getShoppingList } from "./build.js";
-import { addExtraItem, checkLine, deleteExtraItem, uncheckLine, type ShoppingLine } from "./edits.js";
+import { addExtraItem, checkLine, deleteExtraItem, removeLine, restoreLine, uncheckLine, type ShoppingLine } from "./edits.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
@@ -101,6 +101,27 @@ function addExtraForm(lang: Lang, weekStart: string): string {
 </form>`;
 }
 
+/** Takes a Dish-derived line off this week's list ("we already have this"). */
+function removeForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
+  const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.removeFor", { name: line.name }))}">${t(lang, "shopping.remove")}</button>`;
+  return lineForm("/shopping/remove", weekStart, line.name, button);
+}
+
+/** "N removed", closed by default, listing each Removed Line with a restore control. Empty when none. */
+function renderRemoved(lang: Lang, weekStart: string, removed: ShoppingLine[]): string {
+  if (removed.length === 0) return "";
+  const rows = removed.map((line) => {
+    const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.restoreFor", { name: line.name }))}">${t(lang, "shopping.restore")}</button>`;
+    return `<li class="row with-actions"><span class="row-label">${escapeHtml(itemLabel(line))}</span><div class="row-actions">${lineForm("/shopping/restore", weekStart, line.name, button)}</div></li>`;
+  });
+  return `<details id="removed">
+<summary>${escapeHtml(t(lang, removed.length === 1 ? "count.removed.one" : "count.removed.other", { n: removed.length }))}</summary>
+<ul class="rows">
+${rows.join("\n")}
+</ul>
+</details>`;
+}
+
 /** The tick: checks an open line, unchecks a Checked Off one. */
 function tickForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
   const key = line.checked ? "shopping.uncheck" : "shopping.check";
@@ -180,15 +201,18 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
-      const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
-      /** An Extra Item can be deleted; a Dish-derived Buy line can become a Pantry Item. */
-      const buyActions = (line: ShoppingLine) => (line.extraId !== undefined ? [deleteExtraForm(lang, weekStart, line)] : alwaysHome ? [alwaysHome(line)] : []);
+      const { buy, checkPantry, removed } = getShoppingList(ctx.db, plan.id);
+      /** A Dish-derived line can be removed for the week; in Buy it can also become a Pantry Item. An Extra Item is deleted instead. */
+      const dishLineActions = (line: ShoppingLine) => [removeForm(lang, weekStart, line)];
+      const buyActions = (line: ShoppingLine) =>
+        line.extraId !== undefined ? [deleteExtraForm(lang, weekStart, line)] : [...(alwaysHome ? [alwaysHome(line)] : []), ...dishLineActions(line)];
       content =
-        buy.length + checkPantry.length === 0
+        buy.length + checkPantry.length + removed.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
           : `${renderSection(lang, dishName, weekStart, "buy", t(lang, "shopping.buy"), buy, buyActions, `\n${addExtraForm(lang, weekStart)}`)}
-${renderSection(lang, dishName, weekStart, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, () => [])}
+${renderSection(lang, dishName, weekStart, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, dishLineActions)}
+${renderRemoved(lang, weekStart, removed)}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
     }
@@ -237,6 +261,8 @@ ${content}`;
   };
   lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
   lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/remove", (weekStart, name) => removeLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/restore", (weekStart, name) => restoreLine(ctx.db, weekStart, name));
 
   app.post<{ Body: ExtraForm }>("/shopping/extra", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));

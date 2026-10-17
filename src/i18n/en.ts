@@ -119,6 +119,12 @@ export const en = {
   "shopping.extraQuantity": "Quantity (optional)",
   "shopping.addExtra": "Add",
   "shopping.deleteExtraFor": "Delete {name}",
+  "shopping.remove": "Remove",
+  "shopping.removeFor": "Remove {name} from this week's list",
+  "shopping.restore": "Restore",
+  "shopping.restoreFor": "Restore {name}",
+  "count.removed.one": "{n} removed",
+  "count.removed.other": "{n} removed",
 
   "dishes.title": "Dishes",
   "dishes.add": "Add dish",

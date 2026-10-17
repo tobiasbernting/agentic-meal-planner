@@ -249,6 +249,25 @@ main > section#buy, main > section#check-pantry, main > section#sinks { margin-i
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
 .sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
 
+/* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the line beside it.
+   Checked Off lines are struck through and muted, never removed; the add row closes Buy. */
+.rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr; align-items: start; gap: 0 4px; padding: 10px var(--gutter) 10px calc(var(--gutter) - 8px); }
+.line form { margin: 0; }
+.line .tick { width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; }
+.line .tick::before { content: ""; display: block; width: 22px; height: 22px; border: 1.5px solid var(--ink); background: var(--raised); }
+.line-checked .tick::before { background: var(--ink); box-shadow: inset 0 0 0 3px var(--raised); }
+.line-body { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: var(--tap); }
+.line-checked .row-label { color: var(--muted); font-weight: 400; }
+.line-checked .row-status { opacity: 0.7; }
+.extra-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 10px var(--gutter) 0; }
+.extra-add label { margin-top: 0; }
+.extra-add input { margin-top: 4px; }
+.extra-add input[name="quantity"] { width: 7em; }
+main > #removed { margin-inline: 0; }
+#removed summary { padding: 14px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); cursor: pointer; }
+#removed .rows { border-top: 1px solid var(--rule); }
+#removed .row-label { color: var(--muted); font-weight: 400; }
+
 /* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
 .swap-list { flex-basis: 100%; margin: 0; }
 .swap-list .rows { border-top: 1px solid var(--rule); margin-top: 4px; }

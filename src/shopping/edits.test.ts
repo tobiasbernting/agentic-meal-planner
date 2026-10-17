@@ -159,6 +159,68 @@ describe("Extra Items", () => {
   });
 });
 
+describe("Removed Lines", () => {
+  /** The "N removed" disclosure: its summary text and the restorable lines' names. */
+  function removed(html: string): { summary: string; names: string[] } | undefined {
+    const m = /<details id="removed">\s*<summary>([^<]*)<\/summary>([\s\S]*?)<\/details>/.exec(html);
+    if (!m) return undefined;
+    return { summary: m[1]!, names: [...m[2]!.matchAll(/action="\/shopping\/restore">[\s\S]*?name="name" value="([^"]*)"/g)].map((r) => r[1]!) };
+  }
+
+  it("shows a remove control on every Dish-derived line in Buy and Check pantry, none on an Extra Item", async () => {
+    const { app } = await builtList();
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries" });
+
+    const html = await shoppingPage(app);
+
+    const removes = [...html.matchAll(/action="\/shopping\/remove">[\s\S]*?name="name" value="([^"]*)"/g)].map((m) => m[1]);
+    expect(removes).toEqual(["pasta", "ost", "mjölk"]);
+    expect(removed(html)).toBeUndefined();
+  });
+
+  it("POST remove takes the line off its section and lists it as 1 removed with a restore control", async () => {
+    const { app } = await builtList();
+
+    await post(app, "/shopping/remove", { weekStart: WEEK, name: "pasta" });
+
+    const html = await shoppingPage(app);
+    expect(lines(html, "buy")).toEqual([["ost", false]]);
+    expect(removed(html)).toEqual({ summary: "1 removed", names: ["pasta"] });
+    expect(html).toContain("500 g pasta");
+    const sv = (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } })).body;
+    expect(removed(sv)?.summary).toBe("1 borttagen");
+  });
+
+  it("keeps the line removed through a rebuild and POST restore puts it back", async () => {
+    const { app, pasta } = await builtList();
+    await post(app, "/shopping/remove", { weekStart: WEEK, name: "Mjölk" });
+    await post(app, "/shopping/remove", { weekStart: WEEK, name: "ost" });
+
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    const afterRebuild = await shoppingPage(app);
+    await post(app, "/shopping/restore", { weekStart: WEEK, name: "ost" });
+    const afterRestore = await shoppingPage(app);
+
+    expect(lines(afterRebuild, "buy")).toEqual([["500 g pasta", false]]);
+    expect(lines(afterRebuild, "check-pantry")).toEqual([]);
+    expect(removed(afterRebuild)).toEqual({ summary: "2 removed", names: ["ost", "mjölk"] });
+    expect(lines(afterRestore, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+    expect(removed(afterRestore)).toEqual({ summary: "1 removed", names: ["mjölk"] });
+    expect(getDish(app.ctx.db, pasta)?.ingredients.map((i) => i.name)).toEqual(["pasta", "mjölk"]);
+  });
+
+  it("a push after a removal does not send the Removed Line", async () => {
+    const trello = trelloRecorder();
+    const { app } = await builtList({ env: ENV, fetch: trello.fetch });
+    await post(app, "/shopping/remove", { weekStart: WEEK, name: "ost" });
+    trello.calls.length = 0;
+
+    await app.inject({ method: "POST", url: "/shopping/push", payload: { weekStart: WEEK } });
+
+    expect(trello.cardNames()).toEqual(["500 g pasta"]);
+  });
+});
+
 describe("Checked Off lines", () => {
   it("shows a tick control on every Buy and Check pantry line", async () => {
     const { app } = await builtList();
