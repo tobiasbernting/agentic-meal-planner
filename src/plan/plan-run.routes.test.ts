@@ -224,7 +224,7 @@ describe("Plan Run started from the Plan page", () => {
 
     const inFlight = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: sv });
     expect(inFlight.body).toContain("Planering pågår sedan 18:30");
-    expect(inFlight.body).toContain("Fas: Hämtar ingredienser");
+    expect(inFlight.body).toContain('<strong class="notice-label">Fas</strong> Hämtar ingredienser');
     expect(inFlight.body).toContain("Ingredienser 0 av 7: Köttbullar");
     const refused = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
     expect((await app.inject({ method: "GET", url: refused.headers.location as string, headers: sv })).body).toContain("En planering pågår redan");
