@@ -17,6 +17,7 @@ import {
   SETTING_QUICK_DAY_OVERRIDES,
   SETTING_QUICK_DAY_TEMPLATE,
   SETTING_SHOPPING_LIST_SINKS,
+  SETTING_SUGGESTION_STYLE,
   SETTING_TIMEZONE,
   householdToday,
   isTimezone,
@@ -67,6 +68,7 @@ ${notice(error)}
   <label>${t(lang, "settings.varietyWindow")} <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
   <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> ${t(lang, "settings.collision")}</label>
   <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
+  <label>${t(lang, "settings.suggestionStyle")} <input name="suggestion_style" value="${escapeHtml(planner.suggestionStyle)}" /></label>
   <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">${t(lang, "common.save")}</button>
 </form>
@@ -131,6 +133,7 @@ function parseSettingsForm(
       [SETTING_CATEGORY_COLLISION_ENABLED]: body.category_collision_enabled !== undefined ? "true" : "false",
       [SETTING_CRON_EXPRESSION]: cronExpression,
       [SETTING_TIMEZONE]: timezone,
+      [SETTING_SUGGESTION_STYLE]: body.suggestion_style?.trim() ?? "",
       [SETTING_AGENT_COMMAND]: body.agent_command?.trim() ?? "",
       [SETTING_SHOPPING_LIST_SINKS]: sinks,
     },
