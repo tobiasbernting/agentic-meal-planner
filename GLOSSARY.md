@@ -86,6 +86,14 @@ _Avoid_: no-repeat rule, cooldown
 The whole pipeline that produces the Weekly Plan: deterministic constraint enforcement plus LLM-assisted selection and extraction. The LLM part is the LlmAgent.
 _Avoid_: AI, scheduler
 
+**Plan Run**:
+One execution of everything a week needs, triggered by hand or by the schedule: lunch ingest, dish selection, ingredient resolution, pantry matching, and Shopping List push. At most one Plan Run per week is in flight at a time. The household can see which Phase a Plan Run is in.
+_Avoid_: job, task, generation
+
+**Phase**:
+One of the five stages of a Plan Run, in fixed order: Lunch ingest, Dish selection, Ingredient resolution (reported per Dish), Pantry matching, Shopping List push.
+_Avoid_: step, stage
+
 ### Shopping
 
 **Shopping List**:
