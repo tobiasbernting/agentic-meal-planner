@@ -228,6 +228,18 @@ export function offlineResponseFor(classification, context) {
  */
 
 /**
+ * The Pending Change for a queueable form post that could not reach the server. Its id and its
+ * Idempotency-Key are two separate UUIDs.
+ * @param {{ url: string, body: string, contentType: string, now: Date, uuid: () => string }} write
+ * @returns {PendingChange}
+ */
+export function newPendingChange({ url, body, contentType, now, uuid }) {
+  const id = uuid();
+  const key = uuid();
+  return { id, method: "POST", url, body, contentType, key, createdAt: now.toISOString(), state: "pending" };
+}
+
+/**
  * The order to replay Pending Changes in: oldest first, the given order for equal timestamps.
  * Returns a new array.
  * @template {{ createdAt: string }} T

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, newPendingChange, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { notice, page } from "../ui/layout.js";
 import { workerConfig } from "./routes.js";
@@ -300,6 +300,40 @@ describe("injectBanner", () => {
 function entry(id: string, createdAt: string) {
   return { id, method: "POST", url: "/pantry", body: "name=salt", contentType: "application/x-www-form-urlencoded", key: `key-${id}`, createdAt, state: "pending" };
 }
+
+describe("newPendingChange", () => {
+  it("stores a failed form post as a pending POST with its own id and a separate Idempotency-Key", () => {
+    const ids = ["0f1e2d3c-0000-4000-8000-00000000000a", "0f1e2d3c-0000-4000-8000-00000000000b"];
+
+    const change = newPendingChange({
+      url: `${ORIGIN}/pantry`,
+      body: "name=Salt&category=spices",
+      contentType: "application/x-www-form-urlencoded",
+      now: new Date("2026-10-17T07:45:00.000Z"),
+      uuid: () => ids.shift() ?? "",
+    });
+
+    expect(change).toEqual({
+      id: "0f1e2d3c-0000-4000-8000-00000000000a",
+      method: "POST",
+      url: `${ORIGIN}/pantry`,
+      body: "name=Salt&category=spices",
+      contentType: "application/x-www-form-urlencoded",
+      key: "0f1e2d3c-0000-4000-8000-00000000000b",
+      createdAt: "2026-10-17T07:45:00.000Z",
+      state: "pending",
+    });
+  });
+
+  it("replays as the request it was built from", async () => {
+    const change = newPendingChange({ url: `${ORIGIN}/dishes/7`, body: "name=Soup", contentType: "application/x-www-form-urlencoded", now: new Date(), uuid: () => crypto.randomUUID() });
+    const { url, init } = replayRequest(change);
+    const request = new Request(url, init);
+
+    expect([request.url, request.method, request.headers.get("Idempotency-Key"), await request.text()]).toEqual([`${ORIGIN}/dishes/7`, "POST", change.key, "name=Soup"]);
+    expect(change.key).not.toBe(change.id);
+  });
+});
 
 describe("replayOrder", () => {
   it("replays the oldest Pending Change first", () => {
