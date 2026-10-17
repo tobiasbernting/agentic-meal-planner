@@ -69,7 +69,7 @@ function alwaysHomeForm(lang: Lang, weekStart: string, item: AggregatedItem): st
   return `<form method="post" action="/shopping/pantry" hx-post="/shopping/pantry" hx-target="#shopping-lists" hx-swap="outerHTML">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <input type="hidden" name="name" value="${escapeHtml(item.name)}" />
-  <button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.alwaysHomeFor", { name: item.name }))}">${t(lang, "shopping.alwaysHome")}</button>
+  <button type="submit" class="quiet" data-working-label="…" aria-label="${escapeHtml(t(lang, "shopping.alwaysHomeFor", { name: item.name }))}">${t(lang, "shopping.alwaysHome")}</button>
 </form>`;
 }
 
@@ -89,7 +89,7 @@ function undoForm(lang: Lang, weekStart: string, undo: Undo): string {
   return `<form method="post" action="/shopping/pantry/undo" hx-post="/shopping/pantry/undo" hx-target="#shopping-lists" hx-swap="outerHTML">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <input type="hidden" name="id" value="${undo.id}" />
-  <button type="submit" class="quiet">${t(lang, "shopping.undo")}</button>
+  <button type="submit" class="quiet" data-working-label="…">${t(lang, "shopping.undo")}</button>
 </form>`;
 }
 
