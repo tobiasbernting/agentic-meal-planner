@@ -7,6 +7,7 @@ import type Database from "better-sqlite3";
 import { readSetting } from "../db.js";
 import { isWeekday, type Weekday } from "../dishes/repo.js";
 import { normaliseName } from "../text.js";
+import { DEFAULT_SUGGESTION_STYLE } from "../llm/seed-dishes.js";
 import { localDate } from "../week.js";
 
 /** Variety Preference window (weeks), FR-7. */
@@ -30,7 +31,7 @@ export const SETTING_SHOPPING_LIST_SINKS = "shopping_list_sinks";
 
 /** Free-text style for Suggested Dishes; blank/unset = the default. */
 export const SETTING_SUGGESTION_STYLE = "suggestion_style";
-export const DEFAULT_SUGGESTION_STYLE = "family-friendly Swedish home cooking for a household with kids";
+export { DEFAULT_SUGGESTION_STYLE } from "../llm/seed-dishes.js";
 
 /** Sunday 18:00 (FR-9). */
 export const DEFAULT_CRON_EXPRESSION = "0 18 * * 0";
