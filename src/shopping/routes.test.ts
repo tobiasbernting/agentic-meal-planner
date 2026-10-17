@@ -8,6 +8,7 @@ import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult, type SelectedDish } from "../llm/index.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
+import { writeSetting } from "../db.js";
 import { planRunSettled, postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -220,6 +221,30 @@ describe("Shopping List as the almanac notes page", () => {
       expect(en.body).toContain("Sent to Trello sat 18:02");
       expect(en.body).toMatch(/action="\/shopping\/push"[\s\S]*Send again/);
       expect(sv.body).not.toContain('role="alert"');
+    });
+
+    it("says the list has changed since it was sent once a rebuild changes the Buy list, until it is sent again", async () => {
+      const okFetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+      const app = await start({ fetch: okFetch });
+      writeSetting(app.ctx.db, "shopping_list_sinks", '[{"type":"webhook","url":"https://hook.example/list"}]');
+      const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "ost", quantity: null, unit: null }] });
+      planWith(app, [pasta]);
+      await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+      const sinks = async (cookie = "lang=en") =>
+        /<section id="sinks">[\s\S]*?<\/section>/.exec((await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie } })).body)![0];
+
+      const sent = await sinks();
+      await app.inject({ method: "POST", url: "/shopping/pantry", payload: { weekStart: WEEK, name: "ost" } });
+      const changed = await sinks();
+      const changedSv = await sinks("lang=sv");
+      await app.inject({ method: "POST", url: "/shopping/push", payload: { weekStart: WEEK } });
+      const resent = await sinks();
+
+      expect(sent).toContain("Sent to Webhook");
+      expect(sent).not.toContain("changed since it was sent");
+      expect(changed).toMatch(/Sent to Webhook[\s\S]*The list has changed since it was sent\.[\s\S]*Send again/);
+      expect(changedSv).toContain("Listan har ändrats sedan den skickades.");
+      expect(resent).not.toContain("changed since it was sent");
     });
 
     it("shows an inverted failure block with the reason and Skicka igen", async () => {

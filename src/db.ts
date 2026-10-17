@@ -46,6 +46,7 @@ export function openDatabase(dataDir: string): Database.Database {
   for (const sql of SCHEMA) db.exec(sql);
   addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "dish_ingredient", "preparation_note", "TEXT");
+  addColumnIfMissing(db, "sink_push", "buy_hash", "TEXT");
   // The extraction caches gained a language in their key (spec #71). They are caches, so the
   // old tables are dropped and rebuilt empty rather than migrated.
   runOnce(db, "extraction-cache-language-71", () =>

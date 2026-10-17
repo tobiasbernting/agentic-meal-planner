@@ -2,7 +2,7 @@ import { silentLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getPlanById } from "../planner/repo.js";
-import { getShoppingList } from "../shopping/build.js";
+import { buyFingerprint, getShoppingList } from "../shopping/build.js";
 import { recordPush } from "./repo.js";
 import { configuredSinks } from "./registry.js";
 import type { Env, FetchLike, PushResult } from "./types.js";
@@ -31,6 +31,7 @@ export async function pushShoppingList(deps: PushDeps, planId: number): Promise<
     const plan = getPlanById(deps.db, planId);
     if (!plan) return 0;
     const { buy } = getShoppingList(deps.db, planId);
+    const buyHash = buyFingerprint(buy);
     for (const sink of configuredSinks(deps.db, deps.env ?? process.env, deps.fetch)) {
       let result: PushResult;
       try {
@@ -40,7 +41,7 @@ export async function pushShoppingList(deps: PushDeps, planId: number): Promise<
       }
       if (result.ok) pushed += 1;
       else log.warn({ planId, sinkId: sink.id, reason: result.error }, "shopping list sink push failed");
-      recordPush(deps.db, planId, sink.id, (deps.now?.() ?? new Date()).toISOString(), result);
+      recordPush(deps.db, planId, sink.id, (deps.now?.() ?? new Date()).toISOString(), result, buyHash);
     }
   } catch (err) {
     // FR-14: a sink problem must never fail the plan.

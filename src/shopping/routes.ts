@@ -18,7 +18,7 @@ import { shortWhen } from "../ui/when.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
-import { buildShoppingList, getShoppingList } from "./build.js";
+import { buildShoppingList, buyFingerprint, getShoppingList } from "./build.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
@@ -83,8 +83,12 @@ function sinkName(sinkId: string): string {
   return sinkId.charAt(0).toUpperCase() + sinkId.slice(1);
 }
 
-/** Where and when the Buy list went: one status line per sink, or an inverted block per failure; Skicka igen once. */
-function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string): string {
+/**
+ * Where and when the Buy list went: one status line per sink, or an inverted block per failure;
+ * Skicka igen once. When a rebuild (Swap, Har alltid hemma) changed the Buy list after a
+ * successful push, a line says so, since the sink no longer holds the current list.
+ */
+function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string, buy: AggregatedItem[]): string {
   const timezone = readTimezone(ctx.db);
   const pushes = latestPushes(ctx.db, planId);
   const again = (quiet: boolean) => `<form method="post" action="/shopping/push">
@@ -102,6 +106,11 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
           actionsHtml: i === lastFailed ? again(false) : undefined,
         }),
   );
+  const current = buyFingerprint(buy);
+  const lastOk = pushes.reduce((last, p, i) => (p.ok ? i : last), -1);
+  if (pushes.some((p) => p.ok && p.buyHash !== null && p.buyHash !== current)) {
+    lines.splice(lastOk + 1, 0, `<p class="sink-status">${t(lang, "shopping.changedSinceSent")}</p>`);
+  }
   if (pushes.length === 0) lines.push(`<p class="sink-status">${t(lang, "shopping.notPushed")}</p>`);
   if (lastFailed === -1) lines.push(again(true));
   return `<section id="sinks">\n${lines.join("\n")}\n</section>`;
@@ -130,7 +139,7 @@ ${rebuild(t(lang, "shopping.build"))}`
           : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, alwaysHome)}
 ${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
 ${rebuild(t(lang, "shopping.rebuild"))}
-${renderPushes(lang, ctx, plan.id, weekStart)}`;
+${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
     }
     const body = `${weekHead(lang, weekStart)}
 ${weekNav(lang, weekStart, "/shopping")}

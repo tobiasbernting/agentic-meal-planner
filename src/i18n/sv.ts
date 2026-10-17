@@ -108,6 +108,7 @@ export const sv: Dictionary = {
   "shopping.rebuild": "Skapa inköpslistan igen",
   "shopping.till": "till: {dishes}",
   "shopping.sentTo": "Skickad till {sink} {when}",
+  "shopping.changedSinceSent": "Listan har ändrats sedan den skickades.",
   "shopping.sendFailed": "Kunde inte skicka till {sink}: {error}",
   "shopping.failedLabel": "Misslyckades",
   "shopping.pushAgain": "Skicka igen",

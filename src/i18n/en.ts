@@ -106,6 +106,7 @@ export const en = {
   "shopping.rebuild": "Rebuild shopping list",
   "shopping.till": "for: {dishes}",
   "shopping.sentTo": "Sent to {sink} {when}",
+  "shopping.changedSinceSent": "The list has changed since it was sent.",
   "shopping.sendFailed": "Could not send to {sink}: {error}",
   "shopping.failedLabel": "Failed",
   "shopping.pushAgain": "Send again",
