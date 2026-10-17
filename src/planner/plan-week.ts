@@ -229,13 +229,9 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     const repeat = exclusionRule(chosen, day, filterOptions);
     if (repeat?.code === "once-a-week") {
       const detail = `${day.date}: dish ${chosen.id} is already planned on ${repeat.date}; dropped (Once a Week)`;
-      // NoAgent's round-robin repeats by design once the rotation runs out: only the agent's repeat is news.
-      degradedReasons.push(
-        fromNoAgent
-          ? { code: "unknown", date: day.date, detail, logOnly: true }
-          : { code: "once-a-week", date: day.date, params: { name: chosen.name }, detail },
-      );
-      return seedFallback(!fromNoAgent);
+      // An agent's pick or NoAgent's round-robin alike: the household sees why the Dish is not on the day.
+      degradedReasons.push({ code: "once-a-week", date: day.date, params: { name: chosen.name }, detail });
+      return seedFallback(true);
     }
     return dinner(rationaleOf(pick) || noEligibleRationale, chosen.id);
   }
