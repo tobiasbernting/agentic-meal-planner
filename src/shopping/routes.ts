@@ -1,7 +1,8 @@
 /**
  * Shopping List view (FR-11, FR-17): the stored list for one week's Weekly Plan in two
  * sections, "Buy" and "Check pantry", with a rebuild action. Building also happens
- * automatically after plan generation (src/plan/routes.ts and src/server.ts).
+ * automatically after plan generation (src/plan/routes.ts and src/server.ts). The week's
+ * Plan Run banner explains a half-built list; Build/Rebuild is withheld while that run is in flight.
  */
 import type { FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
@@ -14,6 +15,7 @@ import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
+import { planRunBanner } from "../plan-run/routes.js";
 
 NAV.push({ href: "/shopping", label: "nav.shopping" });
 
@@ -68,6 +70,8 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
+    const run = ctx.planRuns.get(weekStart);
+    const rebuild = (label: string) => (run && "inFlight" in run ? "" : buildForm(weekStart, label));
     let content: string;
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
@@ -76,10 +80,10 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
       content =
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
-${buildForm(weekStart, t(lang, "shopping.build"))}`
+${rebuild(t(lang, "shopping.build"))}`
           : `${renderSection(lang, "buy", t(lang, "shopping.buy"), buy)}
 ${renderSection(lang, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
-${buildForm(weekStart, t(lang, "shopping.rebuild"))}
+${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
     }
     const body = `<h1>${t(lang, "shopping.title")}</h1>
@@ -88,6 +92,7 @@ ${renderPushes(lang, ctx, plan.id, weekStart)}`;
   ${t(lang, "week.of")} <time datetime="${weekStart}">${weekStart}</time>
   <a href="/shopping?week=${addDays(weekStart, 7)}">${t(lang, "week.next")}</a>
 </p>
+${planRunBanner(ctx, lang, weekStart)}
 ${content}`;
     reply.type("text/html; charset=utf-8");
     return page({ title: t(lang, "shopping.title"), body, lang });

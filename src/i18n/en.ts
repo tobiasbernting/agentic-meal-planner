@@ -68,6 +68,7 @@ export const en = {
   "plan.notice.run-in-progress": "A Plan Run is already in progress for this week. Nothing new was started.",
   "planRun.inProgress": "Plan Run in progress since {time}",
   "planRun.finished": "Plan Run finished {time}",
+  "planRun.failed": "Plan Run failed {time}: {reason}",
   "planRun.phase": "Phase",
   "planRun.starting": "Starting",
   "planRun.progress": "Ingredients {done} of {total}: {dish}",

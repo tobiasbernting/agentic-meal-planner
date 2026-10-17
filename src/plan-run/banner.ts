@@ -65,7 +65,12 @@ export function renderPlanRunBanner(lang: Lang, weekStart: string, state: PlanRu
   ${lunchChanged.length ? lunchChangedNotice(lang, describeChanges ? describeChanges(lunchChanged) : []) : ""}
 </div>`;
   }
-  // No run yet, or a failed one (#65 renders the failure).
+  if (state?.outcome.kind === "failed") {
+    const { at, message } = state.outcome;
+    return `<div id="${BANNER_ID}" class="plan-run plan-run-failed">
+  <p>${escapeHtml(t(lang, "planRun.failed", { time: localTime(at, timezone), reason: message }))}</p>
+</div>`;
+  }
   return `<div id="${BANNER_ID}" class="plan-run"></div>`;
 }
 

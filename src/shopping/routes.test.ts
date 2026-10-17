@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
-import { NoAgent } from "../llm/index.js";
+import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
-import { postPlanRun } from "../plan-run/test-helpers.js";
+import { planRunSettled, postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -93,5 +93,67 @@ describe("GET /shopping", () => {
 
     expect(res.body).toContain("No Shopping List yet");
     expect(res.body).toContain('action="/shopping/build"');
+  });
+});
+
+describe("Plan Run banner on the Shopping List page", () => {
+  /** A Weekly Plan of Köttbullar whose Plan Run is held inside the first recipe lookup. */
+  async function heldInIngredients() {
+    let release!: (value: LlmResult<FoundRecipe>) => void;
+    const held = new Promise<LlmResult<FoundRecipe>>((r) => (release = r));
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({ ok: true, value: input.days.map((d) => ({ date: d.date, dishId: String(kottbullar), rationale: "r" })) }),
+      findRecipe: () => held,
+    });
+    const app = await start({ llm });
+    const kottbullar = createDish(app.ctx.db, { name: "Köttbullar", prepTimeMinutes: 20 });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    for (let i = 0; i < 200; i++) {
+      const banner = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}` });
+      if (banner.body.includes("Ingredients")) break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    return { app, release };
+  }
+
+  it("shows the run's progress with polling and no Rebuild while a run is in flight", async () => {
+    const { app, release } = await heldInIngredients();
+
+    const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(res.body).toContain("Ingredients 0 of 7: Köttbullar");
+    expect(res.body).toContain(`hx-get="/plan-run/banner?week=${WEEK}&amp;shown=ingredient-resolution"`);
+    expect(res.body).toContain('hx-trigger="every 2s"');
+    expect(res.body).not.toContain('action="/shopping/build"');
+    const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+    expect(sv.body).toContain("Ingredienser 0 av 7: Köttbullar");
+    release({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+  });
+
+  it("shows the finished outcome without polling and offers Rebuild again", async () => {
+    const { app, release } = await heldInIngredients();
+    release({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+
+    const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(res.body).toContain("Plan Run finished 18:30");
+    expect(res.body).not.toMatch(/hx-(get|trigger|swap)/);
+    expect(res.body).toContain('action="/shopping/build"');
+  });
+
+  it("shows a failed run with its reason", async () => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        throw new Error("agent exploded");
+      },
+    });
+    const app = await start({ llm });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
+
+    const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(res.body).toContain("Plan Run failed 18:30: agent exploded");
   });
 });
