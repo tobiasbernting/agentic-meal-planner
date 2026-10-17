@@ -8,8 +8,10 @@
 import type { Dish, Weekday } from "../dishes/repo.js";
 import { buildCandidateSets, type DayInput } from "../engine/filter.js";
 import {
+  DEFAULT_SUGGESTION_STYLE,
   NO_AGENT_REASON,
   NoAgent,
+  SEED_DISHES,
   type Dish as LlmDish,
   type LlmAgent,
   type SelectDishesInput,
@@ -105,6 +107,8 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     days: days.map((d) => ({ date: d.date, isQuickDay: d.quickDayLimitMinutes !== null, lunch: d.lunch })),
     candidates: candidates.map((c) => c.eligible.map(toCandidate)),
     recentlyPlanned: input.recentlyPlanned,
+    suggestionStyle: DEFAULT_SUGGESTION_STYLE,
+    seedDishes: SEED_DISHES,
   };
   const degradedReasons: string[] = [];
   const picks = await select(input.llm, request, degradedReasons);
@@ -120,9 +124,10 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     if (eligible.length === 0) return { ...base, dishId: null, rationale: NO_ELIGIBLE_DISH_RATIONALE };
     const pick = pickByDate.get(day.date);
     if (pick === undefined) return { ...base, dishId: null, rationale: NO_ELIGIBLE_DISH_RATIONALE };
-    const chosen = eligible.find((d) => String(d.id) === pick.dishId);
+    const pickedId = "dishId" in pick ? pick.dishId : undefined;
+    const chosen = eligible.find((d) => String(d.id) === pickedId);
     if (chosen === undefined) {
-      const reason = `${day.date}: agent picked dish ${pick.dishId}, which is not eligible that day; dropped`;
+      const reason = `${day.date}: agent picked dish ${pickedId ?? "(suggestion)"}, which is not eligible that day; dropped`;
       degradedReasons.push(reason);
       return { ...base, dishId: null, rationale: `agent pick dropped (not eligible); ${NO_ELIGIBLE_DISH_RATIONALE}` };
     }

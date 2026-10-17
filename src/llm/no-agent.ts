@@ -40,10 +40,14 @@ export class NoAgent implements LlmAgent {
     return { ok: false, reason: NO_AGENT_REASON };
   }
 
-  /** Round-robin: each day takes the least-used candidate so far (ties by candidate order). */
+  /**
+   * Round-robin: each day takes the least-used candidate so far (ties by candidate order).
+   * A day with no candidates takes the next seed dish (not filtered here; the planner re-checks).
+   */
   async selectDishes(input: SelectDishesInput): Promise<LlmResult<SelectedDish[]>> {
     const uses = new Map<string, number>();
     const value: SelectedDish[] = [];
+    let seedIndex = 0;
     input.days.forEach((day, i) => {
       const candidates = input.candidates[i] ?? [];
       let pick: string | undefined;
@@ -56,7 +60,13 @@ export class NoAgent implements LlmAgent {
           pick = id;
         }
       }
-      if (pick === undefined) return;
+      if (pick === undefined) {
+        const seed = input.seedDishes[seedIndex % Math.max(input.seedDishes.length, 1)];
+        if (seed === undefined) return;
+        seedIndex++;
+        value.push({ date: day.date, suggestion: { ...seed }, rationale: NO_AGENT_REASON });
+        return;
+      }
       uses.set(pick, best + 1);
       value.push({ date: day.date, dishId: pick, rationale: NO_AGENT_REASON });
     });
