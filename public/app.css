@@ -194,6 +194,10 @@ section + section { margin-top: 24px; }
 .notice button, .notice .button { border-color: var(--notice-fg); color: var(--notice-fg); margin-top: 8px; }
 .notice :focus-visible { outline-color: var(--notice-fg); }
 
+/* Offline Copy banner: a status, not a failure. A quiet ruled line, never inverted, never red. */
+.offline-banner { padding: 8px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-small); }
+#offline-banner:empty { display: none; }
+
 /* Plan Run banner (Plan and Shopping List). In flight and failed use the inverted notice;
    finished is a quiet ruled status line. Swap (Byt) is hidden while a run is in flight. */
 .plan-run p { margin: 0; }

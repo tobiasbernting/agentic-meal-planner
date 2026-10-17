@@ -3,17 +3,7 @@
 // tests them. Served at /assets/offline-core.js. `config` is `self.OFFLINE_CONFIG`, built by
 // workerConfig() in src/offline/routes.ts.
 
-/** GETs that are neither pages nor assets: streams, polls and probes the worker never answers itself. */
-const PASSTHROUGH_PATHS = ["/plan-run/banner", "/logs/stream", "/health", "/sw.js"];
-
 const MANIFEST_PATH = "/manifest.webmanifest";
-
-/** The worker's own pages, served from config.frames; an offline htmx write redirects to the first. */
-const SAVED_PATH = "/offline/saved";
-const REQUIRES_CONNECTION_PATH = "/offline/requires-connection";
-
-/** The empty element page() in src/ui/layout.ts puts once on every page. */
-const BANNER_MARKER = '<div id="offline-banner"></div>';
 
 /** @param {string} text */
 function escapeHtml(text) {
@@ -52,7 +42,7 @@ function findRoute(patterns, path) {
 }
 
 /**
- * The human label of a queued write, in the UI language: the label of the queueable route it
+ * The human label of a Pending Change, in the UI language: the label of the queueable route it
  * matches, else the generic "Change". Never blank.
  * @param {string} method
  * @param {string} path
@@ -67,7 +57,7 @@ export function routeLabel(method, path, config, lang) {
 /**
  * What the worker should do with a request.
  * @param {Request} request
- * @param {{ queueable: string[], onlineOnly: string[], pages: string[] }} config
+ * @param {{ queueable: string[], onlineOnly: string[], pages: string[], passthrough: string[], offlinePaths: { saved: string, requiresConnection: string } }} config
  * @returns {{ kind: "asset" } | { kind: "page", cacheable: boolean } | { kind: "offline-page", page: "saved" | "requiresConnection" } | { kind: "queueable-write" | "online-only-write", route: string } | { kind: "passthrough" }}
  */
 export function classify(request, config) {
@@ -81,9 +71,9 @@ export function classify(request, config) {
   }
   if (request.method !== "GET") return { kind: "passthrough" };
   if (path.startsWith("/assets/") || path === MANIFEST_PATH) return { kind: "asset" };
-  if (path === SAVED_PATH) return { kind: "offline-page", page: "saved" };
-  if (path === REQUIRES_CONNECTION_PATH) return { kind: "offline-page", page: "requiresConnection" };
-  if (request.headers.has("HX-Request") || PASSTHROUGH_PATHS.includes(path)) return { kind: "passthrough" };
+  if (path === config.offlinePaths.saved) return { kind: "offline-page", page: "saved" };
+  if (path === config.offlinePaths.requiresConnection) return { kind: "offline-page", page: "requiresConnection" };
+  if (request.headers.has("HX-Request") || config.passthrough.includes(path)) return { kind: "passthrough" };
   return { kind: "page", cacheable: findRoute(config.pages, path) !== undefined };
 }
 
@@ -137,13 +127,19 @@ export function cacheKeysFor(url, today) {
 }
 
 /**
- * The page with the Offline Copy banner in place of the shell's marker; unchanged without one.
- * String replacement, not HTML parsing: user content is escaped, so it never contains the marker.
+ * The page with the Offline Copy banner in place of the shell's marker, started offline: the
+ * `<html>` tag's `data-online="1"` becomes `"0"`, so the page's online signal begins there. A
+ * page without the marker comes back unchanged. String replacement, not HTML parsing: user
+ * content is escaped, so it never contains the marker or the attribute.
  * @param {string} html
  * @param {string} text
+ * @param {string} marker config.marker, the empty element page() puts once on every page
  */
-export function injectBanner(html, text) {
-  return html.replace(BANNER_MARKER, () => `<div id="offline-banner" class="notice" role="status">${escapeHtml(text)}</div>`);
+export function injectBanner(html, text, marker) {
+  if (!html.includes(marker)) return html;
+  return html
+    .replace(/(<html\b[^>]*\s)data-online="1"/, '$1data-online="0"')
+    .replace(marker, () => `<div id="offline-banner" class="offline-banner" role="status">${escapeHtml(text)}</div>`);
 }
 
 /**
@@ -192,13 +188,17 @@ export function backPath(value, origin) {
  * The response the worker gives when the network failed.
  * @param {ReturnType<typeof classify>} classification
  * @param {{
- *   config: { texts: Record<string, Record<string, string>>, frames: Record<string, Record<string, string>> },
+ *   config: { marker: string, offlinePaths: { saved: string, requiresConnection: string }, texts: Record<string, Record<string, string>>, frames: Record<string, Record<string, string>> },
  *   lang: string,
  *   copy?: { html: string, fetchedAt: string },
  *   back?: string,
  *   htmx?: boolean,
  *   formatTime?: (iso: string) => string,
- * }} context `htmx`: the request carried the HX-Request header.
+ * }} context `htmx`: the request carried the HX-Request header. An htmx request never gets a
+ * page, since a full page must never land in a fragment target: a write is sent to one of the
+ * worker's own pages with HX-Redirect, anything else gets an empty 204 so htmx polling stays
+ * quiet. Any other passthrough request (the online signal's /health ping) gets an empty 503,
+ * which is not `ok`.
  * @returns {Response}
  */
 export function offlineResponseFor(classification, context) {
@@ -207,21 +207,21 @@ export function offlineResponseFor(classification, context) {
   const texts = config.texts[lang];
   const frames = config.frames[lang];
   const requiresConnection = () => htmlResponse(fillFrame(frames.requiresConnection, texts.requiresConnection, back), 503);
+  const htmxRedirect = (/** @type {string} */ path) => new Response(null, { status: 204, headers: { "HX-Redirect": `${path}?back=${encodeURIComponent(back)}` } });
   switch (classification.kind) {
     case "page":
-      if (classification.cacheable && copy) return htmlResponse(injectBanner(copy.html, texts.banner.replaceAll("{time}", formatTime(copy.fetchedAt))), 200);
+      if (classification.cacheable && copy) return htmlResponse(injectBanner(copy.html, texts.banner.replaceAll("{time}", formatTime(copy.fetchedAt)), config.marker), 200);
       return requiresConnection();
     case "online-only-write":
-      return htmx ? new Response(null, { status: 204 }) : requiresConnection();
+      return htmx ? htmxRedirect(config.offlinePaths.requiresConnection) : requiresConnection();
     case "queueable-write":
-      if (htmx) return new Response(null, { status: 204, headers: { "HX-Redirect": `${SAVED_PATH}?back=${encodeURIComponent(back)}` } });
-      return htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+      return htmx ? htmxRedirect(config.offlinePaths.saved) : htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
     case "offline-page":
       return classification.page === "saved" ? htmlResponse(fillFrame(frames.saved, texts.saved, back), 200) : requiresConnection();
     case "asset":
       return new Response(null, { status: 404 });
     default:
-      return new Response(null, { status: 204 });
+      return new Response(null, { status: htmx ? 204 : 503 });
   }
 }
 
@@ -241,7 +241,8 @@ export function offlineResponseFor(classification, context) {
  */
 
 /**
- * The Pending Change for a queueable form post that could not reach the server. Its id and its
+ * The Pending Change for a queueable form post, built before the first network attempt so that
+ * attempt already carries its Idempotency-Key; stored only when the attempt fails. Its id and its
  * Idempotency-Key are two separate UUIDs.
  * @param {{ url: string, body: string, contentType: string, now: Date, uuid: () => string }} write
  * @returns {PendingChange}
@@ -282,6 +283,24 @@ export function replayRequest(entry) {
 }
 
 /**
+ * The fetch for a queueable form post's first attempt: the original request (its headers, so
+ * htmx still sees HX-Request, and its redirect mode, which a navigation needs) with the Pending
+ * Change's body and Idempotency-Key. If the server took the post but the answer was lost, the
+ * replay carries the same key and the server applies it once.
+ * @param {PendingChange} entry built from `request` by newPendingChange
+ * @param {Request} request
+ * @returns {{ url: string, init: RequestInit }}
+ */
+export function firstAttemptRequest(entry, request) {
+  const headers = new Headers(request.headers);
+  headers.set("Idempotency-Key", entry.key);
+  return {
+    url: entry.url,
+    init: { method: entry.method, headers, body: entry.body, redirect: request.redirect, credentials: request.credentials },
+  };
+}
+
+/**
  * Reverses escapeHtml (and src/ui/layout.ts's), which is all the server's escaping does.
  * @param {string} html
  */
@@ -290,13 +309,14 @@ function unescapeHtml(html) {
 }
 
 /**
- * What a replay's response means for its Pending Change. A network error never gets here: the
- * glue keeps the change and stops the run.
- * @param {number} status
+ * What a replay's response means for its Pending Change. No response at all (a network error)
+ * and a server failure keep it for the next run.
+ * @param {number | undefined} status undefined when the fetch got no response
  * @param {string} bodyHtml the response body, read for a refusal's notice
  * @returns {{ kind: "drop" } | { kind: "failed", reason: string } | { kind: "keep" }}
  */
 export function replayOutcome(status, bodyHtml) {
+  if (status === undefined) return { kind: "keep" };
   if (status < 400) return { kind: "drop" };
   if (status >= 500) return { kind: "keep" };
   const notice = /<span class="notice-text">([^<]*)<\/span>/.exec(bodyHtml);

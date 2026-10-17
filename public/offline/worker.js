@@ -2,13 +2,14 @@
 // `self.OFFLINE_CONFIG = {...};` line built by src/offline/routes.ts. Thin glue: every decision
 // lives in the pure core (public/offline/core.js, tested in src/offline/core.test.ts); this file
 // only touches caches, IndexedDB, the network and clients.
-// Read side: the Offline Copy. Write side: Pending Changes, queued in IndexedDB and replayed.
+// Read side: the Offline Copy. Write side: Pending Changes, stored in IndexedDB and replayed.
 
 import {
   backPath,
   cacheKeysFor,
   classify,
   extractLang,
+  firstAttemptRequest,
   newPendingChange,
   offlineResponseFor,
   prewarmUrls,
@@ -19,9 +20,12 @@ import {
 } from "/assets/offline-core.js";
 
 const config = self.OFFLINE_CONFIG;
-const ASSETS_CACHE = "assets-v1";
-const PAGES_CACHE = "pages-v1";
-const META_CACHE = "meta-v1";
+// Assets and Offline Copies are named by config.version, which changes with every deploy that
+// changes an asset or this file; activate drops every other version's caches.
+const ASSETS_CACHE = `assets-${config.version}`;
+const PAGES_CACHE = `pages-${config.version}`;
+/** Kept across versions: only the language of the last page stored. */
+const META_CACHE = "meta";
 /** The language of the last page stored, so synthetic pages speak it. */
 const LANG_KEY = "/__offline/lang";
 const FETCHED_AT = "x-fetched-at";
@@ -117,12 +121,11 @@ async function runReplay() {
       let response;
       try {
         response = await fetch(url, init);
+        tellConnectivity(true);
       } catch {
         tellConnectivity(false);
-        return false;
       }
-      tellConnectivity(true);
-      const outcome = replayOutcome(response.status, await response.text());
+      const outcome = replayOutcome(response?.status, response ? await response.text() : "");
       if (outcome.kind === "keep") return false;
       if (outcome.kind === "drop") await pending.delete(entry.id);
       else await pending.put({ ...entry, state: "failed", reason: outcome.reason });
@@ -208,39 +211,44 @@ async function handleOfflinePage(request, classification) {
 }
 
 /**
- * A queueable write that cannot reach the server becomes a Pending Change and gets the saved
- * page; an online-only one gets the requires-connection page. The body is read before the fetch
- * consumes the request.
+ * A queueable write is built into its Pending Change first, so even the first attempt carries the
+ * Idempotency-Key; if that attempt cannot reach the server the same entry is stored and the saved
+ * page answers. An online-only write that cannot reach the server gets the requires-connection page.
  */
 async function handleWrite(request, classification) {
-  const body = classification.kind === "queueable-write" ? await request.clone().text() : undefined;
+  let entry;
+  if (classification.kind === "queueable-write") {
+    const body = await request.text();
+    const contentType = request.headers.get("content-type") ?? "application/x-www-form-urlencoded";
+    entry = newPendingChange({ url: request.url, body, contentType, now: new Date(), uuid: () => crypto.randomUUID() });
+  }
   try {
-    const response = await fetch(request);
+    const attempt = entry ? firstAttemptRequest(entry, request) : undefined;
+    const response = await (attempt ? fetch(attempt.url, attempt.init) : fetch(request));
     tellConnectivity(true);
     return response;
   } catch {
     tellConnectivity(false);
-    if (body !== undefined) {
-      const contentType = request.headers.get("content-type") ?? "application/x-www-form-urlencoded";
-      await enqueue(newPendingChange({ url: request.url, body, contentType, now: new Date(), uuid: () => crypto.randomUUID() }));
-    }
+    if (entry) await enqueue(entry);
     const back = backPath(request.referrer, self.location.origin);
     return offlineResponseFor(classification, { config, lang: await lastLang(), back, htmx: request.headers.has("HX-Request") });
   }
 }
 
+/** Offline, htmx polling gets a quiet 204; anything else (the /health ping) a 503 that is not ok. */
 async function handlePassthrough(request) {
   try {
     return await fetch(request);
   } catch {
-    return offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv" });
+    return offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv", htmx: request.headers.has("HX-Request") });
   }
 }
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      await (await caches.open(ASSETS_CACHE)).addAll(config.assets);
+      // Past the browser's HTTP cache (assets are served with max-age), so a new version caches new files.
+      await (await caches.open(ASSETS_CACHE)).addAll(config.assets.map((url) => new Request(url, { cache: "reload" })));
       await self.skipWaiting();
     })(),
   );
@@ -249,8 +257,11 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      const keep = [ASSETS_CACHE, PAGES_CACHE, META_CACHE];
+      for (const name of await caches.keys()) if (!keep.includes(name)) await caches.delete(name);
       await self.clients.claim();
-      await replay();
+      // The new version starts without Offline Copies, so fill them now while the server is near.
+      await replayThenPrewarm();
     })(),
   );
 });

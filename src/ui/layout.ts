@@ -5,6 +5,7 @@
  */
 import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
 import { markOnlineOnlyForms } from "../offline/online-only.js";
+import { workerTexts } from "../offline/texts.js";
 import { ASSET_PATHS } from "./assets.js";
 
 export function escapeHtml(value: unknown): string {
@@ -60,10 +61,11 @@ function workerRegistration(): string {
   return `<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { type: "module" });</script>`;
 }
 
-/** The worker replaces this exact text with the Offline Copy banner; it must appear once per page. */
-function offlineBannerMarker(): string {
-  return `<div id="offline-banner"></div>`;
-}
+/**
+ * The worker replaces this exact text with the Offline Copy banner; it appears once per page.
+ * The worker gets it from its config (src/offline/routes.ts), never a copy of its own.
+ */
+export const OFFLINE_BANNER_MARKER = `<div id="offline-banner"></div>`;
 
 /** JSON for an inline script element: `<` is escaped so text can never close the element. */
 function scriptJson(value: unknown): string {
@@ -72,17 +74,8 @@ function scriptJson(value: unknown): string {
 
 /** The Pending Changes badge (#108), hidden until the worker reports a queue, plus its texts. */
 function pendingChangesBadge(lang: Lang): string {
-  const texts = {
-    pending: t(lang, "offline.pending"),
-    pendingOne: t(lang, "offline.pendingOne"),
-    failed: t(lang, "offline.failed"),
-    pendingState: t(lang, "offline.pendingState"),
-    discard: t(lang, "offline.discard"),
-    replayNextOpen: t(lang, "offline.replayNextOpen"),
-    replayBackground: t(lang, "offline.replayBackground"),
-  };
   return `<div id="pending-changes" hidden data-lang="${escapeHtml(lang)}"><button type="button" class="quiet" id="pending-changes-toggle"></button><ul class="rows" id="pending-changes-list" hidden></ul><p class="muted" id="pending-changes-note"></p></div>
-<script type="application/json" id="offline-texts">${scriptJson(texts)}</script>`;
+<script type="application/json" id="offline-texts">${scriptJson(workerTexts(lang))}</script>`;
 }
 
 /**
@@ -217,7 +210,7 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
   </head>
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
-${offlineBannerMarker()}
+${OFFLINE_BANNER_MARKER}
 ${pendingChangesBadge(lang)}
 ${markOnlineOnlyForms(body, lang)}
     </main>

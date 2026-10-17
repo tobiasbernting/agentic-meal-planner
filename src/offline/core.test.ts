@@ -2,14 +2,18 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, newPendingChange, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest, routeLabel } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, firstAttemptRequest, injectBanner, newPendingChange, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest, routeLabel } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { notice, page } from "../ui/layout.js";
 import { workerConfig } from "./routes.js";
 
 const config = workerConfig();
 const ORIGIN = "http://meals.lan:8080";
-const MARKER = '<div id="offline-banner"></div>';
+const MARKER = config.marker;
+/** The Offline Copy banner's opening tag: a quiet status, not a failure notice. */
+const BANNER = '<div id="offline-banner" class="offline-banner" role="status">';
+/** A rendered page as the Offline Copy serves it: started offline. */
+const offline = (html: string) => html.replace('data-online="1"', 'data-online="0"');
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -127,7 +131,7 @@ describe("offlineResponseFor", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(await res.text()).toBe(html.replace(MARKER, '<div id="offline-banner" class="notice" role="status">Visas från kopia, uppdaterad 07:45</div>'));
+    expect(await res.text()).toBe(offline(html).replace(MARKER, `${BANNER}Visas från kopia, uppdaterad 07:45</div>`));
   });
 
   it("formats the fetched-at time as the device's local HH:MM by default, in the copy's language", async () => {
@@ -167,11 +171,11 @@ describe("offlineResponseFor", () => {
     expect(await res.text()).toContain("<p>Kräver uppkoppling</p>");
   });
 
-  it("answers an online-only write sent by htmx with an empty 204, so no page lands in a fragment target", async () => {
-    const res = offlineResponseFor({ kind: "online-only-write", route: "/shopping/pantry" }, { config, lang: "sv", htmx: true, back: "/shopping" });
+  it("answers an online-only write sent by htmx with an empty 204 that sends the page to the requires-connection page, linking back", async () => {
+    const res = offlineResponseFor({ kind: "online-only-write", route: "/shopping/pantry" }, { config, lang: "sv", htmx: true, back: "/shopping?week=2026-10-19" });
 
     expect(res.status).toBe(204);
-    expect(res.headers.get("HX-Redirect")).toBeNull();
+    expect(res.headers.get("HX-Redirect")).toBe("/offline/requires-connection?back=%2Fshopping%3Fweek%3D2026-10-19");
     expect(await res.text()).toBe("");
   });
 
@@ -232,10 +236,22 @@ describe("offlineResponseFor", () => {
     expect(body).toContain('<a href="/">Tillbaka</a>');
   });
 
-  it("answers passthrough requests with an empty 204 and assets with a 404", async () => {
-    const passthrough = offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv" });
+  it("answers an htmx passthrough request with an empty 204, so htmx polling stays quiet", async () => {
+    const passthrough = offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv", htmx: true });
+
     expect(passthrough.status).toBe(204);
     expect(await passthrough.text()).toBe("");
+  });
+
+  it("answers any other passthrough request, such as the online signal's health ping, with an empty 503 that is not ok", async () => {
+    const passthrough = offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv" });
+
+    expect(passthrough.status).toBe(503);
+    expect(passthrough.ok).toBe(false);
+    expect(await passthrough.text()).toBe("");
+  });
+
+  it("answers assets with a 404", () => {
     expect(offlineResponseFor({ kind: "asset" }, { config, lang: "sv" }).status).toBe(404);
   });
 });
@@ -274,10 +290,10 @@ describe("injectBanner", () => {
     const html = await renderedPage("/shopping");
     const [before, after] = html.split(MARKER);
 
-    const out = injectBanner(html, "Visas från kopia, uppdaterad 07:45");
+    const out = injectBanner(html, "Visas från kopia, uppdaterad 07:45", MARKER);
 
-    const banner = '<div id="offline-banner" class="notice" role="status">Visas från kopia, uppdaterad 07:45</div>';
-    expect(out.split(banner)).toEqual([before, after]);
+    const banner = `${BANNER}Visas från kopia, uppdaterad 07:45</div>`;
+    expect(out.split(banner)).toEqual([offline(before!), after]);
     expect(out).not.toContain(MARKER);
   });
 
@@ -285,14 +301,24 @@ describe("injectBanner", () => {
     const html = await renderedPage("/shopping", "en");
     const text = config.texts.en.banner.replace("{time}", "21:05");
 
-    const out = injectBanner(html, text);
+    const out = injectBanner(html, text, MARKER);
 
-    expect(out.split('<div id="offline-banner" class="notice" role="status">Shown from copy, updated 21:05</div>')).toEqual(html.split(MARKER));
+    expect(out.split(`${BANNER}Shown from copy, updated 21:05</div>`)).toEqual(offline(html).split(MARKER));
   });
 
   it("escapes the text and returns a page without the marker unchanged", () => {
-    expect(injectBanner(`<main>${MARKER}</main>`, "a < b")).toBe('<main><div id="offline-banner" class="notice" role="status">a &lt; b</div></main>');
-    expect(injectBanner("<main></main>", "x")).toBe("<main></main>");
+    expect(injectBanner(`<main>${MARKER}</main>`, "a < b", MARKER)).toBe(`<main>${BANNER}a &lt; b</div></main>`);
+    expect(injectBanner("<main></main>", "x", MARKER)).toBe("<main></main>");
+  });
+
+  it("starts a bannered page offline: the html tag says data-online=\"0\", once", async () => {
+    const html = await renderedPage("/shopping");
+
+    const out = injectBanner(html, "x", MARKER);
+
+    expect(out.split('data-online="0"').length - 1).toBe(1);
+    expect(out).not.toContain('data-online="1"');
+    expect(out).toMatch(/<html lang="sv" data-online="0">/);
   });
 });
 
@@ -332,6 +358,34 @@ describe("newPendingChange", () => {
 
     expect([request.url, request.method, request.headers.get("Idempotency-Key"), await request.text()]).toEqual([`${ORIGIN}/dishes/7`, "POST", change.key, "name=Soup"]);
     expect(change.key).not.toBe(change.id);
+  });
+});
+
+describe("firstAttemptRequest", () => {
+  const change = { ...entry("f1", "2026-10-17T07:00:00.000Z"), url: `${ORIGIN}/shopping/check`, body: "weekStart=2026-10-19&name=ost", key: "5c1d0e2f-0000-4000-8000-000000000002" };
+
+  it("sends the first attempt with the same Idempotency-Key a later replay carries", () => {
+    const first = firstAttemptRequest(change, post("/shopping/check"));
+    const replay = replayRequest(change);
+
+    expect(new Headers(first.init.headers).get("Idempotency-Key")).toBe(change.key);
+    expect(new Headers(replay.init.headers).get("Idempotency-Key")).toBe(change.key);
+  });
+
+  it("keeps the original request's headers and redirect mode, and sends the stored body", async () => {
+    const original = new Request(`${ORIGIN}/dishes/7/promote`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "HX-Request": "true" }, body: "x=1", redirect: "manual" });
+
+    const { url, init } = firstAttemptRequest({ ...change, url: original.url, body: "x=1" }, original);
+    const request = new Request(url, init);
+
+    expect([request.url, request.method, request.redirect, request.headers.get("HX-Request"), request.headers.get("content-type")]).toEqual([
+      `${ORIGIN}/dishes/7/promote`,
+      "POST",
+      "manual",
+      "true",
+      "application/x-www-form-urlencoded",
+    ]);
+    expect(await request.text()).toBe("x=1");
   });
 });
 
@@ -393,6 +447,10 @@ describe("replayOutcome", () => {
   it("names the status when a refused Pending Change's page has no notice", () => {
     expect(replayOutcome(404, "<!doctype html><p>Not found</p>")).toEqual({ kind: "failed", reason: "HTTP 404" });
     expect(replayOutcome(422, "")).toEqual({ kind: "failed", reason: "HTTP 422" });
+  });
+
+  it("keeps a Pending Change for next time when no response came back at all", () => {
+    expect(replayOutcome(undefined, "")).toEqual({ kind: "keep" });
   });
 
   it("keeps a Pending Change for next time when the server failed", () => {
