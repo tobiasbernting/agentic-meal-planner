@@ -309,6 +309,23 @@ describe("POST /plan/generate", () => {
   });
 });
 
+describe("POST /plan/generate Ingredient language", () => {
+  it("asks the agent for the week's Ingredients in the household's UI language", async () => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: { ok: false, reason: "offline" },
+      findRecipe: { ok: true, value: { url: "https://recipes.example/burgers", ingredients: [{ name: "minced beef" }] } },
+    });
+    const app = await start({ llm });
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
+
+    const finds = llm.calls.filter((c) => c.method === "findRecipe");
+    expect(finds.length).toBeGreaterThan(0);
+    expect(finds.map((c) => (c.args[1] as { language?: string }).language)).toEqual(finds.map(() => "en"));
+  });
+});
+
 describe("POST /plan/generate with Suggested Dishes", () => {
   /** An agent that suggests the same new Dish for every date of the request. */
   function suggestEveryDay(suggestion: DishSuggestion) {

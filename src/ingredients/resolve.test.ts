@@ -77,6 +77,42 @@ describe("extracted Ingredients", () => {
 
     expect(llm.calls[0]!.args[1]).toEqual({ language: "sv" });
   });
+
+  it("are extracted again after a language change: the URL cache is per language", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos", recipeUrl: RECIPE_URL });
+    const llm = new ScriptedLlmAgent({
+      extractIngredients: (_page, { language }) => ({ ok: true, value: [{ name: language === "en" ? "milk" : "mjölk" }] }),
+    });
+    const deps = { db, llm, fetchPage: fetcher({ [RECIPE_URL]: RECIPE_PAGE }) };
+
+    const sv = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+    const en = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+    const enAgain = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+
+    expect(sv.ingredients.map((i) => i.name)).toEqual(["mjölk"]);
+    expect(en.ingredients.map((i) => i.name)).toEqual(["milk"]);
+    expect(enAgain).toEqual(en);
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  it("are found again after a language change: the found-recipe cache is per language", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos" });
+    const llm = new ScriptedLlmAgent({
+      findRecipe: (_name, { language }) => ({ ok: true, value: { url: FOUND_URL, ingredients: [{ name: language === "en" ? "milk" : "mjölk" }] } }),
+    });
+    const deps = { db, llm, fetchPage: fetcher({}) };
+
+    const sv = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+    const en = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+    const svAgain = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+
+    expect(sv.ingredients.map((i) => i.name)).toEqual(["mjölk"]);
+    expect(en.ingredients.map((i) => i.name)).toEqual(["milk"]);
+    expect(svAgain).toEqual(sv);
+    expect(llm.calls).toHaveLength(2);
+  });
 });
 
 describe("resolveIngredients", () => {

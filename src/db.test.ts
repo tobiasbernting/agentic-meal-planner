@@ -48,25 +48,33 @@ describe("openDatabase", () => {
     expect(columns).toContain("preparation_note");
   });
 
-  it("clears the extraction cache once, so old mixed-language rows are re-extracted", () => {
+  it("rebuilds a pre-language extraction cache empty, keyed by language, once", () => {
     const dataDir = tempDataDir();
+    const old = new Database(join(dataDir, DB_FILENAME));
+    old.exec(`CREATE TABLE recipe_extraction (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, content_hash TEXT NOT NULL,
+      adaptation_notes TEXT NOT NULL DEFAULT '', ingredients_json TEXT NOT NULL, extracted_at TEXT NOT NULL,
+      UNIQUE (url, content_hash, adaptation_notes));
+    CREATE TABLE found_recipe (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, dish_name TEXT NOT NULL, adaptation_notes TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL, ingredients_json TEXT NOT NULL, found_at TEXT NOT NULL,
+      UNIQUE (dish_name, adaptation_notes));
+    INSERT INTO recipe_extraction (url, content_hash, ingredients_json, extracted_at) VALUES ('u', 'h', '[]', 'now');
+    INSERT INTO found_recipe (dish_name, url, ingredients_json, found_at) VALUES ('d', 'u', '[]', 'now');`);
+    old.close();
+
     const first = openDatabase(dataDir);
-    first.prepare("DELETE FROM settings WHERE key LIKE 'migrated.%'").run();
-    first.exec(`INSERT INTO recipe_extraction (url, content_hash, ingredients_json, extracted_at) VALUES ('u', 'h', '[]', 'now');
-      INSERT INTO found_recipe (dish_name, url, ingredients_json, found_at) VALUES ('d', 'u', '[]', 'now');`);
+    const count = (db: Database.Database, table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const afterUpgrade = [count(first, "recipe_extraction"), count(first, "found_recipe")];
+    first.exec(`INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'sv', '[]', 'now');
+      INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'en', '[]', 'now');`);
     first.close();
-
     const second = openDatabase(dataDir);
-    const cleared = (table: string) => (second.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-    const afterFirstOpen = [cleared("recipe_extraction"), cleared("found_recipe")];
-    second.exec(`INSERT INTO recipe_extraction (url, content_hash, ingredients_json, extracted_at) VALUES ('u', 'h', '[]', 'now')`);
+    const afterReopen = count(second, "recipe_extraction");
     second.close();
-    const third = openDatabase(dataDir);
-    const afterReopen = (third.prepare("SELECT COUNT(*) AS n FROM recipe_extraction").get() as { n: number }).n;
-    third.close();
 
-    expect(afterFirstOpen).toEqual([0, 0]);
-    expect(afterReopen).toBe(1);
+    expect(afterUpgrade).toEqual([0, 0]);
+    expect(afterReopen).toBe(2);
   });
 
   it("adds the suggested column, default 0, to a pre-#51 dish table, and reopens cleanly", () => {

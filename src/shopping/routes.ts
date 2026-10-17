@@ -129,7 +129,7 @@ ${content}`;
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
     if (plan) {
-      const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping") };
+      const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) };
       await buildShoppingList(deps, plan.id);
       await pushShoppingList(deps, plan.id);
     }
@@ -142,7 +142,7 @@ ${content}`;
     if (name) {
       if (!listPantryItems(ctx.db).some((p) => p.name.toLowerCase() === name.toLowerCase())) createPantryItem(ctx.db, { name, aliases: [] });
       const plan = getPlanForWeek(ctx.db, weekStart);
-      if (plan) await buildShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping") }, plan.id);
+      if (plan) await buildShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) }, plan.id);
     }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });

@@ -67,6 +67,37 @@ describe("POST /shopping/pantry", () => {
   });
 });
 
+describe("Ingredient language on rebuild", () => {
+  /** An agent that finds every recipe and records the language it was asked in. */
+  function findingAgent() {
+    return new ScriptedLlmAgent({
+      findRecipe: (_name, { language }) => ({ ok: true, value: { url: "https://recipes.example/x", ingredients: [{ name: language === "en" ? "beef" : "nötfärs" }] } }),
+    });
+  }
+  const languages = (llm: ScriptedLlmAgent) => llm.calls.filter((c) => c.method === "findRecipe").map((c) => (c.args[1] as { language?: string }).language);
+
+  it("POST /shopping/build asks for the Ingredients in the UI language", async () => {
+    const llm = findingAgent();
+    const app = await start({ llm });
+    planWith(app, [createDish(app.ctx.db, { name: "Burgers" })]);
+
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+
+    expect(languages(llm)).toEqual(["en"]);
+    expect((await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body).toContain("beef");
+  });
+
+  it("Har alltid hemma rebuilds in the UI language", async () => {
+    const llm = findingAgent();
+    const app = await start({ llm });
+    planWith(app, [createDish(app.ctx.db, { name: "Burgers" })]);
+
+    await app.inject({ method: "POST", url: "/shopping/pantry", payload: { weekStart: WEEK, name: "salt" } });
+
+    expect(languages(llm)).toEqual(["en"]);
+  });
+});
+
 describe("GET /shopping", () => {
   it("says there is no plan for the week and links to the Plan view", async () => {
     const app = await start();

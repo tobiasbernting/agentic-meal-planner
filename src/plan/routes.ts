@@ -166,9 +166,10 @@ async function finishPlan(
   ctx: AppContext,
   log: Logger,
   onProgress: OnProgress,
+  language: Lang,
   result: { planId: number; degradedReasons: string[] },
 ): Promise<void> {
-  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress }, result.planId);
+  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress, language }, result.planId);
   logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
 }
 
@@ -200,6 +201,7 @@ ${renderDays(ctx, lang, weekStart, today)}`;
    */
   const startRun = (req: FastifyRequest, reply: FastifyReply, weekStart: string, trigger: "generate" | "regenerate") => {
     const log = runLogger(ctx.log, req, "plan");
+    const language = langOf(req);
     const started = Date.now();
     const launched = launchPlanRun({ planRuns: ctx.planRuns, now: ctx.now, log }, { weekStart, runId: req.id }, async (onProgress) => {
       log.info({ weekStart, trigger }, "run started");
@@ -207,12 +209,12 @@ ${renderDays(ctx, lang, weekStart, today)}`;
       // FR-9 / Q17: regenerate re-checks the school menus (forced ingest) and reports changed entries.
       const { changed } = await ingestWeek({ ...ingestDeps(), log, onProgress }, weekStart, { force: trigger === "regenerate" });
       const result = await generatePlan(
-        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress, language: langOf(req) },
+        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress, language },
         weekStart,
         { replace: trigger === "regenerate" },
       );
       logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
-      if ("planId" in result) await finishPlan(ctx, log, onProgress, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
+      if ("planId" in result) await finishPlan(ctx, log, onProgress, language, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
       return { lunchChanged: trigger === "regenerate" ? changed : [] };
     });
     const notice = launched ? "" : "&notice=run-in-progress";

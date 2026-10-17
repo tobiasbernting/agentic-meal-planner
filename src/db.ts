@@ -46,7 +46,11 @@ export function openDatabase(dataDir: string): Database.Database {
   for (const sql of SCHEMA) db.exec(sql);
   addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "dish_ingredient", "preparation_note", "TEXT");
-  runOnce(db, "clear-extraction-cache-71", () => db.exec("DELETE FROM recipe_extraction; DELETE FROM found_recipe;"));
+  // The extraction caches gained a language in their key (spec #71). They are caches, so the
+  // old tables are dropped and rebuilt empty rather than migrated.
+  runOnce(db, "extraction-cache-language-71", () =>
+    db.exec(`DROP TABLE IF EXISTS recipe_extraction; DROP TABLE IF EXISTS found_recipe; ${SCHEMA_INGREDIENTS}`),
+  );
   return db;
 }
 

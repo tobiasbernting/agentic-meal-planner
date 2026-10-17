@@ -102,7 +102,7 @@ export const swapRoutes: FeaturePlugin = async (app, ctx) => {
     const log = runLogger(ctx.log, req, "swap");
     log.info({ date, planId: plan.id, dishId, dish: getDish(ctx.db, dishId)?.name }, "dinner swapped");
     // The Shopping List follows the plan (FR-11). Sinks are not pushed; the next Plan Run or "Skicka igen" does that.
-    await buildShoppingList({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log }, plan.id);
+    await buildShoppingList({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log, language: lang }, plan.id);
     return reply.redirect(safeNext(req.body.next, date), 303);
   });
 };

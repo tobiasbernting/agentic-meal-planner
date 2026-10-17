@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
+import { ScriptedLlmAgent } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
@@ -68,6 +69,23 @@ function row(body: string, date: string): string {
   if (!m) throw new Error(`no row for ${date}`);
   return m[0];
 }
+
+describe("POST /plan/swap Ingredient language", () => {
+  it("rebuilds the Shopping List with Ingredients in the UI language", async () => {
+    const llm = new ScriptedLlmAgent({
+      findRecipe: { ok: true, value: { url: "https://recipes.example/pizza", ingredients: [{ name: "mozzarella" }] } },
+    });
+    const app = withEnglish(await start({ llm }));
+    const burgers = createDish(app.ctx.db, { name: "Burgers", ingredients: [{ name: "minced beef", quantity: 500, unit: "g" }] });
+    const pizza = createDish(app.ctx.db, { name: "Pizza" });
+    planWeek(app, burgers);
+
+    await app.inject({ method: "POST", url: "/plan/swap", payload: { date: MONDAY, dishId: String(pizza) } });
+
+    const finds = llm.calls.filter((c) => c.method === "findRecipe");
+    expect(finds.map((c) => (c.args[1] as { language?: string }).language)).toEqual(["en"]);
+  });
+});
 
 describe("POST /plan/swap", () => {
   it.each([
