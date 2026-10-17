@@ -193,3 +193,9 @@ section + section { margin-top: 24px; }
 @media (prefers-reduced-motion: no-preference) {
   .htmx-request { transition: opacity 120ms ease-out; opacity: 0.6; }
 }
+
+/* Dish form: Preferred Day chips and Ingredient rows. */
+.chip { display: inline-flex; align-items: center; min-height: var(--tap); margin: 4px 4px 0 0; padding: 0 12px; border: 1.5px solid var(--rule); font-weight: 600; }
+.chip:has(input:checked) { border-color: var(--ink); background: var(--raised); }
+.ingredient-rows { list-style: none; margin: 0; padding: 0; }
+.ingredient-row { padding: 8px 0 12px; border-bottom: 1px solid var(--rule); }
