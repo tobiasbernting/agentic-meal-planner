@@ -3,7 +3,7 @@
  * stores the Weekly Plan (FR-9). It reads already-stored Lunch Entries but neither ingests
  * lunch menus nor pushes shopping sinks; those compositions belong to #33/#34.
  */
-import type { Logger } from "../logging/logger.js";
+import { silentLogger, type Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
 import { listDishes } from "../dishes/repo.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -73,6 +73,12 @@ export async function generatePlan(
     recentlyPlanned: listRecentlyPlanned(db, weekStart, settings.varietyWindowWeeks),
     llm: deps.llm,
   });
+  if (plan.degradedReasons.length > 0) {
+    (deps.log ?? silentLogger).child({ component: "planner" }).warn(
+      { weekStart, degradedReasons: plan.degradedReasons },
+      "plan degraded: deterministic selection used where the agent could not",
+    );
+  }
   const planId = savePlan(db, plan, deps.now());
   return { planId, degradedReasons: plan.degradedReasons };
 }

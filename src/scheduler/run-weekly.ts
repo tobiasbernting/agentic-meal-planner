@@ -7,6 +7,7 @@ import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
 import type { Logger } from "../logging/logger.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
+import { logPlanSummary } from "../planner/summary.js";
 import { readTimezone } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
@@ -21,9 +22,10 @@ export interface WeeklyRunDeps {
   now: () => Date;
   /**
    * Chained after a plan is stored (not when the week was skipped). The Shopping List build
-   * (#31) and sink push (#32) hook in here without touching this file.
+   * (#31) and sink push (#32) hook in here without touching this file. Receives the run logger
+   * and may return how many sinks accepted the list (for the plan summary).
    */
-  afterPlan?: (planId: number) => Promise<void>;
+  afterPlan?: (planId: number, log?: Logger) => Promise<number | void>;
   /** Run logger bound to `runId: cron-<ISO>`; the scheduler sets it per tick. */
   log?: Logger;
 }
@@ -45,6 +47,9 @@ export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunR
   const plan = await generatePlan({ db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}) }, weekStart, {
     replace: false,
   });
-  if ("planId" in plan && deps.afterPlan) await deps.afterPlan(plan.planId);
+  if ("planId" in plan) {
+    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log) : undefined;
+    logPlanSummary(deps.log, deps.db, plan.planId, plan.degradedReasons, sinksPushed ?? 0);
+  }
   return { weekStart, ingest, plan };
 }

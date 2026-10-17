@@ -5,7 +5,10 @@ import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
+import { writeSetting } from "../db.js";
+import { createDish } from "../dishes/repo.js";
 import { createCapturingLogger } from "../logging/logger.js";
+import { SETTING_AGENT_COMMAND } from "../planner/settings.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -156,5 +159,28 @@ describe("with an injected logger", () => {
     expect(streamed).toContainEqual(expect.objectContaining({ level: 50, component: "probe", msg: "failed", err: expect.objectContaining({ message: "boom" }) }));
     expect(streamed.some((r) => r.url === "/health")).toBe(false);
     expect(records.some((r) => r.url === "/health")).toBe(false);
+  });
+});
+
+describe("debug level and the agent's prompts", () => {
+  // `true` is a real agent binary that prints nothing: the plan degrades, but the prompt is logged first.
+  async function generateWithAgent(level: "debug" | "info") {
+    const { app } = await start({ logLevel: "info", now: () => new Date(2026, 9, 21, 18, 30) });
+    writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    await app.inject({ method: "POST", url: "/logs/level", payload: { level } });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+    return sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+  }
+
+  it("streams the llm component's prompt records after switching to debug", async () => {
+    const records = await generateWithAgent("debug");
+    expect(records).toContainEqual(expect.objectContaining({ level: 20, component: "llm", msg: "agent prompt", prompt: expect.any(String) }));
+  });
+
+  it("does not record them at info", async () => {
+    const records = await generateWithAgent("info");
+    expect(records.some((r) => r.component === "llm" && r.level === 20)).toBe(false);
+    expect(records).toContainEqual(expect.objectContaining({ level: 30, component: "llm", msg: "agent call finished" }));
   });
 });
