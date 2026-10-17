@@ -115,6 +115,10 @@ export const en = {
   "shopping.notice.run-in-progress": "A Plan Run is in progress for this week. The Shopping List was not changed.",
   "shopping.check": "Check off {name}",
   "shopping.uncheck": "Uncheck {name}",
+  "shopping.extraName": "Add to the list",
+  "shopping.extraQuantity": "Quantity (optional)",
+  "shopping.addExtra": "Add",
+  "shopping.deleteExtraFor": "Delete {name}",
 
   "dishes.title": "Dishes",
   "dishes.add": "Add dish",

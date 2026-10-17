@@ -117,6 +117,10 @@ export const sv: Dictionary = {
   "shopping.notice.run-in-progress": "En planering pågår för den här veckan. Inköpslistan ändrades inte.",
   "shopping.check": "Bocka av {name}",
   "shopping.uncheck": "Ångra avbockning av {name}",
+  "shopping.extraName": "Lägg till på listan",
+  "shopping.extraQuantity": "Mängd (valfritt)",
+  "shopping.addExtra": "Lägg till",
+  "shopping.deleteExtraFor": "Ta bort {name}",
 
   "dishes.title": "Rätter",
   "dishes.add": "Lägg till rätt",

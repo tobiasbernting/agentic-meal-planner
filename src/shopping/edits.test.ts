@@ -78,6 +78,87 @@ async function post(app: App, url: string, payload: Record<string, string>) {
   return res;
 }
 
+/** Records every sink call and fakes an empty Trello board. */
+function trelloRecorder() {
+  const calls: { url: string; method?: string }[] = [];
+  const fetch: FetchLike = async (url, init) => {
+    calls.push({ url, ...(init?.method ? { method: init.method } : {}) });
+    if (init?.method === "POST" && /\/boards\/b1\/lists\?/.test(url)) return { ok: true, status: 200, json: async () => ({ id: "list1", name: "x" }) };
+    if (init?.method === undefined || init.method === "GET") return { ok: true, status: 200, json: async () => [] };
+    return { ok: true, status: 200, json: async () => ({ id: "x" }) };
+  };
+  const cardNames = () => calls.filter((c) => c.url.includes("/cards?")).map((c) => new URL(c.url).searchParams.get("name"));
+  return { calls, fetch, cardNames };
+}
+
+describe("Extra Items", () => {
+  it("shows an add row at the end of Buy with name and optional quantity fields", async () => {
+    const { app } = await builtList();
+
+    const html = await shoppingPage(app);
+
+    const buy = /<section id="buy">([\s\S]*?)<\/section>/.exec(html)![1]!;
+    expect(buy).toMatch(/<\/ul>\s*<form method="post" action="\/shopping\/extra" class="extra-add">[\s\S]*name="name" required[\s\S]*name="quantity"[\s\S]*<\/form>\s*$/);
+  });
+
+  it("POST add then GET shows the Extra Item in Buy with its quantity text, or just the name", async () => {
+    const { app } = await builtList();
+
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries", quantity: "2 pack" });
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "candles" });
+
+    const html = await shoppingPage(app);
+    expect(lines(html, "buy")).toEqual([["500 g pasta", false], ["ost", false], ["2 pack batteries", false], ["candles", false]]);
+    expect(lines(html, "check-pantry")).toEqual([["2 dl mjölk", false]]);
+    expect(html).toMatch(/<form method="post" action="\/shopping\/check">[\s\S]*?name="name" value="batteries"/);
+  });
+
+  it("ignores an add without a name", async () => {
+    const { app } = await builtList();
+
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "  ", quantity: "2" });
+
+    expect(lines(await shoppingPage(app), "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+  });
+
+  it("keeps the Extra Item through a rebuild and is per week", async () => {
+    const { app, pasta } = await builtList();
+    planWith(app, NEXT_WEEK, [pasta]);
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries" });
+
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: NEXT_WEEK } });
+
+    expect(lines(await shoppingPage(app, WEEK), "buy")).toEqual([["500 g pasta", false], ["ost", false], ["batteries", false]]);
+    expect(lines(await shoppingPage(app, NEXT_WEEK), "buy")).toEqual([["400 g pasta", false]]);
+  });
+
+  it("POST delete removes the Extra Item outright, with no removed-lines entry", async () => {
+    const { app } = await builtList();
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries" });
+    const id = /action="\/shopping\/extra\/delete">[\s\S]*?name="id" value="(\d+)"/.exec(await shoppingPage(app))![1]!;
+
+    await post(app, "/shopping/extra/delete", { weekStart: WEEK, id });
+
+    const html = await shoppingPage(app);
+    expect(lines(html, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+    expect(html).not.toContain("batteries");
+    expect(html).not.toMatch(/removed/i);
+  });
+
+  it("a push after adding sends the Extra Item, and a Checked Off line like any other", async () => {
+    const trello = trelloRecorder();
+    const { app } = await builtList({ env: ENV, fetch: trello.fetch });
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries", quantity: "2 pack" });
+    await post(app, "/shopping/check", { weekStart: WEEK, name: "ost" });
+    trello.calls.length = 0;
+
+    await app.inject({ method: "POST", url: "/shopping/push", payload: { weekStart: WEEK } });
+
+    expect(trello.cardNames()).toEqual(["500 g pasta", "2 pack batteries", "ost"]);
+  });
+});
+
 describe("Checked Off lines", () => {
   it("shows a tick control on every Buy and Check pantry line", async () => {
     const { app } = await builtList();

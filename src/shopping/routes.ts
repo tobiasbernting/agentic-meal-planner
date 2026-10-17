@@ -19,7 +19,7 @@ import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, buyFingerprint, getShoppingList } from "./build.js";
-import { checkLine, uncheckLine, type ShoppingLine } from "./edits.js";
+import { addExtraItem, checkLine, deleteExtraItem, uncheckLine, type ShoppingLine } from "./edits.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
@@ -50,6 +50,14 @@ interface PantryForm extends BuildForm {
 /** Check, uncheck, remove and restore post the week and the line's name. */
 type LineForm = PantryForm;
 
+interface ExtraForm extends LineForm {
+  quantity?: string;
+}
+
+interface ExtraDeleteForm extends BuildForm {
+  id?: string;
+}
+
 /** "pasta" / "400 g pasta" as the row's main text. */
 function itemLabel(item: AggregatedItem): string {
   const amount = item.quantity === null ? "" : `${item.quantity}${item.unit ? ` ${item.unit}` : ""} `;
@@ -71,6 +79,25 @@ function lineForm(action: string, weekStart: string, name: string, button: strin
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <input type="hidden" name="name" value="${escapeHtml(name)}" />
   ${button}
+</form>`;
+}
+
+/** Deletes an Extra Item outright (no restore). */
+function deleteExtraForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
+  return `<form method="post" action="/shopping/extra/delete">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <input type="hidden" name="id" value="${line.extraId}" />
+  <button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.deleteExtraFor", { name: line.name }))}">${t(lang, "common.delete")}</button>
+</form>`;
+}
+
+/** The add row at the end of Buy: a name and an optional free-text quantity. */
+function addExtraForm(lang: Lang, weekStart: string): string {
+  return `<form method="post" action="/shopping/extra" class="extra-add">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <label>${t(lang, "shopping.extraName")} <input name="name" required /></label>
+  <label>${t(lang, "shopping.extraQuantity")} <input name="quantity" /></label>
+  <button type="submit">${t(lang, "shopping.addExtra")}</button>
 </form>`;
 }
 
@@ -154,12 +181,13 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
       const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
-      const buyActions = (line: ShoppingLine) => (alwaysHome ? [alwaysHome(line)] : []);
+      /** An Extra Item can be deleted; a Dish-derived Buy line can become a Pantry Item. */
+      const buyActions = (line: ShoppingLine) => (line.extraId !== undefined ? [deleteExtraForm(lang, weekStart, line)] : alwaysHome ? [alwaysHome(line)] : []);
       content =
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, dishName, weekStart, "buy", t(lang, "shopping.buy"), buy, buyActions)}
+          : `${renderSection(lang, dishName, weekStart, "buy", t(lang, "shopping.buy"), buy, buyActions, `\n${addExtraForm(lang, weekStart)}`)}
 ${renderSection(lang, dishName, weekStart, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, () => [])}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
@@ -209,6 +237,20 @@ ${content}`;
   };
   lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
   lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
+
+  app.post<{ Body: ExtraForm }>("/shopping/extra", async (req, reply) => {
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    const name = req.body.name?.trim();
+    if (name) addExtraItem(ctx.db, weekStart, { name, quantity: req.body.quantity });
+    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  });
+
+  app.post<{ Body: ExtraDeleteForm }>("/shopping/extra/delete", async (req, reply) => {
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    const id = Number(req.body.id);
+    if (Number.isInteger(id)) deleteExtraItem(ctx.db, weekStart, id);
+    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  });
 
   app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));

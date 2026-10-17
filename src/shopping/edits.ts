@@ -32,6 +32,30 @@ export function uncheckLine(db: Database.Database, weekStart: string, name: stri
   db.prepare("DELETE FROM shopping_checked WHERE week_start = ? AND name = ?").run(weekStart, normaliseName(name));
 }
 
+export interface ExtraItemInput {
+  name: string;
+  /** Free text ("2 pack"); no unit parsing. */
+  quantity?: string | undefined;
+}
+
+export function addExtraItem(db: Database.Database, weekStart: string, { name, quantity }: ExtraItemInput): number {
+  const position = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS next FROM shopping_extra WHERE week_start = ?").get(weekStart) as { next: number }).next;
+  return Number(
+    db.prepare("INSERT INTO shopping_extra (week_start, name, quantity, position) VALUES (?, ?, ?, ?)").run(weekStart, name.trim(), quantity?.trim() || null, position)
+      .lastInsertRowid,
+  );
+}
+
+/** Deletes outright: an Extra Item is never a Removed Line. Scoped to the week so a stale id cannot cross weeks. */
+export function deleteExtraItem(db: Database.Database, weekStart: string, id: number): void {
+  db.prepare("DELETE FROM shopping_extra WHERE week_start = ? AND id = ?").run(weekStart, id);
+}
+
+function extraLines(db: Database.Database, weekStart: string): ShoppingLine[] {
+  const rows = db.prepare("SELECT id, name, quantity FROM shopping_extra WHERE week_start = ? ORDER BY position, id").all(weekStart) as { id: number; name: string; quantity: string | null }[];
+  return rows.map((r) => ({ name: r.name, quantity: r.quantity, unit: null, sourceDishIds: [], checked: false, extraId: r.id }));
+}
+
 function checkedNames(db: Database.Database, weekStart: string): Set<string> {
   const rows = db.prepare("SELECT name FROM shopping_checked WHERE week_start = ?").all(weekStart) as { name: string }[];
   return new Set(rows.map((r) => r.name));
@@ -45,9 +69,10 @@ function checkedLast(lines: ShoppingLine[]): ShoppingLine[] {
 /** An unknown plan (`weekStart` undefined) has no edits: every line open, nothing removed. */
 export function applyEdits(db: Database.Database, weekStart: string | undefined, { buy, checkPantry }: ShoppingSections): StoredShoppingList {
   const checked = weekStart ? checkedNames(db, weekStart) : new Set<string>();
-  const line = (item: AggregatedItem): ShoppingLine => ({ ...item, checked: checked.has(normaliseName(item.name)) });
+  const extras = weekStart ? extraLines(db, weekStart) : [];
+  const line = (item: ShoppingLine | AggregatedItem): ShoppingLine => ({ ...item, checked: checked.has(normaliseName(item.name)) });
   return {
-    buy: checkedLast(buy.map(line)),
+    buy: checkedLast([...buy, ...extras].map(line)),
     checkPantry: checkedLast(checkPantry.map(line)),
     removed: [],
   };
