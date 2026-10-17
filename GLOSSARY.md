@@ -88,7 +88,7 @@ _Avoid_: busy day, fast day
 
 **Variety Preference**:
 A soft planning preference to avoid Dishes served within a configurable recent window, and the same Main Category on consecutive dinners. Never blocks a Dish — weekly staples ("burgers every Friday") are expected; a repeat just earns a rationale.
-_Avoid_: no-repeat rule, cooldown
+_Avoid_: cooldown
 
 **Once a Week**:
 The hard rule that a Weekly Plan holds each Dish at most once. Across weeks only the Variety Preference applies.
