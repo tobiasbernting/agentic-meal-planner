@@ -26,6 +26,8 @@ export interface PlannedElsewhere {
   /** `null` for a new Suggested Dish not yet stored; it is then matched by name. */
   dishId: number | null;
   name: string;
+  /** The dinner's Main Category, when known; the seed fallback avoids repeating it. */
+  mainCategory?: string | null;
 }
 
 export interface FilterOptions {

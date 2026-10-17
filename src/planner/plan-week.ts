@@ -158,11 +158,14 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
 
   // Once a Week: the dinners planned so far, so a later date never repeats one.
   const planned: PlannedElsewhere[] = [];
-  const nameOf = (draft: PlannedDinnerDraft) =>
-    draft.suggestion?.name ?? input.dishes.find((d) => d.id === draft.dishId)?.name ?? "";
+  const asPlanned = (draft: PlannedDinnerDraft): PlannedElsewhere => {
+    if (draft.suggestion !== null) return { date: draft.date, dishId: null, name: draft.suggestion.name, mainCategory: draft.suggestion.mainCategory };
+    const reused = input.dishes.find((d) => d.id === draft.dishId);
+    return { date: draft.date, dishId: draft.dishId, name: reused?.name ?? "", mainCategory: reused?.mainCategory ?? null };
+  };
   const dinners = days.map((weekDay, i): PlannedDinnerDraft => {
     const draft = planDay({ ...weekDay, plannedElsewhere: [...planned] }, i);
-    if (draft.dishId !== null || draft.suggestion !== null) planned.push({ date: draft.date, dishId: draft.dishId, name: nameOf(draft) });
+    if (draft.dishId !== null || draft.suggestion !== null) planned.push(asPlanned(draft));
     return draft;
   });
 

@@ -440,13 +440,63 @@ describe("planWeek", () => {
         ...result.dinners.map((d) => `${d.date}: seed fallback used`),
       ]);
     });
+    describe("seed fallback across the week", () => {
+      /** The agent returns an existing Dish's id on the given dates and nothing elsewhere. */
+      const reusing = (byDate: Record<string, Dish>) =>
+        new ScriptedLlmAgent({
+          selectDishes: {
+            ok: true,
+            value: Object.entries(byDate).map(([date, d]) => ({ date, dishId: String(d.id), rationale: `reuse ${d.name}` })),
+          },
+        });
+
+      it("skips seed dishes whose Dish or Main Category is already planned on another date that week", async () => {
+        const gratin = dish({ name: "Fiskgratäng", mainCategory: "fish", inRotation: false, suggested: true });
+        const pancakes = dish({ name: "Pannkakor", mainCategory: "other", inRotation: false, suggested: true });
+
+        const result = await planWeek(
+          input({ dishes: [gratin, pancakes], llm: reusing({ "2026-10-12": gratin, "2026-10-13": pancakes }) }),
+        );
+
+        expect(result.dinners.slice(0, 2).map((d) => d.dishId)).toEqual([gratin.id, pancakes.id]);
+        // Pannkakor is the Dish already planned; Fiskpinnar med potatis is fish, like Monday.
+        expect(result.dinners.slice(2).map((d) => d.suggestion?.name)).toEqual([
+          "Köttbullar med potatismos",
+          "Pasta med köttfärssås",
+          "Korv stroganoff med ris",
+          "Kycklinggryta med ris",
+          "Tacos",
+        ]);
+      });
+
+      it("relaxes the Main Category when no other seed is left, but never plans a Dish twice", async () => {
+        // Tuesday and Wednesday are 15-minute Quick Days: only Omelett med sallad (vegetarian) fits.
+        const lasagne = dish({ name: "Grönsakslasagne", mainCategory: "vegetarian", inRotation: false, suggested: true });
+        const settings = { ...DEFAULT_PLANNER_SETTINGS, quickDayTemplate: { tue: 15, wed: 15 } };
+
+        const result = await planWeek(input({ dishes: [lasagne], settings, llm: reusing({ "2026-10-12": lasagne }) }));
+
+        expect(result.dinners[1]?.suggestion?.name).toBe("Omelett med sallad");
+        expect(result.dinners[2]).toMatchObject({ dishId: null, suggestion: null, rationale: t("sv", "rationale.noEligible") });
+      });
+    });
+
     it("prefers seed dishes not recently planned, so an empty rotation does not repeat last week's seeds", async () => {
       const lastWeek = SEED_DISHES.slice(0, 7).map((s) => dish({ ...s, inRotation: false, suggested: true }));
       const recentlyPlanned = lastWeek.map((d, i) => ({ dishId: String(d.id), name: d.name.toUpperCase(), lastDate: `2026-10-0${i + 1}` }));
 
       const result = await planWeek(input({ dishes: lastWeek, recentlyPlanned, llm: new NoAgent() }));
 
-      expect(result.dinners.map((d) => d.suggestion?.name)).toEqual(SEED_DISHES.slice(7, 14).map((s) => s.name));
+      // Not last week's seven, and no Main Category twice: Pytt i panna and Tomatsoppa med bröd are skipped.
+      expect(result.dinners.map((d) => d.suggestion?.name)).toEqual([
+        "Ärtsoppa",
+        "Raggmunk med fläsk",
+        "Falukorv med makaroner",
+        "Lax i ugn med potatis",
+        "Kycklingnuggets med pommes",
+        "Vegetarisk lasagne",
+        "Hamburgare",
+      ]);
     });
 
     it("still uses a recently planned seed dish when it is the only one eligible", async () => {
