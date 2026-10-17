@@ -32,6 +32,13 @@ export function mondayOf(date: string): string {
   return addDays(date, -WEEKDAYS.indexOf(weekdayOf(date)));
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The Monday of a requested week (a `?week=` or form value); absent or malformed means `today`'s week. */
+export function resolveWeek(raw: string | undefined, today: string): string {
+  return mondayOf(raw && ISO_DATE.test(raw) ? raw : today);
+}
+
 /**
  * Calendar date `YYYY-MM-DD` of `d` in IANA `timezone`; without one, the process time zone
  * (the household's clock, not UTC).

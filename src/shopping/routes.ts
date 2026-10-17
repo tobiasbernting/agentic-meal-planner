@@ -6,7 +6,7 @@
  */
 import type { FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { addDays, mondayOf } from "../week.js";
+import { addDays, resolveWeek } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
@@ -19,18 +19,12 @@ import { planRunBanner } from "../plan-run/routes.js";
 
 NAV.push({ href: "/shopping", label: "nav.shopping" });
 
-const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
-
 interface ShoppingQuery {
   week?: string;
 }
 
 interface BuildForm {
   weekStart?: string;
-}
-
-function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
 function renderItem(item: AggregatedItem): string {

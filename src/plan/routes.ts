@@ -9,12 +9,11 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
 import { suggestedBadge } from "../dishes/suggested-badge.js";
-import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
+import { addDays, resolveWeek, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
-import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import { runLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
@@ -28,8 +27,6 @@ import { escapeHtml, NAV, page } from "../ui/layout.js";
 
 NAV.push({ href: "/plan", label: "nav.plan" });
 
-const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
-
 interface PlanQuery {
   week?: string;
   notice?: string;
@@ -42,11 +39,6 @@ interface GenerateForm {
 interface RegenerateForm extends GenerateForm {
   /** FR-9a: set when the user confirmed replacing a confirmed plan. */
   confirmed_override?: string;
-}
-
-/** The requested week's Monday; an absent or malformed `week` means the current week. */
-function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
 function renderLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
