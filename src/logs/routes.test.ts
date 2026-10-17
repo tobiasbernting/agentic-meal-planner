@@ -71,3 +71,39 @@ describe("GET /logs/stream", () => {
     stream.destroy();
   });
 });
+
+describe("POST /logs/level", () => {
+  it("switches the live level, including for loggers created before the switch", async () => {
+    const { app, stdout } = await start({ logLevel: "info" });
+    const probe = app.ctx.log.child({ component: "probe" });
+    probe.debug({}, "before");
+
+    const res = await app.inject({ method: "POST", url: "/logs/level", payload: { level: "debug" } });
+    probe.debug({}, "after");
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("/logs");
+    const streamed = sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+    expect(streamed.filter((r) => r.component === "probe").map((r) => r.msg)).toEqual(["after"]);
+    expect(stdout.filter((r) => r.component === "probe").map((r) => r.msg)).toEqual(["after"]);
+  });
+
+  it("drops records below a raised level", async () => {
+    const { app } = await start({ logLevel: "info" });
+
+    await app.inject({ method: "POST", url: "/logs/level", payload: { level: "warn" } });
+    await app.inject({ method: "GET", url: "/health" });
+
+    const streamed = sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+    expect(streamed.some((r) => r.url === "/health")).toBe(false);
+  });
+
+  it("rejects an unknown level and keeps the current one", async () => {
+    const { app } = await start({ logLevel: "info" });
+
+    const res = await app.inject({ method: "POST", url: "/logs/level", payload: { level: "silent" } });
+
+    expect(res.statusCode).toBe(400);
+    expect(app.ctx.logs.getLevel()).toBe("info");
+  });
+});
