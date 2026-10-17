@@ -85,6 +85,25 @@ describe("GET /shopping", () => {
     expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>bröd<\/li>/);
   });
 
+  it("merges one Ingredient from two Dishes into one Buy line and keeps the Preparation Note off the list", async () => {
+    const recipes: Record<string, FoundRecipe> = {
+      Potatismos: { url: "https://example.com/mos", ingredients: [{ name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" }] },
+      Pannkakor: { url: "https://example.com/pannkakor", ingredients: [{ name: "mjölk", quantity: 3, unit: "dl" }] },
+    };
+    const llm = new ScriptedLlmAgent({ findRecipe: (name) => ({ ok: true, value: recipes[name]! }) });
+    const app = await start({ llm });
+    const mos = createDish(app.ctx.db, { name: "Potatismos" });
+    const pannkakor = createDish(app.ctx.db, { name: "Pannkakor" });
+    planWith(app, [mos, pannkakor]);
+
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+
+    const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>5 dl mjölk<\/li>/);
+    expect(res.body.match(/mjölk/g)).toHaveLength(1);
+    expect(res.body).not.toContain("till mos");
+  });
+
   it("offers to build the list when the plan has none yet", async () => {
     const app = await start();
     planWith(app, [createDish(app.ctx.db, { name: "Toast" })]);

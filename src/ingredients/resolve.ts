@@ -3,14 +3,17 @@ import { silentLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getDish, type Dish, type Ingredient } from "../dishes/repo.js";
-import type { Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
+import type { ExtractIngredientsOptions, Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
 import { listPlannedDinners, setPlannedDinnerSource, type PlannedDinner } from "../planner/repo.js";
+import { DEFAULT_LANG, type Lang } from "../i18n/index.js";
 import type { FetchPage } from "../plugins/schools/index.js";
 
 export interface ResolveDeps {
   db: Database.Database;
   llm: LlmAgent;
   fetchPage: FetchPage;
+  /** UI language the agent names Ingredients in; defaults to the app's default language. */
+  language?: Lang;
   /** Timestamp for cache rows (ISO string); defaults to the wall clock. */
   now?: () => Date;
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
@@ -69,7 +72,7 @@ async function resolveFromLlm(deps: ResolveDeps, dishName: string, adaptationNot
   const cached = readFoundRecipe(deps.db, dishName, adaptationNotes);
   if (cached) return { ingredients: cached.ingredients, source: "llm", sourceUrl: cached.url };
 
-  const result = await deps.llm.findRecipe(dishName, { adaptationNotes: adaptationNotes || undefined });
+  const result = await deps.llm.findRecipe(dishName, extractOptions(deps, adaptationNotes));
   if (!result.ok) return { ingredients: [], source: "none", degradedReason: result.reason };
   const ingredients = result.value.ingredients.map(toIngredient);
   writeFoundRecipe(deps.db, dishName, adaptationNotes, result.value.url, ingredients, (deps.now?.() ?? new Date()).toISOString());
@@ -152,11 +155,15 @@ async function resolveFromUrl(deps: ResolveDeps, url: string, adaptationNotes: s
   const cached = readCache(deps.db, url, contentHash, adaptationNotes);
   if (cached) return { ingredients: cached, source: "url", sourceUrl: url };
 
-  const result = await deps.llm.extractIngredients(page, { adaptationNotes: adaptationNotes || undefined });
+  const result = await deps.llm.extractIngredients(page, extractOptions(deps, adaptationNotes));
   if (!result.ok) return { ingredients: [], source: "url", sourceUrl: url, degradedReason: result.reason };
   const ingredients = result.value.map(toIngredient);
   writeCache(deps.db, url, contentHash, adaptationNotes, ingredients, (deps.now?.() ?? new Date()).toISOString());
   return { ingredients, source: "url", sourceUrl: url };
+}
+
+function extractOptions(deps: ResolveDeps, adaptationNotes: string): ExtractIngredientsOptions {
+  return { adaptationNotes: adaptationNotes || undefined, language: deps.language ?? DEFAULT_LANG };
 }
 
 function sha256(text: string): string {
@@ -193,7 +200,9 @@ function writeCache(
  * agent gave a number or a numeric string (decimal comma accepted), otherwise null.
  */
 function toIngredient(ing: LlmIngredient): Ingredient {
-  return { name: ing.name, quantity: toQuantity(ing.quantity), unit: ing.unit ?? null };
+  const ingredient: Ingredient = { name: ing.name, quantity: toQuantity(ing.quantity), unit: ing.unit ?? null };
+  if (ing.preparationNote) ingredient.preparationNote = ing.preparationNote;
+  return ingredient;
 }
 
 function toQuantity(q: number | string | undefined): number | null {

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;800;900&display=swap" rel="stylesheet">
+<style>
+  :root { --paper:#fbfaf6; --ink:#1a1a1a; --red:#c4161c; --muted:#7a7a72; --rule:#d9d7cf; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:390px; height:844px; overflow:hidden; }
+  body { background:var(--paper); color:var(--ink); font-family:"Libre Franklin", system-ui, sans-serif; font-variant-numeric:tabular-nums; }
+  header { display:flex; align-items:flex-end; justify-content:space-between; padding:18px 16px 10px; border-bottom:2px solid var(--ink); }
+  .wk { font-weight:900; font-size:72px; line-height:.8; letter-spacing:-2px; }
+  .wk small { font-size:18px; font-weight:600; letter-spacing:0; margin-right:4px; vertical-align:top; }
+  .mon { text-align:right; font-size:15px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+  .day { display:grid; grid-template-columns:68px 1fr; border-bottom:1px solid var(--rule); }
+  .date { padding:12px 0 0 16px; }
+  .date b { display:block; font-size:30px; font-weight:800; line-height:1; }
+  .date span { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
+  .red b, .red span { color:var(--red); }
+  .cell { padding:12px 16px 12px 8px; }
+  .lunch { font-size:13px; color:var(--muted); line-height:1.35; }
+  .dinner { font-size:17px; font-weight:600; margin-top:3px; }
+  .today { background:#fff; border-left:4px solid var(--ink); }
+  .today .date b { font-size:38px; }
+  .today .cell { padding-top:14px; padding-bottom:16px; }
+  .today .lbl { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin-top:10px; }
+  .today .lbl:first-child { margin-top:0; }
+  .today .lunch { font-size:16px; color:var(--ink); margin-top:2px; }
+  .today .dinner { font-size:30px; font-weight:800; line-height:1.05; margin-top:2px; }
+  .meta { display:flex; gap:10px; margin-top:8px; font-size:13px; font-weight:600; }
+  .meta .q { border:1.5px solid var(--ink); padding:2px 8px; }
+  .why { font-size:14px; color:var(--muted); margin-top:8px; line-height:1.4; }
+  .acts { display:flex; gap:8px; margin-top:12px; }
+  .acts button { font:600 15px "Libre Franklin"; border:1.5px solid var(--ink); background:none; padding:9px 14px; color:var(--ink); }
+  nav { position:absolute; bottom:0; left:0; right:0; height:76px; background:var(--paper); border-top:2px solid var(--ink); display:grid; grid-template-columns:repeat(4,1fr); padding-bottom:18px; }
+  nav a { color:var(--muted); text-decoration:none; font-weight:600; font-size:14px; display:flex; align-items:center; justify-content:center; }
+  nav a[aria-current] { color:var(--ink); font-weight:800; text-decoration:underline; text-underline-offset:6px; text-decoration-thickness:2px; }
+</style>
+</head>
+<body>
+  <header><div class="wk"><small>v.</small>42</div><div class="mon">Oktober 2026</div></header>
+
+  <div class="day"><div class="date"><b>12</b><span>Mån</span></div><div class="cell"><div class="lunch">Kycklingburgare med klyftpotatis</div><div class="dinner">Köttbullar med potatismos</div></div></div>
+
+  <div class="day today"><div class="date"><b>13</b><span>Tis</span></div><div class="cell">
+    <div class="lbl">Lunch · Lunnaskolan</div>
+    <div class="lunch">Spaghetti med köttfärssås</div>
+    <div class="lbl">Middag</div>
+    <div class="dinner">Pannkakor</div>
+    <div class="meta"><span class="q">Snabbdag ≤ 30 min</span><span>30 min</span></div>
+    <div class="why">Snabbt och älskat av barnen, och inte pasta igen efter lunchen.</div>
+    <div class="acts"><button>Byt rätt</button><button>Recept</button></div>
+  </div></div>
+
+  <div class="day"><div class="date"><b>14</b><span>Ons</span></div><div class="cell"><div class="lunch">Stekt fisk med dillsås</div><div class="dinner">Köttbullar med potatismos</div></div></div>
+  <div class="day"><div class="date"><b>15</b><span>Tor</span></div><div class="cell"><div class="lunch">Pasta med medelhavskorv</div><div class="dinner">Vegetarisk lasagne</div></div></div>
+  <div class="day"><div class="date"><b>16</b><span>Fre</span></div><div class="cell"><div class="lunch">Köttfärsröra med tortillabröd</div><div class="dinner">Tacos (mild)</div></div></div>
+  <div class="day red"><div class="date"><b>17</b><span>Lör</span></div><div class="cell"><div class="lunch">Ingen lunch</div><div class="dinner">Tomatsoppa med bröd</div></div></div>
+
+  <nav><a href="#" aria-current="page">Idag</a><a href="#">Plan</a><a href="#">Inköp</a><a href="#">Mer</a></nav>
+</body>
+</html>

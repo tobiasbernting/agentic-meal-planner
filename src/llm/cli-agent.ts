@@ -30,7 +30,17 @@ const MAIN_CATEGORY_KEYS = [
   "other",
 ];
 
-const INGREDIENT_SHAPE = '{"name": string, "quantity"?: number|string, "unit"?: string}';
+const INGREDIENT_SHAPE = '{"name": string, "quantity"?: number|string, "unit"?: string, "preparationNote"?: string}';
+const LANGUAGE_NAMES = { sv: "Swedish", en: "English" } as const;
+
+/** Cleaning rules shared by extraction and recipe search: what the Shopping List needs from an Ingredient. */
+function ingredientRules(language: "sv" | "en" | undefined): string {
+  return (
+    `Name each ingredient bare, as it would be bought in a shop (no amounts, no cooking words), in ${LANGUAGE_NAMES[language ?? "sv"]}. ` +
+    `Use metric units only: convert cups, lb and oz to ml, dl, g or kg. ` +
+    `Put how the dish uses the ingredient (e.g. "finely chopped", "for the mash") in "preparationNote", never in the name. `
+  );
+}
 
 /** What one agent subprocess produced. `stderr` may be only its tail (the real spawner keeps the last 8 KB). */
 export interface ProcessResult {
@@ -126,7 +136,7 @@ export class CliAgent implements LlmAgent {
   ): Promise<LlmResult<Ingredient[]>> {
     const adaptation = options.adaptationNotes?.trim();
     const prompt =
-      `Extract the ingredient list from this recipe page. ` +
+      `Extract the ingredient list from this recipe page. ${ingredientRules(options.language)}` +
       (adaptation ? `The household adapts this recipe; apply these adaptations: ${adaptation}. ` : "") +
       `Respond with JSON only: an array of ${INGREDIENT_SHAPE}.\n\n${recipePageContent}`;
     return this.ask("extractIngredients", prompt, validateIngredients);
@@ -135,7 +145,7 @@ export class CliAgent implements LlmAgent {
   async findRecipe(dishName: string, options: ExtractIngredientsOptions = {}): Promise<LlmResult<FoundRecipe>> {
     const adaptation = options.adaptationNotes?.trim();
     const prompt =
-      `Find a recipe on the web for the dish "${dishName}" and extract its ingredient list. ` +
+      `Find a recipe on the web for the dish "${dishName}" and extract its ingredient list. ${ingredientRules(options.language)}` +
       (adaptation ? `The household adapts this recipe; apply these adaptations: ${adaptation}. ` : "") +
       `Respond with JSON only: {"url": string, "ingredients": array of ${INGREDIENT_SHAPE}}.`;
     return this.ask("findRecipe", prompt, validateFoundRecipe);
@@ -282,8 +292,9 @@ function validateIngredient(v: unknown): Ingredient | undefined {
   if (!(quantity === undefined || quantity === null || typeof quantity === "number" || typeof quantity === "string")) {
     return undefined;
   }
-  if (!optionalString(unit)) return undefined;
+  if (!optionalString(unit) || !optionalString(v.preparationNote)) return undefined;
   const out: Ingredient = { name: v.name };
+  if (typeof v.preparationNote === "string" && v.preparationNote.trim() !== "") out.preparationNote = v.preparationNote.trim();
   if (quantity !== undefined && quantity !== null) out.quantity = quantity;
   if (typeof unit === "string") out.unit = unit;
   return out;
