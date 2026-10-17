@@ -8,6 +8,7 @@
  */
 import type Database from "better-sqlite3";
 import type { FastifyReply } from "fastify";
+import { isHtmx } from "../ui/htmx.js";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
@@ -96,7 +97,7 @@ export const swapRoutes: FeaturePlugin = async (app, ctx) => {
     const current = plan.dinners.find((d) => d.date === date)?.dishId ?? null;
     const list = swapList(ctx.db, lang, date, current, next);
     reply.type("text/html; charset=utf-8");
-    if (req.headers["hx-request"] === "true") return list;
+    if (isHtmx(req)) return list;
     const body = `<header class="page-head"><h1>${t(lang, "day.swap")} <time datetime="${date}">${date}</time></h1></header>\n${list}`;
     return page({ title: t(lang, "day.swap"), body, lang, tab: "plan" });
   });
