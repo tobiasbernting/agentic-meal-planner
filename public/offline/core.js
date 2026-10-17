@@ -49,3 +49,52 @@ export function classify(request, config) {
   if (request.headers.has("HX-Request") || PASSTHROUGH_PATHS.includes(path)) return { kind: "passthrough" };
   return { kind: "page", cacheable: findRoute(config.pages, path) !== undefined };
 }
+
+/**
+ * @param {string} date "YYYY-MM-DD"
+ * @param {number} days
+ */
+function addDays(date, days) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The ISO Monday of the week containing `date` (UTC arithmetic, like src/week.ts).
+ * @param {string} date "YYYY-MM-DD"
+ */
+function mondayOf(date) {
+  const sundayFirst = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return addDays(date, -((sundayFirst + 6) % 7));
+}
+
+/** Pages whose server default is this week, so `?week=<this Monday>` is the same page. */
+const WEEK_PAGES = ["/plan", "/shopping"];
+
+/**
+ * The pre-warm list with `{thisWeek}` and `{nextWeek}` filled in.
+ * @param {readonly string[]} templates
+ * @param {string} today "YYYY-MM-DD" on the device clock
+ */
+export function prewarmUrls(templates, today) {
+  const thisWeek = mondayOf(today);
+  const nextWeek = addDays(thisWeek, 7);
+  return templates.map((template) => template.replaceAll("{thisWeek}", thisWeek).replaceAll("{nextWeek}", nextWeek));
+}
+
+/**
+ * Cache keys to try, in order, for a page's Offline Copy: the URL itself, then for Plan and
+ * Shopping without a `?week` this week's pre-warmed copy.
+ * @param {string} url absolute URL
+ * @param {string} today "YYYY-MM-DD"
+ */
+export function cacheKeysFor(url, today) {
+  const parsed = new URL(url);
+  const keys = [parsed.href];
+  if (WEEK_PAGES.includes(parsed.pathname) && !parsed.searchParams.has("week")) {
+    parsed.searchParams.set("week", mondayOf(today));
+    keys.push(parsed.href);
+  }
+  return keys;
+}

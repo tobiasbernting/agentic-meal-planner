@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify } from "../../public/offline/core.js";
+import { cacheKeysFor, classify, prewarmUrls } from "../../public/offline/core.js";
 import { workerConfig } from "./routes.js";
 
 const config = workerConfig();
@@ -57,5 +57,37 @@ describe("classify", () => {
     for (const request of [get("/shopping", { "HX-Request": "true" }), get("/plan-run/banner"), get("/logs/stream"), get("/health"), get("/sw.js")]) {
       expect(classify(request, config), request.url).toEqual({ kind: "passthrough" });
     }
+  });
+});
+
+describe("prewarmUrls", () => {
+  it("fills in this week's and next week's ISO Mondays from a mid-week today", () => {
+    expect(prewarmUrls(config.prewarm, "2026-10-17")).toEqual([
+      "/",
+      "/plan?week=2026-10-12",
+      "/plan?week=2026-10-19",
+      "/shopping?week=2026-10-12",
+      "/shopping?week=2026-10-19",
+      "/dishes",
+      "/pantry",
+    ]);
+  });
+
+  it("treats a Monday as its own week and crosses a year end", () => {
+    expect(prewarmUrls(["/plan?week={thisWeek}", "/plan?week={nextWeek}"], "2026-10-12")).toEqual(["/plan?week=2026-10-12", "/plan?week=2026-10-19"]);
+    expect(prewarmUrls(["/plan?week={thisWeek}", "/plan?week={nextWeek}"], "2026-12-31")).toEqual(["/plan?week=2026-12-28", "/plan?week=2027-01-04"]);
+  });
+});
+
+describe("cacheKeysFor", () => {
+  it("tries Plan and Shopping without a week as this week's pre-warmed copy too", () => {
+    expect(cacheKeysFor(`${ORIGIN}/plan`, "2026-10-17")).toEqual([`${ORIGIN}/plan`, `${ORIGIN}/plan?week=2026-10-12`]);
+    expect(cacheKeysFor(`${ORIGIN}/shopping`, "2026-10-18")).toEqual([`${ORIGIN}/shopping`, `${ORIGIN}/shopping?week=2026-10-12`]);
+  });
+
+  it("tries only the URL itself for other pages and for a named week", () => {
+    expect(cacheKeysFor(`${ORIGIN}/`, "2026-10-17")).toEqual([`${ORIGIN}/`]);
+    expect(cacheKeysFor(`${ORIGIN}/dishes/3/edit`, "2026-10-17")).toEqual([`${ORIGIN}/dishes/3/edit`]);
+    expect(cacheKeysFor(`${ORIGIN}/shopping?week=2026-10-19`, "2026-10-17")).toEqual([`${ORIGIN}/shopping?week=2026-10-19`]);
   });
 });
