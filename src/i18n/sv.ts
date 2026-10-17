@@ -164,6 +164,8 @@ export const sv: Dictionary = {
   "dishes.plannedOn": "Planerad för: {dates}",
   "dishes.deleteYes": "Ja, ta bort",
   "dishes.addToFavorites": "Lägg till i favoriter",
+  "dishes.addingToFavorites": "Lägger till…",
+  "dishes.inFavorites": "I favoriter ✓",
 
   "schools.title": "Skolor",
   "schools.invalid": "En skola behöver ett namn och exakt en menylänk.",
