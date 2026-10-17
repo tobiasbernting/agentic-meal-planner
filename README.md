@@ -49,6 +49,36 @@ The agent command (Settings, or the `AGENT_COMMAND` env var) defaults to `copilo
 
 Logs go to stdout: one JSON object per line when `NODE_ENV=production` (the container), pretty-printed through `pino-pretty` under `npm run dev`. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, or `silent`) sets verbosity; it defaults to `info` in production and `debug` otherwise. Every request, plan run and lunch ingest logs with a `runId` (the request id, or `cron-<ISO time>` for the weekly run), so `docker logs <container> | jq 'select(.runId == "req-7")'` shows one run. At startup the server logs the resolved agent command, whether its binary is on `PATH` (a `warn` when it is not), the time zone, `DATA_DIR` and the cron schedule. `GET /health` returns `{ "status": "ok", "agentBinaryFound": true, "agentCommand": "copilot -p" }`; the check is a `PATH` lookup and never calls the agent.
 
+## Agent CLI in the container
+
+The image installs no agent CLI, so out of the box every Weekly Plan is degraded (see [ADR-0005](./docs/adr/0005-llm-via-cli-agent-subprocess.md)). You provide the agent and its authentication. The container runs as uid 1000 (`node`) with `HOME=/home/node`.
+
+**a) Mount a binary and its auth directory.** The binary must run inside the image (Debian bookworm, glibc, Node 24) and sit in a directory on `PATH`, or `AGENT_COMMAND` must use its absolute path:
+
+```sh
+docker run -v meal-planner-data:/data -p 8080:8080 \
+  -v /path/to/copilot:/usr/local/bin/copilot:ro \
+  -v ~/.copilot:/home/node/.copilot \
+  ghcr.io/tobiasbernting/agentic-meal-planner
+```
+
+The auth/config directory must be readable (and, for token refresh, writable) by uid 1000. A CLI that authenticates from an env var can take `-e` instead of a mount.
+
+**b) Derived image.** For example, with Copilot CLI (check the vendor's current install instructions):
+
+```dockerfile
+FROM ghcr.io/tobiasbernting/agentic-meal-planner
+USER root
+RUN npm i -g @github/copilot
+USER node
+```
+
+Authenticate with a mount or env var as in (a).
+
+**Command.** The default is `copilot -p`. For another CLI, set it in Settings or with `-e AGENT_COMMAND="<command>"` (the first word is the binary looked up on `PATH`).
+
+**Confirm.** The startup log line `startup` has `agentBinaryFound: true`; if the binary is missing, a `warn` follows (`agent binary not found on PATH; plans will be degraded`). `curl localhost:8080/health` returns `"agentBinaryFound": true`. Both only check that the binary exists; they do not test authentication, so generate a plan and read the logs.
+
 ## Development
 
 Requires Node 24+.
