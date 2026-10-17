@@ -35,6 +35,17 @@ docker run -v meal-planner-data:/data -p 8080:8080 ghcr.io/tobiasbernting/agenti
 
 Then open http://localhost:8080, add your schools' lunch-menu URLs and your favorite dishes.
 
+### Phones and offline: serve HTTPS on the LAN
+
+On a phone the app is meant to be added to the home screen and to keep working at the store: it keeps an Offline Copy of Today, Plan, Shopping, Dishes and Pantry, and edits made offline are saved as Pending Changes and sent when the phone is back home ([ADR-0007](./docs/adr/0007-offline-first-service-worker-queued-writes.md)). All of that runs in a service worker, and browsers only install one on `localhost` or over HTTPS. Over plain `http://192.168.x.x:8080` a phone gets the ordinary online app and nothing offline, with no error shown.
+
+So for phones, put HTTPS in front of the container. The container itself still speaks plain HTTP on port 8080. Two setups that work on a home LAN:
+
+- **A reverse proxy with its own local CA.** [Caddy](https://caddyserver.com/) with `tls internal`, or any proxy with a [mkcert](https://github.com/FiloSottile/mkcert) certificate. Install the CA's root certificate on each phone once (iOS: install the profile, then enable full trust under Settings > General > About > Certificate Trust Settings; Android: Settings > Security > Install a certificate > CA certificate).
+- **Tailscale.** `tailscale cert` gives the box a real certificate for its tailnet name, and phones on the tailnet reach it over HTTPS with nothing to install.
+
+A built-in option, the container serving HTTPS with a certificate it generates itself, is tracked in [#110](https://github.com/tobiasbernting/agentic-meal-planner/issues/110).
+
 ## Configuration
 
 Shopping List Sinks are set in Settings as a JSON array (empty = Trello when `TRELLO_KEY`, `TRELLO_TOKEN`, `TRELLO_BOARD_ID` are set, else no push):
