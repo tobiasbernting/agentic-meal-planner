@@ -240,10 +240,10 @@ describe("Shopping List as the almanac notes page", () => {
     const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
 
     expect(sv.body).toContain('<h1 class="week-num" aria-label="Vecka 43"><small>v.</small>43</h1>');
-    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-12" rel="prev"[^>]*>v\. 42 <span aria-hidden="true">‹<\/span><\/a>/);
-    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*><span aria-hidden="true">›<\/span> v\. 44<\/a>/);
+    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-12" rel="prev"[^>]*><span aria-hidden="true">‹<\/span> v\. 42<\/a>/);
+    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*>v\. 44 <span aria-hidden="true">›<\/span><\/a>/);
     expect(en.body).toContain('aria-label="Week 43"');
-    expect(en.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*><span aria-hidden="true">›<\/span> wk 44<\/a>/);
+    expect(en.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*>wk 44 <span aria-hidden="true">›<\/span><\/a>/);
   });
 
   it("shows each Buy line as a ruled row with its source Dishes, in sv and en", async () => {
@@ -262,6 +262,20 @@ describe("Shopping List as the almanac notes page", () => {
   });
 
   describe("sink status line", () => {
+    it("says no recipient is set up, links to Settings, and offers no Skicka igen", async () => {
+      const { app } = await builtList();
+
+      const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+      const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+      const sinks = (body: string) => /<section id="sinks">[\s\S]*?<\/section>/.exec(body)![0];
+      expect(sinks(sv.body)).toContain('<a href="/settings#recipients">Ingen mottagare inställd</a>');
+      expect(sinks(sv.body)).not.toContain("Skicka igen");
+      expect(sinks(sv.body)).not.toContain("/shopping/push");
+      expect(sinks(en.body)).toContain('<a href="/settings#recipients">No recipient set up</a>');
+      expect(sinks(en.body)).not.toContain("Send again");
+    });
+
     it("says where and when the Buy list was sent, with Skicka igen", async () => {
       const { app, planId } = await builtList();
       app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 1, NULL, NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());

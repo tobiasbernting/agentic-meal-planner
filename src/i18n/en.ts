@@ -12,6 +12,9 @@ export const en = {
   "nav.label": "Main",
 
   "common.save": "Save",
+  "common.working": "Working…",
+  "dishes.saving": "Saving…",
+  "today.refreshing": "Fetching menus…",
   "common.cancel": "Cancel",
   "common.edit": "Edit",
   "common.delete": "Delete",
@@ -113,6 +116,7 @@ export const en = {
   "shopping.sendFailed": "Could not send to {sink}: {error}",
   "shopping.failedLabel": "Failed",
   "shopping.pushAgain": "Send again",
+  "shopping.noSink": "No recipient set up",
   "shopping.notPushed": "Not pushed anywhere",
   "shopping.unknownError": "unknown error",
   "shopping.notice.run-in-progress": "A Plan Run is in progress for this week. The Shopping List was not changed.",
@@ -155,6 +159,7 @@ export const en = {
   "dishes.deleteDish": "Delete dish",
   "dishes.deleteConfirm": "Delete {name}?",
   "dishes.deleteWarning": "The dish and its ingredients are removed for good.",
+  "dishes.plannedOn": "Planned for: {dates}",
   "dishes.deleteYes": "Yes, delete",
   "dishes.addToFavorites": "Add to favorites",
 
@@ -262,6 +267,7 @@ export const en = {
   "day.noSchoolLunch": "No school lunch",
   "day.quickDayMax": "Quick Day, max {n} min",
   "day.swap": "Swap dish",
+  "day.pick": "Pick dish",
   "day.recipe": "Recipe",
   "swap.pick": "Pick a dish for the day",
   "swap.none": "No other dish fits this day.",

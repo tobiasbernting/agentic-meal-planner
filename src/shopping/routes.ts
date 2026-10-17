@@ -19,6 +19,7 @@ import { shortWhen } from "../ui/when.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
+import { configuredSinks } from "../sinks/registry.js";
 import { buildShoppingList, buyFingerprint, getMissingDishIds, getShoppingList } from "./build.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
@@ -159,6 +160,9 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
   const lastOk = pushes.reduce((last, p, i) => (p.ok ? i : last), -1);
   if (pushes.some((p) => p.ok && p.buyHash !== null && p.buyHash !== current)) {
     lines.splice(lastOk + 1, 0, `<p class="sink-status">${t(lang, "shopping.changedSinceSent")}</p>`);
+  }
+  if (pushes.length === 0 && configuredSinks(ctx.db, ctx.env ?? process.env, ctx.fetch).length === 0) {
+    return `<section id="sinks">\n<p class="sink-status"><a href="/settings#recipients">${t(lang, "shopping.noSink")}</a></p>\n</section>`;
   }
   if (pushes.length === 0) lines.push(`<p class="sink-status">${t(lang, "shopping.notPushed")}</p>`);
   if (lastFailed === -1) lines.push(again(true));

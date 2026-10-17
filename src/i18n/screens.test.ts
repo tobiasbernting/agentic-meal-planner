@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { writeSetting } from "../db.js";
 import { createDish, getDish } from "../dishes/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { createPantryItem } from "../pantry/repo.js";
@@ -74,6 +75,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
   });
   it("localises the sinks section of the Shopping List (#32, #37)", async () => {
     const app = await makeApp();
+    writeSetting(app.ctx.db, "shopping_list_sinks", '[{"type":"webhook","url":"https://hook.example/list"}]');
     const pasta = createDish(app.ctx.db, {
       name: "Pasta",
       recipeUrl: null,
