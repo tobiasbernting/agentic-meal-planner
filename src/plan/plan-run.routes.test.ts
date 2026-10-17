@@ -262,7 +262,7 @@ describe("a Plan Run that throws", () => {
     await planRunSettled(app, WEEK);
 
     expect(before.dinners).toHaveLength(7);
-    expect(before.shoppingList?.join("")).toContain("<li>400 g pasta</li>");
+    expect(before.shoppingList?.join("")).toContain("400 g pasta");
     expect({ dinners: await dinners(), shoppingList: await shoppingList() }).toEqual(before);
   });
 

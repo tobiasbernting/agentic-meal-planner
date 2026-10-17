@@ -4,13 +4,16 @@
  * automatically after plan generation (src/plan/routes.ts and src/server.ts). The week's
  * Plan Run banner explains a half-built list; Build/Rebuild is withheld while that run is in flight.
  */
-import type { FeaturePlugin } from "../app.js";
+import type { AppContext, FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { addDays, mondayOf } from "../week.js";
-import { householdToday } from "../planner/settings.js";
+import { addDays, isoWeek, mondayOf } from "../week.js";
+import { householdToday, readTimezone } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
-import { escapeHtml, page } from "../ui/layout.js";
+import { getDish } from "../dishes/repo.js";
+import { weekHead } from "../ui/almanac.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
+import { shortWhen } from "../ui/when.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
@@ -31,36 +34,69 @@ function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
-function renderItem(item: AggregatedItem): string {
+/** "pasta" / "400 g pasta" as the row's main text. */
+function itemLabel(item: AggregatedItem): string {
   const amount = item.quantity === null ? "" : `${item.quantity}${item.unit ? ` ${item.unit}` : ""} `;
-  return `<li>${escapeHtml(amount)}${escapeHtml(item.name)}</li>`;
+  return `${amount}${item.name}`;
 }
 
-function renderSection(lang: Lang, id: string, heading: string, items: AggregatedItem[]): string {
-  const list = items.length === 0 ? `<p class="notice">${t(lang, "shopping.nothing")}</p>` : `<ul>${items.map(renderItem).join("")}</ul>`;
-  return `<section id="${id}"><h2>${heading}</h2>${list}</section>`;
+function renderItem(lang: Lang, dishName: (id: number) => string | undefined, item: AggregatedItem): string {
+  const dishes = item.sourceDishIds.flatMap((id) => dishName(id) ?? []);
+  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
+  return `<li class="row"><span class="row-label">${escapeHtml(itemLabel(item))}</span>${till}</li>`;
+}
+
+function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, items: AggregatedItem[]): string {
+  const list = items.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${items.map((i) => renderItem(lang, dishName, i)).join("\n")}\n</ul>`;
+  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
 }
 
 function buildForm(weekStart: string, label: string): string {
   return `<form method="post" action="/shopping/build">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <button type="submit">${label}</button>
+  <button type="submit" class="quiet">${label}</button>
 </form>`;
 }
 
-function renderPushes(lang: Lang, ctx: { db: import("better-sqlite3").Database }, planId: number, weekStart: string): string {
-  const rows = latestPushes(ctx.db, planId)
-    .map((p) =>
-      p.ok
-        ? `<li class="push-ok">${escapeHtml(p.sinkId)}: ${t(lang, "shopping.pushed")}${p.detail ? ` (${escapeHtml(p.detail)})` : ""}</li>`
-        : `<li class="push-error">${escapeHtml(p.sinkId)}: ${t(lang, "shopping.pushFailed")} ${escapeHtml(p.error ?? t(lang, "shopping.unknownError"))}</li>`,
-    )
-    .join("");
-  return `<section id="sinks"><h2>${t(lang, "shopping.sinks")}</h2>${rows ? `<ul>${rows}</ul>` : `<p class="notice">${t(lang, "shopping.notPushed")}</p>`}
-<form method="post" action="/shopping/push">
+function sinkName(sinkId: string): string {
+  return sinkId.charAt(0).toUpperCase() + sinkId.slice(1);
+}
+
+/** Where and when the Buy list went: one status line per sink, or an inverted block per failure; Skicka igen once. */
+function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string): string {
+  const timezone = readTimezone(ctx.db);
+  const pushes = latestPushes(ctx.db, planId);
+  const again = (quiet: boolean) => `<form method="post" action="/shopping/push">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <button type="submit">${t(lang, "shopping.pushAgain")}</button>
-</form></section>`;
+  <button type="submit"${quiet ? ' class="quiet"' : ""}>${t(lang, "shopping.pushAgain")}</button>
+</form>`;
+  const lastFailed = pushes.reduce((last, p, i) => (p.ok ? last : i), -1);
+  const lines = pushes.map((p, i) =>
+    p.ok
+      ? `<p class="sink-status">${escapeHtml(t(lang, "shopping.sentTo", { sink: sinkName(p.sinkId), when: shortWhen(lang, p.pushedAt, timezone) }))}</p>`
+      : notice({
+          label: t(lang, "shopping.failedLabel"),
+          text: t(lang, "shopping.sendFailed", { sink: sinkName(p.sinkId), error: p.error ?? t(lang, "shopping.unknownError") }),
+          role: "alert",
+          actionsHtml: i === lastFailed ? again(false) : undefined,
+        }),
+  );
+  if (pushes.length === 0) lines.push(`<p class="sink-status">${t(lang, "shopping.notPushed")}</p>`);
+  if (lastFailed === -1) lines.push(again(true));
+  return `<section id="sinks">\n${lines.join("\n")}\n</section>`;
+}
+
+/** "‹ v. 42" and "v. 44 ›": the neighbouring weeks by ISO week number. */
+function weekNav(lang: Lang, weekStart: string): string {
+  const link = (date: string, label: string, name: string, cls: string) =>
+    `<a class="${cls}" href="/shopping?week=${date}" aria-label="${escapeHtml(name)}">${label}</a>`;
+  const prev = addDays(weekStart, -7);
+  const next = addDays(weekStart, 7);
+  const text = (date: string) => escapeHtml(t(lang, "shopping.weekLink", { n: isoWeek(date) }));
+  return `<nav class="week-nav" aria-label="${escapeHtml(t(lang, "shopping.title"))}">
+${link(prev, `&lsaquo; ${text(prev)}`, t(lang, "week.prev"), "week-prev")}
+${link(next, `${text(next)} &rsaquo;`, t(lang, "week.next"), "week-next")}
+</nav>`;
 }
 
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
@@ -69,6 +105,7 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
     const run = ctx.planRuns.get(weekStart);
+    const dishName = (id: number) => getDish(ctx.db, id)?.name;
     const rebuild = (label: string) => (run && "inFlight" in run ? "" : buildForm(weekStart, label));
     let content: string;
     if (!plan) {
@@ -79,17 +116,13 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, "buy", t(lang, "shopping.buy"), buy)}
-${renderSection(lang, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
+          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy)}
+${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
     }
-    const body = `<h1>${t(lang, "shopping.title")}</h1>
-<p>
-  <a href="/shopping?week=${addDays(weekStart, -7)}">${t(lang, "week.prev")}</a>
-  ${t(lang, "week.of")} <time datetime="${weekStart}">${weekStart}</time>
-  <a href="/shopping?week=${addDays(weekStart, 7)}">${t(lang, "week.next")}</a>
-</p>
+    const body = `${weekHead(lang, weekStart)}
+${weekNav(lang, weekStart)}
 ${planRunBanner(ctx, lang, weekStart)}
 ${content}`;
     reply.type("text/html; charset=utf-8");
