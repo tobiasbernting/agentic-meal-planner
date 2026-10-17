@@ -32,6 +32,22 @@ describe("CliAgent Ingredient cleaning", () => {
     }
   });
 
+  it("asks both prompts for the amount in quantity and unit, as the recipe states it, without scaling, and still a bare name", async () => {
+    const { run, calls } = scriptedRunner(['[{"name": "mjölk"}]', '{"url": "https://x.example", "ingredients": []}']);
+    const agent = new CliAgent("claude -p", { run });
+
+    await agent.extractIngredients("page");
+    await agent.findRecipe("Mos");
+
+    for (const prompt of calls.map((c) => c.args.at(-1)!)) {
+      expect(prompt).toMatch(/as it would be bought/);
+      expect(prompt).not.toMatch(/no amounts/);
+      expect(prompt).toMatch(/"quantity" and "unit"/);
+      expect(prompt).toMatch(/as the recipe states it/);
+      expect(prompt).toMatch(/do not scale/i);
+    }
+  });
+
   it("accepts a Preparation Note and rejects one that is not text", async () => {
     const { run } = scriptedRunner([
       '[{"name": "mjölk", "quantity": 2, "unit": "dl", "preparationNote": "till mos"}]',
@@ -96,6 +112,26 @@ describe("CliAgent.extractIngredients", () => {
     const result = await agent.extractIngredients("page");
 
     expect(result).toEqual({ ok: true, value: [{ name: "eggs", quantity: 6 }] });
+  });
+
+  it("takes the last complete JSON value when leading text has brackets of its own", async () => {
+    const { run } = scriptedRunner([
+      'Fetched page [1] and {"note": "tool log"} first.\n[{"name": "eggs", "quantity": 6}]',
+    ]);
+    const agent = new CliAgent("claude -p", { run });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result).toEqual({ ok: true, value: [{ name: "eggs", quantity: 6 }] });
+  });
+
+  it("rejects output with leading text but no JSON", async () => {
+    const { run } = scriptedRunner(["I fetched the page but found nothing.", "Still nothing."]);
+    const agent = new CliAgent("claude -p", { run });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result.ok).toBe(false);
   });
 
   it("retries once with a JSON-only nudge when the response is not valid JSON", async () => {
