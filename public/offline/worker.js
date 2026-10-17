@@ -57,8 +57,44 @@ async function tellClients(message) {
   for (const client of await self.clients.matchAll({ includeUncontrolled: true })) client.postMessage(message);
 }
 
-function tellConnectivity(online) {
-  void tellClients({ type: "connectivity", online });
+/**
+ * After a failed attempt the worker treats the device as offline for this long: pages answer from
+ * the Offline Copy at once and writes become Pending Changes at once, instead of each tap waiting
+ * out the timeout again. The page's health ping and a background probe end it early on success.
+ */
+const OFFLINE_GRACE_MS = 20000;
+let offlineUntil = 0;
+let probing = false;
+
+function knownOffline() {
+  return Date.now() < offlineUntil;
+}
+
+function noteOnline() {
+  offlineUntil = 0;
+  void tellClients({ type: "connectivity", online: true });
+}
+
+function noteOffline() {
+  offlineUntil = Date.now() + OFFLINE_GRACE_MS;
+  void tellClients({ type: "connectivity", online: false });
+}
+
+/** One cheap network probe at a time while known offline; success ends the grace period and syncs. */
+async function probe() {
+  if (probing) return;
+  probing = true;
+  try {
+    const response = await fetchWithin(TIMEOUT_MS.passthrough, new URL("/health", self.location.origin).href, { cache: "no-store" });
+    if (response.ok) {
+      noteOnline();
+      await replayThenPrewarm();
+    }
+  } catch {
+    // Still offline; the grace period stands.
+  } finally {
+    probing = false;
+  }
 }
 
 function tellPendingChanged() {
@@ -137,9 +173,9 @@ async function runReplay() {
       let response;
       try {
         response = await fetchWithin(TIMEOUT_MS.background, url, init);
-        tellConnectivity(true);
+        noteOnline();
       } catch {
-        tellConnectivity(false);
+        noteOffline();
       }
       const outcome = replayOutcome(response?.status, response ? await response.text() : "");
       if (outcome.kind === "keep") return false;
@@ -204,19 +240,28 @@ async function handleAsset(request) {
   }
 }
 
+/** The Offline Copy with its banner, or the requires-connection page. */
+async function offlinePage(request, classification) {
+  const copy = classification.cacheable ? await findCopy(request.url) : undefined;
+  const lang = copy ? extractLang(copy.html) : await lastLang();
+  return offlineResponseFor(classification, { config, lang, copy });
+}
+
 async function handlePage(event, classification) {
   const { request } = event;
+  if (knownOffline()) {
+    event.waitUntil(probe());
+    return offlinePage(request, classification);
+  }
   try {
     const response = await fetchWithin(TIMEOUT_MS.page, request);
-    tellConnectivity(true);
+    noteOnline();
     if (classification.cacheable && response.ok && !response.redirected) await storePage(request.url, response.clone());
     if (request.mode === "navigate" && response.ok) event.waitUntil(replayThenPrewarm());
     return response;
   } catch {
-    tellConnectivity(false);
-    const copy = classification.cacheable ? await findCopy(request.url) : undefined;
-    const lang = copy ? extractLang(copy.html) : await lastLang();
-    return offlineResponseFor(classification, { config, lang, copy });
+    noteOffline();
+    return offlinePage(request, classification);
   }
 }
 
@@ -231,31 +276,44 @@ async function handleOfflinePage(request, classification) {
  * Idempotency-Key; if that attempt cannot reach the server the same entry is stored and the saved
  * page answers. An online-only write that cannot reach the server gets the requires-connection page.
  */
-async function handleWrite(request, classification) {
+async function handleWrite(event, request, classification) {
   let entry;
   if (classification.kind === "queueable-write") {
     const body = await request.text();
     const contentType = request.headers.get("content-type") ?? "application/x-www-form-urlencoded";
     entry = newPendingChange({ url: request.url, body, contentType, now: new Date(), uuid: () => crypto.randomUUID() });
   }
-  try {
-    const attempt = entry ? firstAttemptRequest(entry, request) : undefined;
-    const response = await (attempt ? fetchWithin(TIMEOUT_MS.write, attempt.url, attempt.init) : fetchWithin(TIMEOUT_MS.write, request));
-    tellConnectivity(true);
-    return response;
-  } catch {
-    tellConnectivity(false);
+  const offline = async () => {
     if (entry) await enqueue(entry);
     const back = backPath(request.referrer, self.location.origin);
     return offlineResponseFor(classification, { config, lang: await lastLang(), back, htmx: request.headers.has("HX-Request") });
+  };
+  if (knownOffline()) {
+    event.waitUntil(probe());
+    return offline();
+  }
+  try {
+    const attempt = entry ? firstAttemptRequest(entry, request) : undefined;
+    const response = await (attempt ? fetchWithin(TIMEOUT_MS.write, attempt.url, attempt.init) : fetchWithin(TIMEOUT_MS.write, request));
+    noteOnline();
+    return response;
+  } catch {
+    noteOffline();
+    return offline();
   }
 }
 
-/** Offline, htmx polling gets a quiet 204; anything else (the /health ping) a 503 that is not ok. */
+/**
+ * Always tries the network, even while known offline: the page's /health ping is how the app
+ * notices it is back. Offline, htmx polling gets a quiet 204; anything else a 503 that is not ok.
+ */
 async function handlePassthrough(request) {
   try {
-    return await fetchWithin(TIMEOUT_MS.passthrough, request);
+    const response = await fetchWithin(TIMEOUT_MS.passthrough, request);
+    if (response.ok && knownOffline()) noteOnline();
+    return response;
   } catch {
+    noteOffline();
     return offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv", htmx: request.headers.has("HX-Request") });
   }
 }
@@ -295,7 +353,7 @@ self.addEventListener("fetch", (event) => {
       return event.respondWith(handleOfflinePage(request, classification));
     case "queueable-write":
     case "online-only-write":
-      return event.respondWith(handleWrite(request, classification));
+      return event.respondWith(handleWrite(event, request, classification));
     default:
       return event.respondWith(handlePassthrough(request));
   }
