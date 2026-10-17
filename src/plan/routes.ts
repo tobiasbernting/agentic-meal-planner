@@ -125,7 +125,7 @@ function renderPlan(db: Database.Database, lang: Lang, weekStart: string, plan: 
   const lunchChanged =
     changedDates.length === 0 ? "" : `<p class="notice">${t(lang, "plan.notice.lunch-changed")}: ${changedDates.join(", ")}</p>`;
   return `<p>${t(lang, "plan.status")}: ${escapeHtml(t(lang, `plan.status.${plan.status}`))}</p>
-${plan.status === "generated" ? weekForm(weekStart, "/plan/confirm", t(lang, "plan.confirm")) : ""}
+${plan.status === "generated" && !runInFlight ? weekForm(weekStart, "/plan/confirm", t(lang, "plan.confirm")) : ""}
 ${runInFlight ? "" : weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
 ${degraded}
 ${lunchChanged}
@@ -261,9 +261,11 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
     return startRun(req, reply, weekStart, "regenerate");
   });
 
-  // FR-9a: lock the week's plan from automatic changes.
+  // FR-9a: lock the week's plan from automatic changes. Not while a run is in flight: a
+  // Regenerate in progress would overwrite the plan the user just confirmed.
   app.post<{ Body: GenerateForm }>("/plan/confirm", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     confirmPlan(ctx.db, weekStart);
     return reply.redirect(`/plan?week=${weekStart}&notice=plan-confirmed`, 303);
   });

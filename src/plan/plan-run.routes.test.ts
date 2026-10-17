@@ -143,6 +143,25 @@ describe("Plan Run started from the Plan page", () => {
     expect(llm.calls.filter((c) => c.method === "selectDishes")).toHaveLength(1);
   });
 
+  it("withholds Confirm while a Regenerate is in flight and refuses a confirm posted meanwhile (FR-9a)", async () => {
+    const held = deferred<LlmResult<SelectedDish[]>>();
+    const app = await start({ llm: new ScriptedLlmAgent({ selectDishes: () => held.promise }) });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(burgers), degradedReasons: [] }, NOW.toISOString());
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    const during = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(during.body).not.toContain('action="/plan/confirm"');
+    const confirm = await app.inject({ method: "POST", url: "/plan/confirm", payload: { weekStart: WEEK } });
+
+    expect(confirm.statusCode).toBe(303);
+    expect(confirm.headers.location).toBe(`/plan?week=${WEEK}&notice=run-in-progress`);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).toContain("Status: generated");
+    held.resolve({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).toContain('action="/plan/confirm"');
+  });
+
   it("runs two different weeks at the same time", async () => {
     const holds = [deferred<LlmResult<SelectedDish[]>>(), deferred<LlmResult<SelectedDish[]>>()];
     let call = 0;
