@@ -4,13 +4,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase, writeSetting } from "../db.js";
 import { createDish, listDishes } from "../dishes/repo.js";
-import { NoAgent, ScriptedLlmAgent } from "../llm/index.js";
+import { NoAgent, ScriptedLlmAgent, type LlmResult, type SelectedDish } from "../llm/index.js";
 import { createCapturingLogger } from "../logging/logger.js";
 import { listLunchEntries } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { createPlanRunRegistry } from "../plan-run/registry.js";
+import { buildApp } from "../app.js";
+import { withEnglish } from "../i18n/test-helpers.js";
+import { runWithRunId } from "../logging/run-context.js";
 import { runWeeklyPlanning } from "./run-weekly.js";
 
 // Sunday 2026-10-11 18:00 local (week of Monday 10-05): the run plans the coming week, Monday 2026-10-12.
@@ -184,5 +187,39 @@ describe("runWeeklyPlanning", () => {
     expect(fetched).toEqual([]);
     expect(getPlanForWeek(db, NEXT_MONDAY)).toBeUndefined();
     expect(records).toEqual([expect.objectContaining({ level: "info", runId, weekStart: NEXT_MONDAY, reason: "in-flight" })]);
+  });
+
+  it("shows the scheduled run in flight on the Plan page banner, then finished", async () => {
+    let release!: (value: LlmResult<SelectedDish[]>) => void;
+    const held = new Promise<LlmResult<SelectedDish[]>>((r) => (release = r));
+    const llm = new ScriptedLlmAgent({ selectDishes: () => held });
+    const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "scheduler-banner-")), llm, now: () => SUNDAY }));
+    try {
+      createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+      const { logger, records } = createCapturingLogger();
+      const runId = "cron-2026-10-11T16:00:00.000Z";
+      const deps = { ...app.ctx, llm, log: logger.child({ runId }), planRuns: app.ctx.planRuns };
+
+      const run = runWithRunId(runId, () => runWeeklyPlanning(deps));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const inFlight = await app.inject({ method: "GET", url: `/plan?week=${NEXT_MONDAY}` });
+      expect(inFlight.body).toContain("Plan Run in progress since 18:00");
+      expect(inFlight.body).toContain("Dish selection");
+      expect(inFlight.body).toContain('hx-trigger="every 2s"');
+      expect(inFlight.body).not.toContain('action="/plan/generate"');
+
+      const second = await runWithRunId("cron-later", () => runWeeklyPlanning(deps));
+      expect(second.plan).toEqual({ skipped: "in-flight" });
+
+      release({ ok: false, reason: "released" });
+      await run;
+      const finished = await app.inject({ method: "GET", url: `/plan-run/banner?week=${NEXT_MONDAY}` });
+      expect(finished.body).toContain("Plan Run finished 18:00");
+      expect(finished.body).not.toContain("hx-trigger");
+      expect(records.filter((r) => r.component === "plan-run" && r.msg === "phase").every((r) => r.runId === runId)).toBe(true);
+    } finally {
+      await app.close();
+    }
   });
 });

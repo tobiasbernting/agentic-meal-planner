@@ -58,7 +58,23 @@ export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunR
     (deps.log ?? silentLogger).child({ component: "plan-run" }).info({ weekStart, reason: "in-flight" }, "weekly run skipped: Plan Run already in flight");
     return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "in-flight" } };
   }
-  const onProgress = logPlanRunProgress(deps.log ?? silentLogger, weekStart);
+  const planRuns = deps.planRuns;
+  const logProgress = logPlanRunProgress(deps.log ?? silentLogger, weekStart);
+  const onProgress: OnProgress = (event) => {
+    planRuns?.report(weekStart, event);
+    logProgress(event);
+  };
+  try {
+    const result = await planWeek(deps, weekStart, onProgress);
+    planRuns?.finish(weekStart, deps.now());
+    return result;
+  } catch (error) {
+    planRuns?.fail(weekStart, deps.now(), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function planWeek(deps: WeeklyRunDeps, weekStart: string, onProgress: OnProgress): Promise<WeeklyRunResult> {
   const ingest = await ingestWeek({ ...deps, onProgress }, weekStart);
   const plan = await generatePlan(
     { db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}), onProgress },
