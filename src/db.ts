@@ -52,6 +52,10 @@ export function openDatabase(dataDir: string): Database.Database {
   runOnce(db, "extraction-cache-language-71", () =>
     db.exec(`DROP TABLE IF EXISTS recipe_extraction; DROP TABLE IF EXISTS found_recipe; ${SCHEMA_INGREDIENTS}`),
   );
+  // The prompts now ask for quantities, so cached extractions without them are stale (spec #86).
+  runOnce(db, "extraction-cache-quantities-86", () =>
+    db.exec(`DROP TABLE IF EXISTS recipe_extraction; DROP TABLE IF EXISTS found_recipe; ${SCHEMA_INGREDIENTS}`),
+  );
   return db;
 }
 

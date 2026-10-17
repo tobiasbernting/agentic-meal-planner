@@ -36,7 +36,8 @@ const LANGUAGE_NAMES = { sv: "Swedish", en: "English" } as const;
 /** Cleaning rules shared by extraction and recipe search: what the Shopping List needs from an Ingredient. */
 function ingredientRules(language: "sv" | "en" | undefined): string {
   return (
-    `Name each ingredient bare, as it would be bought in a shop (no amounts, no cooking words), in ${LANGUAGE_NAMES[language ?? "sv"]}. ` +
+    `Name each ingredient bare, as it would be bought in a shop (no cooking words), in ${LANGUAGE_NAMES[language ?? "sv"]}. ` +
+    `Give the amount in "quantity" and "unit", as the recipe states it, never in the name; do not scale it to a household size. ` +
     `Use metric units only: convert cups, lb and oz to ml, dl, g or kg. ` +
     `Put how the dish uses the ingredient (e.g. "finely chopped", "for the mash") in "preparationNote", never in the name. `
   );
