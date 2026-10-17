@@ -12,6 +12,7 @@ const PUBLIC_DIR = new URL("../../public/", import.meta.url);
 const FILES: Record<string, { file: string; type: string }> = {
   "app.css": { file: "app.css", type: "text/css; charset=utf-8" },
   "htmx-2.0.4.min.js": { file: "vendor/htmx-2.0.4.min.js", type: "text/javascript; charset=utf-8" },
+  "pending.js": { file: "pending.js", type: "text/javascript; charset=utf-8" },
   "libre-franklin-400.woff2": { file: "fonts/libre-franklin-400.woff2", type: "font/woff2" },
   "libre-franklin-600.woff2": { file: "fonts/libre-franklin-600.woff2", type: "font/woff2" },
   "libre-franklin-800.woff2": { file: "fonts/libre-franklin-800.woff2", type: "font/woff2" },
@@ -22,6 +23,7 @@ const FILES: Record<string, { file: string; type: string }> = {
 export const ASSET_PATHS = {
   stylesheet: "/assets/app.css",
   htmx: "/assets/htmx-2.0.4.min.js",
+  pending: "/assets/pending.js",
   fontRegular: "/assets/libre-franklin-400.woff2",
 } as const;
 

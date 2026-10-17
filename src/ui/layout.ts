@@ -52,8 +52,9 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
     <link rel="preload" href="${ASSET_PATHS.fontRegular}" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="${ASSET_PATHS.stylesheet}" />
     <script src="${ASSET_PATHS.htmx}" defer></script>
+    <script src="${ASSET_PATHS.pending}" defer></script>
   </head>
-  <body>
+  <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
 ${body}
     </main>

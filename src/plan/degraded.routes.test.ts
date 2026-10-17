@@ -77,6 +77,32 @@ describe("degraded reasons on the day they affect", () => {
     expect(warn?.degradedReasons).toContainEqual(expect.stringMatching(/^2026-10-20: suggestion "Laxpasta" dropped: same Main Category/));
   });
 
+  it("hides the generic seed-fallback rationale on a day with a degraded notice, but keeps agent-written ones", async () => {
+    const app = await start({ llm: fishLunchSetup(), fetchPage: async () => "<html>menu</html>" });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK }, headers: cookie("en") });
+    await planRunSettled(app, WEEK);
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie("en") });
+
+    expect(row(res.body, TUESDAY)).toContain('class="notice"');
+    expect(row(res.body, TUESDAY)).not.toContain("No Favorite Dish fit");
+    expect(row(res.body, TUESDAY)).not.toContain("did not fit this day");
+    expect(row(res.body, WEEK)).toContain('<p class="why">r</p>');
+  });
+
+  it("keeps a generic rationale on a day without a degraded notice", async () => {
+    const app = await start();
+    const dish = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: dish, isQuickDay: false, lunchThatDay: null, rationale: "No Favorite Dish fit; a Suggested Dish was picked." }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [{ code: "no-agent", date: TUESDAY }] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie("en") });
+
+    expect(row(res.body, WEEK)).toContain("No Favorite Dish fit");
+    expect(row(res.body, TUESDAY)).not.toContain("No Favorite Dish fit");
+  });
+
   it.each([
     ["sv", "Burgers finns redan i veckans plan, så den valdes bort."],
     ["en", "Burgers is already planned this week, so it was left out."],
