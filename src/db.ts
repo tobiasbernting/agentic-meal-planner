@@ -44,7 +44,14 @@ export function openDatabase(dataDir: string): Database.Database {
   const db = new Database(join(dataDir, DB_FILENAME));
   db.pragma("foreign_keys = ON");
   for (const sql of SCHEMA) db.exec(sql);
+  addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
   return db;
+}
+
+/** `CREATE TABLE IF NOT EXISTS` does not alter existing databases, so new columns need this. */
+function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export function readSetting(db: Database.Database, key: string): string | undefined {
