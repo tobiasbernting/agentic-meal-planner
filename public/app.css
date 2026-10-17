@@ -118,6 +118,22 @@ main > :not(.page-head, .week-head, .rows, .day, .notice) { margin-inline: var(-
 .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: var(--fs-small); font-weight: 600; }
 .tag { border: 1.5px solid var(--ink); padding: 2px 8px; }
 .why { font-size: 0.875rem; color: var(--muted); margin-top: 8px; }
+.day-cell .label { display: block; margin-top: 10px; }
+.day-cell .label:first-child { margin-top: 0; }
+.day-cell .label + .day-lunch, .day-cell .label + .day-dinner { margin-top: 2px; }
+ul.day-lunch { list-style: none; margin: 0; padding: 0; }
+.day-cell .notice { margin: 4px 0 0; padding: 8px 10px; font-size: var(--fs-lunch); }
+.day-holiday { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--red); margin-bottom: 2px; }
+.day-dinner.muted { font-weight: 400; color: var(--muted); }
+.day-half .day-dinner { font-size: 1.25rem; }
+.day-full .day-cell { padding-top: 14px; padding-bottom: 16px; }
+.suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.suggested form { margin: 0; }
+.tag-suggested { font-size: var(--fs-small); font-weight: 600; border: 1.5px dashed var(--ink); padding: 2px 8px; }
+
+/* First visit on Today: a ruled block linking to what is missing. */
+.first-run { margin: 16px var(--gutter); padding: 14px; border: var(--rule-heavy) solid var(--ink); }
+.first-run h2 { color: var(--ink); }
 
 /* Ruled list rows (Mer, Dishes, Shopping). A whole row is the link. */
 .rows { list-style: none; margin: 0; padding: 0; }

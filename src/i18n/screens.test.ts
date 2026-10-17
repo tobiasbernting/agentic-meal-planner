@@ -43,7 +43,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     const itemId = typeof item === "number" ? item : item.id;
 
     const screens: [string, string][] = [
-      ["/", "Skollunch"],
+      ["/", "Uppdatera lunchmenyer"],
       ["/plan", "Veckoplan"],
       ["/shopping", "Inköpslista"],
       ["/dishes", "Rätter"],

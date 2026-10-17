@@ -53,3 +53,11 @@ export function localTime(d: Date, timezone?: string): string {
 export function comingWeekStart(now: Date, timezone?: string): string {
   return addDays(mondayOf(localDate(now, timezone)), 7);
 }
+
+/** ISO 8601 week number of `date` (weeks start Monday; week 1 holds the year's first Thursday). */
+export function isoWeek(date: string): number {
+  const thursday = addDays(mondayOf(date), 3);
+  const jan1 = `${thursday.slice(0, 4)}-01-01`;
+  const dayOfYear = (Date.parse(`${thursday}T00:00:00Z`) - Date.parse(`${jan1}T00:00:00Z`)) / 86_400_000;
+  return Math.floor(dayOfYear / 7) + 1;
+}

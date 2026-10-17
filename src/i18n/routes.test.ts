@@ -98,7 +98,7 @@ describe("every screen renders in English with the lang=en cookie", () => {
     const school = createSchool(app.ctx.db, { name: "Skolan", url: "https://example.test/menu" });
     const item = createPantryItem(app.ctx.db, { name: "Salt", aliases: [] });
     const screens: [string, string][] = [
-      ["/", "School lunch"],
+      ["/", "Refresh lunch menus"],
       ["/plan", "Weekly Plan"],
       ["/shopping", "Shopping List"],
       ["/dishes", "Dishes"],

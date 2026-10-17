@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comingWeekStart, localDate, mondayOf, weekDates, weekdayDates, weekdayOf } from "./week.js";
+import { comingWeekStart, isoWeek, localDate, mondayOf, weekDates, weekdayDates, weekdayOf } from "./week.js";
 
 describe("mondayOf", () => {
   it.each([
@@ -72,5 +72,19 @@ describe("comingWeekStart", () => {
     const instant = new Date("2026-10-11T23:30:00Z"); // Sunday UTC, Monday in Stockholm
     expect(comingWeekStart(instant, "UTC")).toBe("2026-10-12");
     expect(comingWeekStart(instant, "Europe/Stockholm")).toBe("2026-10-19");
+  });
+});
+
+describe("isoWeek", () => {
+  it.each([
+    ["2026-10-21", 43],
+    ["2026-10-12", 42],
+    ["2026-01-01", 1], // Thursday: week 1 of 2026
+    ["2027-01-01", 53], // Friday: still week 53 of 2026
+    ["2027-01-04", 1],
+    ["2024-12-30", 1], // Monday: week 1 of 2025
+    ["2021-01-03", 53], // Sunday: week 53 of 2020
+  ])("%s is week %i", (date, week) => {
+    expect(isoWeek(date)).toBe(week);
   });
 });

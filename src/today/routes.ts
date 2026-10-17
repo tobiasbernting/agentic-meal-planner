@@ -1,68 +1,56 @@
+import type Database from "better-sqlite3";
 import type { AppContext, FeaturePlugin } from "../app.js";
+import { almanac } from "../almanac/day.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { runLogger } from "../logging/logger.js";
-import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
-import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
-import { getDish } from "../dishes/repo.js";
-import { suggestedBadge } from "../dishes/suggested-badge.js";
-import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
-import { mondayOf } from "../week.js";
+import { listDishes } from "../dishes/repo.js";
+import { listSchools } from "../schools/repo.js";
+import { addDays, mondayOf, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
-import { escapeHtml, page } from "../ui/layout.js";
+import { weekHead, type DayDensity } from "../ui/almanac.js";
+import { page } from "../ui/layout.js";
 
-function renderSchoolLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
-  const body = entry
-    ? `<ul>${entry.rawText
-        .split("\n")
-        .filter((line) => line.trim() !== "")
-        .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
-        .join("")}</ul>`
-    : notice(lang, date, school);
-  return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
-}
-
-/** Today's Planned Dinner from the stored Weekly Plan; `undefined` when the week has no plan. */
-function findTodaysDinner(ctx: AppContext, today: string): PlannedDinner | undefined {
-  return getPlanForWeek(ctx.db, mondayOf(today))?.dinners.find((d) => d.date === today);
-}
-
-function renderDinner(ctx: AppContext, lang: Lang, today: string): string {
-  const dinner = findTodaysDinner(ctx, today);
-  if (!dinner) return `<p class="notice">${t(lang, "today.noPlan")} <a href="/plan">${t(lang, "today.planThisWeek")}</a></p>`;
-  const dish = dinner.dishId === null ? undefined : getDish(ctx.db, dinner.dishId);
-  if (!dish) return `<p class="notice">${t(lang, "common.noEligibleDish")}</p>`;
-  const name = escapeHtml(dish.name);
-  const title = dish.recipeUrl ? `<a href="${escapeHtml(dish.recipeUrl)}">${name}</a>` : name;
-  return `<p class="dish">${title}${suggestedBadge(lang, dish)}</p>
-  <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
+/** First visit: one block linking to whatever is missing (a School, Dishes). Empty once both exist. */
+function firstRun(db: Database.Database, lang: Lang): string {
+  const noSchools = listSchools(db).length === 0;
+  const noDishes = listDishes(db).length === 0;
+  if (!noSchools && !noDishes) return "";
+  const links = [
+    noSchools ? `<a class="button primary" href="/schools">${t(lang, "today.addSchool")}</a>` : "",
+    noDishes ? `<a class="button${noSchools ? "" : " primary"}" href="/dishes/new">${t(lang, "today.addDishes")}</a>` : "",
+  ].join("");
+  return `<section id="first-run" class="first-run">
+  <h2>${t(lang, "today.firstRun.title")}</h2>
+  <p>${t(lang, "today.firstRun.text")}</p>
+  <div class="actions">${links}</div>
+</section>`;
 }
 
 /**
- * Today view (FR-17a): the first screen. Today's Lunch Entry per active School (FR-5 notice
- * when none) and today's Planned Dinner from the stored Weekly Plan.
+ * Today (FR-17a) as an almanac page: the ISO week landmark, then the week Monday to Sunday as
+ * almanac day rows. Today's row is open in full, tomorrow half-open, the rest compact. On a
+ * Sunday, tomorrow (next Monday) follows the week. "Uppdatera lunchmenyer" sits quietly below.
  */
 export const todayRoutes: FeaturePlugin = async (app, ctx) => {
   app.get("/", async (req, reply) => {
     const lang = langOf(req);
     const today = householdToday(ctx.db, ctx.now());
-    const lunches = listLunchForDate(ctx.db, today);
-    const notice = noLunchNotice(ctx.db);
-    const schools =
-      lunches.length === 0
-        ? `<p>${t(lang, "today.noSchools")} <a href="/schools">${t(lang, "today.addSchool")}</a> ${t(lang, "today.toSeeLunch")}</p>`
-        : lunches.map((l) => renderSchoolLunch(notice, lang, today, l)).join("\n");
-    const body = `<h1>${t(lang, "app.name")}</h1>
-<p><time datetime="${today}">${today}</time></p>
-<section id="lunch">
-  <h2>${t(lang, "today.schoolLunch")}</h2>
-  ${schools}
-  <form method="post" action="/lunch/refresh"><button type="submit">${t(lang, "today.refresh")}</button></form>
-</section>
-<section id="dinner">
-  <h2>${t(lang, "common.dinner")}</h2>
-  ${renderDinner(ctx, lang, today)}
-</section>`;
+    const tomorrow = addDays(today, 1);
+    const dates = weekDates(mondayOf(today));
+    if (!dates.includes(tomorrow)) dates.push(tomorrow);
+    const density = (date: string): DayDensity => (date === today ? "full" : date === tomorrow ? "half" : "compact");
+    const days = almanac(ctx.db, lang);
+    const noPlanHtml = `<p>${t(lang, "today.noPlan")} <a href="/plan">${t(lang, "today.planThisWeek")}</a></p>`;
+    const rows = dates.map((date) => days.day({ date, density: density(date), today: date === today, noPlanHtml })).join("\n");
+    const refresh =
+      listSchools(ctx.db).length > 0
+        ? `<form method="post" action="/lunch/refresh"><button type="submit" class="quiet">${t(lang, "today.refresh")}</button></form>`
+        : "";
+    const body = `${weekHead(lang, today)}
+${firstRun(ctx.db, lang)}
+${rows}
+${refresh}`;
     reply.type("text/html; charset=utf-8");
     return page({ title: t(lang, "today.title"), body, lang, tab: "today" });
   });
