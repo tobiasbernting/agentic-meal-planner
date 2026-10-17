@@ -16,10 +16,11 @@ import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import { runLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
+import { logPlanRunProgress } from "../plan-run/progress-log.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
-import { buildShoppingList } from "../shopping/build.js";
-import { pushShoppingList } from "../sinks/push.js";
+import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -175,10 +176,13 @@ function logRunFinished(log: Logger, weekStart: string, result: GeneratePlanResu
   log.info({ weekStart, ...outcome, ...extra, durationMs: Date.now() - started }, "run finished");
 }
 
-async function finishPlan(ctx: AppContext, log: Logger, result: { planId: number; degradedReasons: string[] }): Promise<void> {
-  const deps = { ...ctx, log };
-  await buildShoppingList(deps, result.planId);
-  const sinksPushed = await pushShoppingList(deps, result.planId);
+async function finishPlan(
+  ctx: AppContext,
+  log: Logger,
+  onProgress: OnProgress,
+  result: { planId: number; degradedReasons: string[] },
+): Promise<void> {
+  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress }, result.planId);
   logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
 }
 
@@ -212,16 +216,17 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
     const log = runLogger(ctx.log, req, "plan");
     const started = Date.now();
     log.info({ weekStart, trigger: "generate" }, "run started");
+    const onProgress = logPlanRunProgress(log, weekStart);
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
-    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart);
+    const { changed } = await ingestWeek({ ...ingestDeps(), log, onProgress }, weekStart);
     const result = await generatePlan(
-      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log },
+      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress },
       weekStart,
       { replace: false },
     );
     logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
-    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
+    if ("planId" in result) await finishPlan(ctx, log, onProgress, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 
@@ -237,10 +242,15 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
     const log = runLogger(ctx.log, req, "plan");
     const started = Date.now();
     log.info({ weekStart, trigger: "regenerate" }, "run started");
-    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart, { force: true });
-    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log }, weekStart, { replace: true });
+    const onProgress = logPlanRunProgress(log, weekStart);
+    const { changed } = await ingestWeek({ ...ingestDeps(), log, onProgress }, weekStart, { force: true });
+    const result = await generatePlan(
+      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress },
+      weekStart,
+      { replace: true },
+    );
     logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
-    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
+    if ("planId" in result) await finishPlan(ctx, log, onProgress, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });

@@ -5,7 +5,9 @@
  */
 import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
-import type { Logger } from "../logging/logger.js";
+import { silentLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
+import { logPlanRunProgress } from "../plan-run/progress-log.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { readTimezone } from "../planner/settings.js";
@@ -23,9 +25,10 @@ export interface WeeklyRunDeps {
   /**
    * Chained after a plan is stored (not when the week was skipped). The Shopping List build
    * (#31) and sink push (#32) hook in here without touching this file. Receives the run logger
-   * and may return how many sinks accepted the list (for the plan summary).
+   * and the Plan Run progress callback (it reports the shopping Phases), and may return how
+   * many sinks accepted the list (for the plan summary).
    */
-  afterPlan?: (planId: number, log?: Logger) => Promise<number | void>;
+  afterPlan?: (planId: number, log: Logger | undefined, onProgress: OnProgress) => Promise<number | void>;
   /** Run logger bound to `runId: cron-<ISO>`; the scheduler sets it per tick. */
   log?: Logger;
 }
@@ -43,12 +46,15 @@ export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunR
   if (getPlanForWeek(deps.db, weekStart)?.status === "confirmed") {
     return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "confirmed" } };
   }
-  const ingest = await ingestWeek(deps, weekStart);
-  const plan = await generatePlan({ db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}) }, weekStart, {
-    replace: false,
-  });
+  const onProgress = logPlanRunProgress(deps.log ?? silentLogger, weekStart);
+  const ingest = await ingestWeek({ ...deps, onProgress }, weekStart);
+  const plan = await generatePlan(
+    { db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}), onProgress },
+    weekStart,
+    { replace: false },
+  );
   if ("planId" in plan) {
-    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log) : undefined;
+    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log, onProgress) : undefined;
     logPlanSummary(deps.log, deps.db, plan.planId, plan.degradedReasons, sinksPushed ?? 0);
   }
   return { weekStart, ingest, plan };

@@ -4,6 +4,7 @@
  * lunch menus nor pushes shopping sinks; those compositions belong to #33/#34.
  */
 import { silentLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { isMainCategory } from "../dishes/categories.js";
 import { createDish, listDishes } from "../dishes/repo.js";
@@ -28,6 +29,8 @@ export interface GeneratePlanDeps {
   loadLunch?: LunchLoader;
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
   log?: Logger;
+  /** Plan Run progress reports (Phase transitions); omitted outside a Plan Run. */
+  onProgress?: OnProgress;
 }
 
 /**
@@ -65,6 +68,7 @@ export async function generatePlan(
   const { db } = deps;
   const existing = getPlanForWeek(db, weekStart);
   if (existing?.status === "confirmed" && !options.replace) return { skipped: "confirmed" };
+  deps.onProgress?.({ phase: "dish-selection" });
 
   const settings = readPlannerSettings(db);
   const plan = await planWeek({
