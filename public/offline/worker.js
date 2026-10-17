@@ -37,6 +37,22 @@ function today() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * How long a network attempt may take before the Offline Copy or the Pending Change takes over.
+ * A phone with wifi off and cellular on black-holes a LAN address for over a minute instead of
+ * failing, so a plain fetch would leave the household staring at a blank page. Writes get longer,
+ * since a Dish save may wait on the LLM; a write that timed out but did reach the server is
+ * deduped on replay by its Idempotency-Key.
+ */
+const TIMEOUT_MS = { page: 4000, write: 10000, passthrough: 4000, background: 15000 };
+
+/** `fetch` that rejects after `ms`, like a network error, so every caller's offline path runs. */
+function fetchWithin(ms, input, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function tellClients(message) {
   for (const client of await self.clients.matchAll({ includeUncontrolled: true })) client.postMessage(message);
 }
@@ -120,7 +136,7 @@ async function runReplay() {
       const { url, init } = replayRequest(entry);
       let response;
       try {
-        response = await fetch(url, init);
+        response = await fetchWithin(TIMEOUT_MS.background, url, init);
         tellConnectivity(true);
       } catch {
         tellConnectivity(false);
@@ -161,7 +177,7 @@ async function prewarm() {
     prewarmUrls(config.prewarm, today()).map(async (path) => {
       const url = new URL(path, self.location.origin).href;
       try {
-        const response = await fetch(url);
+        const response = await fetchWithin(TIMEOUT_MS.background, url);
         if (response.ok && !response.redirected) await storePage(url, response);
       } catch {
         // Offline again; the previous copy stays.
@@ -180,7 +196,7 @@ async function handleAsset(request) {
   const cached = await caches.match(request, { ignoreSearch: true });
   if (cached) return cached;
   try {
-    const response = await fetch(request);
+    const response = await fetchWithin(TIMEOUT_MS.page, request);
     if (response.ok) await (await caches.open(ASSETS_CACHE)).put(request, response.clone());
     return response;
   } catch {
@@ -191,7 +207,7 @@ async function handleAsset(request) {
 async function handlePage(event, classification) {
   const { request } = event;
   try {
-    const response = await fetch(request);
+    const response = await fetchWithin(TIMEOUT_MS.page, request);
     tellConnectivity(true);
     if (classification.cacheable && response.ok && !response.redirected) await storePage(request.url, response.clone());
     if (request.mode === "navigate" && response.ok) event.waitUntil(replayThenPrewarm());
@@ -224,7 +240,7 @@ async function handleWrite(request, classification) {
   }
   try {
     const attempt = entry ? firstAttemptRequest(entry, request) : undefined;
-    const response = await (attempt ? fetch(attempt.url, attempt.init) : fetch(request));
+    const response = await (attempt ? fetchWithin(TIMEOUT_MS.write, attempt.url, attempt.init) : fetchWithin(TIMEOUT_MS.write, request));
     tellConnectivity(true);
     return response;
   } catch {
@@ -238,7 +254,7 @@ async function handleWrite(request, classification) {
 /** Offline, htmx polling gets a quiet 204; anything else (the /health ping) a 503 that is not ok. */
 async function handlePassthrough(request) {
   try {
-    return await fetch(request);
+    return await fetchWithin(TIMEOUT_MS.passthrough, request);
   } catch {
     return offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv", htmx: request.headers.has("HX-Request") });
   }
