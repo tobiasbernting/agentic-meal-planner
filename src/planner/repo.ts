@@ -144,3 +144,21 @@ export function getPlanById(db: Database.Database, planId: number): { weekStart:
   const row = db.prepare("SELECT week_start FROM weekly_plan WHERE id = ?").get(planId) as { week_start: string } | undefined;
   return row ? { weekStart: row.week_start } : undefined;
 }
+
+/**
+ * Swap (spec #71): puts `dishId` on the plan's dinner for `date` with `rationale`, and clears the
+ * old Dish's recipe link. Returns false when the plan has no dinner on that date.
+ */
+export function setPlannedDinnerDish(
+  db: Database.Database,
+  planId: number,
+  date: string,
+  dishId: number,
+  rationale: string,
+): boolean {
+  return (
+    db
+      .prepare("UPDATE planned_dinner SET dish_id = ?, selection_rationale = ?, source_url = NULL WHERE plan_id = ? AND date = ?")
+      .run(dishId, rationale, planId, date).changes > 0
+  );
+}

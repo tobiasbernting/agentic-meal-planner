@@ -238,3 +238,12 @@ main > section#buy, main > section#check-pantry, main > section#sinks { margin-i
 #sinks { padding-bottom: 16px; }
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
 .sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
+
+/* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
+.swap-list { flex-basis: 100%; margin: 0; }
+.swap-list .rows { border-top: 1px solid var(--rule); margin-top: 4px; }
+.swap-list button.row {
+  width: 100%; border: 0; font-weight: inherit; font-size: inherit;
+  align-items: flex-start; text-align: left; padding-inline: 0;
+}
+.swap-list button.row:hover { background: var(--raised); }

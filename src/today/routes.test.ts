@@ -124,7 +124,7 @@ describe("GET / (Today as almanac page)", () => {
       expect(today).toContain('<span class="tag">Quick Day, max 30 min</span>');
       expect(today).toContain("quick on a busy evening");
       expect(today).not.toContain("yesterday's pick");
-      expect(today).toMatch(/<button[^>]*disabled[^>]*>Swap dish<\/button>/);
+      expect(today).toMatch(/<a class="button" href="\/plan\/swap\?date=[^"]*"[^>]*>Swap dish<\/a>/);
       expect(today).toContain('<a class="button" href="https://recipes.example/tacos">Recipe</a>');
     });
 
@@ -330,7 +330,7 @@ describe("GET / (Today as almanac page)", () => {
     expect(today).toContain("Snabbdag max 30 min");
     expect(today).toContain("Föreslagen");
     expect(today).toContain("Lägg till i favoriter");
-    expect(today).toContain(">Byt rätt</button>");
+    expect(today).toContain(">Byt rätt</a>");
     expect(today).toContain(">Recept</a>");
     expect(row(res.body, "2026-10-29")).toContain("Ingen middag planerad");
     expect(row(res.body, "2026-10-31")).toContain("Alla helgons dag");
