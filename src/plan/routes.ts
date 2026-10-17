@@ -190,13 +190,18 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
-    await ingestWeek(ctx, weekStart);
+    const { changed } = await ingestWeek(ctx, weekStart);
     const result = await generatePlan(
       { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() },
       weekStart,
       { replace: false },
     );
-    const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
+    const notice =
+      "skipped" in result
+        ? `&notice=${result.skipped}`
+        : changed.length === 0
+          ? ""
+          : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
