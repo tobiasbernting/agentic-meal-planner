@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { silentLogger, type Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
 import { getDish, type Dish, type Ingredient } from "../dishes/repo.js";
 import type { Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
@@ -11,6 +12,8 @@ export interface ResolveDeps {
   fetchPage: FetchPage;
   /** Timestamp for cache rows (ISO string); defaults to the wall clock. */
   now?: () => Date;
+  /** Run logger (bound to `runId`); defaults to `silentLogger`. */
+  log?: Logger;
 }
 
 export type IngredientSource = "manual" | "url" | "llm" | "none";
@@ -41,6 +44,16 @@ export interface ResolvedIngredients {
  * Never throws for fetch or agent failure: the result degrades with `degradedReason`.
  */
 export async function resolveIngredients(deps: ResolveDeps, dish: Dish): Promise<ResolvedIngredients> {
+  const resolved = await resolveByPrecedence(deps, dish);
+  if (resolved.degradedReason) {
+    (deps.log ?? silentLogger)
+      .child({ component: "ingredients" })
+      .warn({ dishId: dish.id, dish: dish.name, source: resolved.source, reason: resolved.degradedReason }, "ingredient resolution degraded");
+  }
+  return resolved;
+}
+
+async function resolveByPrecedence(deps: ResolveDeps, dish: Dish): Promise<ResolvedIngredients> {
   if (dish.ingredients.length > 0) return { ingredients: dish.ingredients, source: "manual" };
   if (dish.recipeUrl) return resolveFromUrl(deps, dish.recipeUrl, dish.adaptationNotes ?? "");
   return resolveFromLlm(deps, dish.name, dish.adaptationNotes ?? "");

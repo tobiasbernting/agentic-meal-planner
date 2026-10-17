@@ -33,9 +33,10 @@ const scheduler = startScheduler(
     get llm() {
       return app.ctx.llm;
     },
-    afterPlan: async (planId) => {
-      await buildShoppingList(app.ctx, planId);
-      await pushShoppingList(app.ctx, planId); // FR-13: Buy section to sinks; never throws
+    afterPlan: async (planId, log) => {
+      const deps = { ...app.ctx, ...(log ? { log } : {}) };
+      await buildShoppingList(deps, planId);
+      return pushShoppingList(deps, planId); // FR-13: Buy section to sinks; never throws
     },
   },
   { ...readSchedulerOptions(app.ctx.db), logger: app.ctx.log.child({ component: "scheduler" }) },
