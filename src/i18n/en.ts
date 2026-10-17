@@ -12,6 +12,9 @@ export const en = {
   "nav.label": "Main",
 
   "common.save": "Save",
+  "common.working": "Working…",
+  "dishes.saving": "Saving…",
+  "today.refreshing": "Fetching menus…",
   "common.cancel": "Cancel",
   "common.edit": "Edit",
   "common.delete": "Delete",

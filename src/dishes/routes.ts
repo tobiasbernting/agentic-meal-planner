@@ -181,7 +181,7 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
         ${dayBoxes}
       </fieldset>
       ${checkbox("weekend_only", "1", t(lang, "dishes.weekendOnly"), dish.weekendOnly)}
-      <p class="actions"><button type="submit" class="primary">${t(lang, "common.save")}</button> <a class="button quiet" href="/dishes">${t(lang, "common.cancel")}</a></p>
+      <p class="actions"><button type="submit" class="primary" data-working-label="${escapeHtml(t(lang, "dishes.saving"))}">${t(lang, "common.save")}</button> <a class="button quiet" href="/dishes">${t(lang, "common.cancel")}</a></p>
     </form>
     ${deleteId === undefined ? "" : `<p class="actions"><a class="button quiet" href="/dishes/${deleteId}/delete">${t(lang, "dishes.deleteDish")}</a></p>`}`;
 }

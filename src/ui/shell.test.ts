@@ -99,6 +99,23 @@ describe("assets (NFR-2)", () => {
     expect((await app.inject({ method: "GET", url: fonts[0]! })).headers["content-type"]).toBe("font/woff2");
   });
 
+  it("serves the pending-state script and every page includes it", async () => {
+    const app = await makeApp();
+    const script = await app.inject({ method: "GET", url: "/assets/pending.js" });
+    expect(script.statusCode).toBe(200);
+    expect(script.headers["content-type"]).toContain("text/javascript");
+    for (const [url] of PAGES) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.body, url).toContain('<script src="/assets/pending.js" defer></script>');
+    }
+  });
+
+  it("carries the default working label in the page's language", async () => {
+    const app = await makeApp();
+    expect((await app.inject({ method: "GET", url: "/plan" })).body).toContain('data-working-label="Arbetar…"');
+    expect((await app.inject({ method: "GET", url: "/plan", headers: { cookie: "lang=en" } })).body).toContain('data-working-label="Working…"');
+  });
+
   it("answers 404 for an unknown asset", async () => {
     const app = await makeApp();
     expect((await app.inject({ method: "GET", url: "/assets/nope.js" })).statusCode).toBe(404);

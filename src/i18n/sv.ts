@@ -14,6 +14,9 @@ export const sv: Dictionary = {
   "nav.label": "Huvudmeny",
 
   "common.save": "Spara",
+  "common.working": "Arbetar…",
+  "dishes.saving": "Sparar…",
+  "today.refreshing": "Hämtar menyer…",
   "common.cancel": "Avbryt",
   "common.edit": "Redigera",
   "common.delete": "Ta bort",

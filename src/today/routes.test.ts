@@ -302,13 +302,22 @@ describe("GET / (Today as almanac page)", () => {
     });
   });
 
+  it("labels Uppdatera lunchmenyer with Hämtar menyer… while it works", async () => {
+    const app = await start();
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+
+    const res = await app.inject({ method: "GET", url: "/", headers: { cookie: "lang=sv" } });
+
+    expect(res.body).toContain('data-working-label="Hämtar menyer…">Uppdatera lunchmenyer</button>');
+  });
+
   it("offers Refresh lunch menus as a quiet action below the week", async () => {
     const app = await start();
     createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
 
     const res = await app.inject({ method: "GET", url: "/" });
 
-    expect(res.body).toMatch(/<\/article>\s*(?:<\/div>\s*)?<form method="post" action="\/lunch\/refresh"><button type="submit" class="quiet">Refresh lunch menus<\/button><\/form>/);
+    expect(res.body).toMatch(/<\/article>\s*(?:<\/div>\s*)?<form method="post" action="\/lunch\/refresh"><button type="submit" class="quiet" data-working-label="Fetching menus…">Refresh lunch menus<\/button><\/form>/);
   });
 
   it("renders in Swedish", async () => {
