@@ -1,10 +1,12 @@
-import Fastify, { LogController, type FastifyInstance, type FastifyPluginAsync } from "fastify";
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import type Database from "better-sqlite3";
 import { openDatabase, readSetting } from "./db.js";
 import { configuredLlmAgent } from "./llm/index.js";
 import type { LlmAgent } from "./llm/types.js";
 import { DEFAULT_CRON_EXPRESSION, SETTING_AGENT_COMMAND, SETTING_CRON_EXPRESSION, SETTING_TIMEZONE } from "./planner/settings.js";
-import { fastifyLoggerOptions } from "./logging/config.js";
+import { prettyStdout, resolveLogLevel, type LogThreshold } from "./logging/config.js";
+import { LogBuffer } from "./logging/buffer.js";
+import { createPino, LevelGate, teeLogger, type LogControl, type LogDestination } from "./logging/destinations.js";
 import { pinoLogger, type Logger } from "./logging/logger.js";
 import { agentBinaryFound, startupReport } from "./logging/startup.js";
 import type { FetchPage } from "./plugins/schools/index.js";
@@ -17,6 +19,7 @@ import { schoolRoutes } from "./schools/routes.js";
 import { pantryRoutes } from "./pantry/routes.js";
 import { settingsRoutes } from "./settings/routes.js";
 import { langRoutes } from "./i18n/routes.js";
+import { logsRoutes } from "./logs/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -37,6 +40,10 @@ export interface AppOptions {
    * pino logger is used: level from LOG_LEVEL, JSON lines in production, pino-pretty otherwise.
    */
   logger?: Logger;
+  /** Starting log level; defaults from LOG_LEVEL (`debug` with an injected `logger`). */
+  logLevel?: LogThreshold;
+  /** Where the stdout copy of the JSON lines goes (no pretty-printing); tests collect lines. */
+  logDestination?: LogDestination;
 }
 
 /** What routes need from the scheduler: re-arm the weekly run when `cron_expression` changes. */
@@ -70,6 +77,8 @@ export interface AppContext {
    * undefined when none is set. The same resolution the `llm` getter uses.
    */
   readonly agentCommand: string | undefined;
+  /** The Logs page's buffer (last 2000 records, as on stdout) and the live level (#47). */
+  logs: LogControl;
 }
 
 declare module "fastify" {
@@ -86,7 +95,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, langRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, langRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);
@@ -113,12 +122,31 @@ function logStartup(log: Logger, db: Database.Database, dataDir: string, agentCo
   }
 }
 
-export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, fetch, logger }: AppOptions): Promise<FastifyInstance> {
+/** The app's Logger and its LogControl: pino to stdout and the buffer, or the injected logger teed into it. */
+async function appLogging(options: Pick<AppOptions, "logger" | "logLevel" | "logDestination">): Promise<{ pino?: FastifyBaseLogger; log: Logger; logs: LogControl }> {
+  const buffer = new LogBuffer();
+  if (options.logger) {
+    const gate = new LevelGate(options.logLevel ?? "debug");
+    const logs: LogControl = { buffer, getLevel: () => gate.level, setLevel: (level) => void (gate.level = level) };
+    return { log: teeLogger(options.logger, buffer, gate), logs };
+  }
+  const pino = await createPino({
+    level: options.logLevel ?? resolveLogLevel(process.env),
+    buffer,
+    ...(options.logDestination ? { destination: options.logDestination } : {}),
+    pretty: prettyStdout(process.env),
+  });
+  // Children follow the root's level unless given their own, so this reaches every run logger.
+  const logs: LogControl = { buffer, getLevel: () => pino.level as LogThreshold, setLevel: (level) => void (pino.level = level) };
+  return { pino, log: pinoLogger(pino), logs };
+}
+
+export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, fetch, logger, logLevel, logDestination }: AppOptions): Promise<FastifyInstance> {
+  const { pino, log, logs } = await appLogging({ logger, logLevel, logDestination });
   // Request lines come from the hooks below (with `runId`), not from Fastify's own request logging.
-  const app = logger
-    ? Fastify({ logger: false })
-    : Fastify({ logger: fastifyLoggerOptions(process.env), logController: new LogController({ disableRequestLogging: true }) });
-  const log = logger ?? pinoLogger(app.log);
+  const app = pino
+    ? Fastify({ loggerInstance: pino, logController: new LogController({ disableRequestLogging: true }) })
+    : Fastify({ logger: false });
   app.addHook("onRequest", async (req) => {
     log.info({ runId: req.id, method: req.method, url: req.url }, "incoming request");
   });
@@ -139,6 +167,7 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
   const ctx: AppContext = {
     db,
     log,
+    logs,
     get agentCommand() {
       return readAgentCommand();
     },
