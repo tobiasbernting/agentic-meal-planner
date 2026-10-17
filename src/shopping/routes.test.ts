@@ -383,3 +383,71 @@ describe("Plan Run banner on the Shopping List page", () => {
     expect(res.body).toContain("Plan Run failed 18:30: agent exploded");
   });
 });
+
+describe("Dishes without Ingredients on the Shopping List", () => {
+  /** An agent that finds Burgers' recipe, and Soppa's only once `soppaWorks` is set. */
+  function flakyAgent(selectDishes?: () => Promise<LlmResult<SelectedDish[]>>) {
+    const state = { soppaWorks: false };
+    const llm = new ScriptedLlmAgent({
+      ...(selectDishes ? { selectDishes } : {}),
+      findRecipe: (name) =>
+        name === "Soppa" && !state.soppaWorks
+          ? { ok: false, reason: "agent refused" }
+          : { ok: true, value: { url: `https://recipes.example/${name}`, ingredients: [{ name: name === "Soppa" ? "ärtor" : "nötfärs", quantity: 500, unit: "g" }] } },
+    });
+    return { llm, state };
+  }
+
+  async function planned(llm: ScriptedLlmAgent) {
+    const app = await start({ llm });
+    planWith(app, [createDish(app.ctx.db, { name: "Burgers" }), createDish(app.ctx.db, { name: "Soppa" })]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    return app;
+  }
+
+  it("names the Dish in a status block, in sv and en", async () => {
+    const { llm } = flakyAgent();
+    const app = await planned(llm);
+
+    const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+
+    expect(en.body).toMatch(/<div class="notice" role="status">[\s\S]*Ingredients missing for Soppa[\s\S]*action="\/shopping\/retry"[\s\S]*Try again/);
+    expect(en.body).not.toMatch(/Ingredients missing for[^<]*Burgers/);
+    expect(sv.body).toMatch(/role="status">[\s\S]*Ingredienser saknas för Soppa[\s\S]*Försök igen/);
+  });
+
+  it("Försök igen re-resolves only that Dish and removes the block once it works", async () => {
+    const { llm, state } = flakyAgent();
+    const app = await planned(llm);
+    state.soppaWorks = true;
+    const callsBefore = llm.calls.filter((c) => c.method === "findRecipe").length;
+
+    const res = await app.inject({ method: "POST", url: "/shopping/retry", payload: { weekStart: WEEK } });
+    const view = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}`);
+    expect(llm.calls.filter((c) => c.method === "findRecipe").slice(callsBefore).map((c) => c.args[0])).toEqual(["Soppa"]);
+    expect(view.body).not.toContain("Ingredients missing for");
+    expect(view.body).toMatch(/<section id="buy">[\s\S]*500 g ärtor/);
+    expect(view.body).toMatch(/500 g nötfärs/);
+  });
+
+  it("hides Försök igen and refuses it while a Plan Run is in flight", async () => {
+    let release!: (value: LlmResult<SelectedDish[]>) => void;
+    const held = new Promise<LlmResult<SelectedDish[]>>((r) => (release = r));
+    const { llm } = flakyAgent(() => held);
+    const app = await planned(llm);
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    const view = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    const res = await app.inject({ method: "POST", url: "/shopping/retry", payload: { weekStart: WEEK } });
+
+    expect(view.body).toContain("Ingredients missing for Soppa");
+    expect(view.body).not.toContain('action="/shopping/retry"');
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}&notice=run-in-progress`);
+    release({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+  });
+});

@@ -184,3 +184,30 @@ export function setPlannedDinnerDish(
     return true;
   })();
 }
+
+/** Every date `dishId` is planned for, in any week and any plan status, oldest first. */
+export function listPlannedDatesForDish(db: Database.Database, dishId: number): string[] {
+  return (db.prepare("SELECT date FROM planned_dinner WHERE dish_id = ? ORDER BY date").all(dishId) as { date: string }[]).map((r) => r.date);
+}
+
+/**
+ * Before a Dish is deleted: empties its Planned Dinners in unconfirmed plans (the rationale,
+ * recipe link and that date's degraded reasons described the Dish, so they go) so the day reads
+ * as empty and offers "Välj rätt". Confirmed plans are untouched.
+ */
+export function clearDishFromUnconfirmedPlans(db: Database.Database, dishId: number): void {
+  db.transaction(() => {
+    const days = db
+      .prepare(
+        `SELECT pd.plan_id AS plan_id, pd.date AS date FROM planned_dinner pd JOIN weekly_plan wp ON wp.id = pd.plan_id
+         WHERE pd.dish_id = ? AND wp.status = 'generated'`,
+      )
+      .all(dishId) as { plan_id: number; date: string }[];
+    for (const { plan_id, date } of days) {
+      db.prepare("UPDATE planned_dinner SET selection_rationale = '', source_url = NULL WHERE plan_id = ? AND date = ?").run(plan_id, date);
+      const row = db.prepare("SELECT degraded_reasons FROM weekly_plan WHERE id = ?").get(plan_id) as { degraded_reasons: string };
+      const kept = parseDegradedReasons(row.degraded_reasons).filter((r) => r.date !== date);
+      db.prepare("UPDATE weekly_plan SET degraded_reasons = ? WHERE id = ?").run(JSON.stringify(kept), plan_id);
+    }
+  })();
+}

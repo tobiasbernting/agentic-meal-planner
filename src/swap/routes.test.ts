@@ -236,3 +236,99 @@ describe("Byt on Plan and Today", () => {
     expect(res.body).toContain('<input type="hidden" name="next" value="/" />');
   });
 });
+
+describe("Välj rätt on a day without a dinner", () => {
+  /** The planned week with `burgers` on every day but Monday, which has no Dish. */
+  function planWithEmptyMonday(app: Awaited<ReturnType<typeof buildApp>>, burgers: number) {
+    const dinners = weekDates(WEEK).map((date) => ({
+      date,
+      dishId: date === MONDAY ? null : burgers,
+      isQuickDay: false,
+      lunchThatDay: null,
+      rationale: date === MONDAY ? "" : "planned",
+    }));
+    const degradedReasons = [{ code: "seed-fallback" as const, date: MONDAY }];
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons }, NOW.toISOString());
+  }
+
+  it.each([
+    ["en", "Pick dish", "Swap dish", "chosen by hand"],
+    ["sv", "Välj rätt", "Byt rätt", "vald för hand"],
+  ])("offers it on an empty day in %s and writes the picked Dish with the by-hand rationale", async (lang, pick, swap, rationale) => {
+    const app = await start();
+    const cookie = `lang=${lang}`;
+    const burgers = createDish(app.ctx.db, { name: "Burgers" });
+    const pizza = createDish(app.ctx.db, { name: "Pizza" });
+    planWithEmptyMonday(app, burgers);
+
+    const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie } });
+    expect(row(before.body, MONDAY)).toContain(`>${pick}</a>`);
+    expect(row(before.body, MONDAY)).not.toContain(swap);
+    expect(row(before.body, TUESDAY)).toContain(`>${swap}</a>`);
+
+    const list = await app.inject({ method: "GET", url: `/plan/swap?date=${MONDAY}`, headers: { "hx-request": "true", cookie } });
+    expect(list.statusCode).toBe(200);
+    expect(list.body).toContain("Pizza");
+    expect(list.body).toContain("Burgers");
+
+    const res = await app.inject({ method: "POST", url: "/plan/swap", headers: { cookie }, payload: { date: MONDAY, dishId: String(pizza) } });
+    expect(res.statusCode).toBe(303);
+    const after = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie } });
+    expect(row(after.body, MONDAY)).toContain('<div class="day-dinner">Pizza</div>');
+    expect(row(after.body, MONDAY)).toContain(`<p class="why">${rationale}</p>`);
+  });
+
+  it("is absent and refused on a confirmed plan and while a Plan Run is in flight", async () => {
+    const app = withEnglish(await start());
+    const burgers = createDish(app.ctx.db, { name: "Burgers" });
+    const pizza = createDish(app.ctx.db, { name: "Pizza" });
+    planWithEmptyMonday(app, burgers);
+    app.ctx.planRuns.start(WEEK, { runId: "r1", startedAt: NOW });
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).not.toContain("Pick dish");
+    expect((await app.inject({ method: "POST", url: "/plan/swap", payload: { date: MONDAY, dishId: String(pizza) } })).statusCode).toBe(409);
+  });
+
+  it("is absent and refused on a confirmed plan", async () => {
+    const app = withEnglish(await start());
+    const burgers = createDish(app.ctx.db, { name: "Burgers" });
+    const pizza = createDish(app.ctx.db, { name: "Pizza" });
+    planWithEmptyMonday(app, burgers);
+    confirmPlan(app.ctx.db, WEEK);
+    expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).not.toContain("Pick dish");
+    expect((await app.inject({ method: "POST", url: "/plan/swap", payload: { date: MONDAY, dishId: String(pizza) } })).statusCode).toBe(409);
+  });
+
+  it("offers it on a day whose Dish was deleted, with the old rationale and degraded notice gone", async () => {
+    const app = withEnglish(await start());
+    const db = app.ctx.db;
+    const burgers = createDish(db, { name: "Burgers" });
+    const pizza = createDish(db, { name: "Pizza" });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: date === MONDAY ? pizza : burgers, isQuickDay: false, lunchThatDay: null, rationale: date === MONDAY ? "pizza is great" : "planned" }));
+    savePlan(db, { weekStart: WEEK, dinners, degradedReasons: [{ code: "seed-fallback", date: MONDAY }, { code: "seed-fallback", date: TUESDAY }] }, NOW.toISOString());
+
+    await app.inject({ method: "POST", url: `/dishes/${pizza}/delete`, headers: { "content-type": "application/x-www-form-urlencoded" }, payload: "confirm=1" });
+
+    const plan = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    const monday = row(plan.body, MONDAY);
+    expect(monday).toContain("No eligible dish");
+    expect(monday).toContain(">Pick dish</a>");
+    expect(monday).not.toContain("pizza is great");
+    expect(monday).not.toContain('class="notice"');
+    expect(row(plan.body, TUESDAY)).toContain('class="notice"');
+  });
+
+  it("leaves a confirmed plan's rationale and notices alone when its Dish is deleted", async () => {
+    const app = withEnglish(await start());
+    const db = app.ctx.db;
+    const pizza = createDish(db, { name: "Pizza" });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: pizza, isQuickDay: false, lunchThatDay: null, rationale: "pizza is great" }));
+    savePlan(db, { weekStart: WEEK, dinners, degradedReasons: [{ code: "seed-fallback", date: MONDAY }] }, NOW.toISOString());
+    confirmPlan(db, WEEK);
+
+    await app.inject({ method: "POST", url: `/dishes/${pizza}/delete`, headers: { "content-type": "application/x-www-form-urlencoded" }, payload: "confirm=1" });
+
+    const plan = getPlanForWeek(db, WEEK)!;
+    expect(plan.dinners[0]!.rationale).toBe("pizza is great");
+    expect(plan.degradedReasons).toEqual([{ code: "seed-fallback", date: MONDAY }]);
+  });
+});
