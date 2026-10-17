@@ -5,7 +5,7 @@
  */
 import { isRedDay, swedishHoliday } from "../calendar/holidays.js";
 import { t, weekdayName, type Lang } from "../i18n/index.js";
-import { isoWeek, weekdayOf } from "../week.js";
+import { addDays, isoWeek, weekdayOf } from "../week.js";
 import { escapeHtml } from "./layout.js";
 
 /**
@@ -21,6 +21,22 @@ export function weekHead(lang: Lang, date: string): string {
     new Date(`${date}T00:00:00Z`),
   );
   return `<header class="week-head"><h1 class="week-num" aria-label="${escapeHtml(t(lang, "week.label", { n: week }))}"><small>${escapeHtml(t(lang, "week.abbr"))}</small>${week}</h1><div class="week-month">${escapeHtml(month)}</div></header>`;
+}
+
+/**
+ * Week navigation under the week landmark, "v. 41 ‹" and "› v. 43": links to `path?week=<monday>`
+ * for the neighbouring ISO weeks. Plan and Shopping share it.
+ */
+export function weekNav(lang: Lang, weekStart: string, path: string): string {
+  const prev = addDays(weekStart, -7);
+  const next = addDays(weekStart, 7);
+  const abbr = escapeHtml(t(lang, "week.abbr"));
+  const name = (key: "week.prev" | "week.next", date: string) =>
+    `${escapeHtml(t(lang, key))}, ${escapeHtml(t(lang, "week.label", { n: isoWeek(date) }))}`;
+  return `<nav class="week-nav" aria-label="${escapeHtml(t(lang, "week.nav"))}">
+<a href="${path}?week=${prev}" rel="prev" aria-label="${name("week.prev", prev)}">${abbr} ${isoWeek(prev)} <span aria-hidden="true">‹</span></a>
+<a href="${path}?week=${next}" rel="next" aria-label="${name("week.next", next)}"><span aria-hidden="true">›</span> ${abbr} ${isoWeek(next)}</a>
+</nav>`;
 }
 
 export interface DayRowOptions {

@@ -155,10 +155,10 @@ describe("Shopping List as the almanac notes page", () => {
     const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
 
     expect(sv.body).toContain('<h1 class="week-num" aria-label="Vecka 43"><small>v.</small>43</h1>');
-    expect(sv.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-12"[^>]*>[^<]*v\. 42/);
-    expect(sv.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-26"[^>]*>[^<]*v\. 44/);
+    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-12" rel="prev"[^>]*>v\. 42 <span aria-hidden="true">‹<\/span><\/a>/);
+    expect(sv.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*><span aria-hidden="true">›<\/span> v\. 44<\/a>/);
     expect(en.body).toContain('aria-label="Week 43"');
-    expect(en.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-26"[^>]*>[^<]*wk 44/);
+    expect(en.body).toMatch(/<a href="\/shopping\?week=2026-10-26" rel="next"[^>]*><span aria-hidden="true">›<\/span> wk 44<\/a>/);
   });
 
   it("shows each Buy line as a ruled row with its source Dishes, in sv and en", async () => {

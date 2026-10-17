@@ -6,12 +6,12 @@
  */
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { addDays, isoWeek, mondayOf } from "../week.js";
+import { mondayOf } from "../week.js";
 import { householdToday, readTimezone } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { getDish } from "../dishes/repo.js";
-import { weekHead } from "../ui/almanac.js";
+import { weekHead, weekNav } from "../ui/almanac.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
 import { shortWhen } from "../ui/when.js";
 import type { AggregatedItem } from "./aggregate.js";
@@ -100,19 +100,6 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
   return `<section id="sinks">\n${lines.join("\n")}\n</section>`;
 }
 
-/** "‹ v. 42" and "v. 44 ›": the neighbouring weeks by ISO week number. */
-function weekNav(lang: Lang, weekStart: string): string {
-  const link = (date: string, label: string, name: string, cls: string) =>
-    `<a class="${cls}" href="/shopping?week=${date}" aria-label="${escapeHtml(name)}">${label}</a>`;
-  const prev = addDays(weekStart, -7);
-  const next = addDays(weekStart, 7);
-  const text = (date: string) => escapeHtml(t(lang, "shopping.weekLink", { n: isoWeek(date) }));
-  return `<nav class="week-nav" aria-label="${escapeHtml(t(lang, "shopping.title"))}">
-${link(prev, `&lsaquo; ${text(prev)}`, t(lang, "week.prev"), "week-prev")}
-${link(next, `${text(next)} &rsaquo;`, t(lang, "week.next"), "week-next")}
-</nav>`;
-}
-
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
   app.get<{ Querystring: ShoppingQuery }>("/shopping", async (req, reply) => {
     const lang = langOf(req);
@@ -136,7 +123,7 @@ ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
     }
     const body = `${weekHead(lang, weekStart)}
-${weekNav(lang, weekStart)}
+${weekNav(lang, weekStart, "/shopping")}
 ${planRunBanner(ctx, lang, weekStart)}
 ${content}`;
     reply.type("text/html; charset=utf-8");

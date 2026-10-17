@@ -80,7 +80,7 @@ h1 { font-size: var(--fs-h1); font-weight: 800; }
 h2 { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
 p { margin: 0.5rem 0; }
 a { color: inherit; text-underline-offset: 3px; }
-main > :not(.page-head, .week-head, .rows, .day, .notice) { margin-inline: var(--gutter); }
+main > :not(.page-head, .week-head, .week-nav, .rows, .day, .notice) { margin-inline: var(--gutter); }
 .page > h1:first-child { margin-top: 18px; margin-bottom: 12px; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
@@ -103,7 +103,7 @@ main > :not(.page-head, .week-head, .rows, .day, .notice) { margin-inline: var(-
 .week-month { text-align: right; font-size: 0.9375rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 
 /* Plan: "v. 41 ‹ › v. 43" under the week landmark, then status and its buttons above the days. */
-.week-nav { display: flex; justify-content: space-between; border-bottom: 1px solid var(--rule); }
+.week-nav { display: flex; justify-content: space-between; padding: 0 var(--gutter); border-bottom: 1px solid var(--rule); }
 .week-nav a { display: inline-flex; align-items: center; min-height: var(--tap); font-weight: 600; color: var(--ink); text-decoration: none; }
 .week-nav a:hover { text-decoration: underline; }
 .plan-status { padding: 12px 0 16px; }
@@ -231,8 +231,6 @@ section + section { margin-top: 24px; }
 .ingredient-row { padding: 8px 0 12px; border-bottom: 1px solid var(--rule); }
 
 /* Shopping List: week neighbours, section labels over ruled rows, sink status. */
-.week-nav { display: flex; justify-content: space-between; margin-inline: 0 !important; padding: 0 var(--gutter); border-bottom: 1px solid var(--rule); }
-.week-nav a { display: inline-flex; align-items: center; min-height: var(--tap); color: inherit; font-weight: 600; text-decoration: none; }
 main > section#buy, main > section#check-pantry, main > section#sinks { margin-inline: 0; }
 .section-label { margin: 0; padding: 18px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
 #buy .rows, #check-pantry .rows { border-top: 1px solid var(--rule); }

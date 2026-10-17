@@ -92,7 +92,6 @@ export const en = {
   "shopping.sentTo": "Sent to {sink} {when}",
   "shopping.sendFailed": "Could not send to {sink}: {error}",
   "shopping.failedLabel": "Failed",
-  "shopping.weekLink": "wk {n}",
   "shopping.pushAgain": "Send again",
   "shopping.notPushed": "Not pushed anywhere",
   "shopping.unknownError": "unknown error",

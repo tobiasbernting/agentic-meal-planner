@@ -9,7 +9,7 @@ import type Database from "better-sqlite3";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { almanac } from "../almanac/day.js";
-import { addDays, isoWeek, mondayOf, weekDates } from "../week.js";
+import { addDays, mondayOf, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate } from "../lunch/repo.js";
@@ -23,7 +23,7 @@ import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type WeeklyPlan } from "../planner/repo.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
-import { weekHead } from "../ui/almanac.js";
+import { weekHead, weekNav } from "../ui/almanac.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
@@ -117,17 +117,6 @@ ${runInFlight ? "" : `<div class="actions">${weekForm(weekStart, "/plan/generate
 </section>`;
 }
 
-/** "v. 41 ‹ › v. 43": the neighbouring weeks by ISO week number. */
-function weekNav(lang: Lang, weekStart: string): string {
-  const prev = addDays(weekStart, -7);
-  const next = addDays(weekStart, 7);
-  const abbr = escapeHtml(t(lang, "week.abbr"));
-  return `<nav class="week-nav" aria-label="${escapeHtml(t(lang, "week.nav"))}">
-<a href="/plan?week=${prev}" rel="prev" aria-label="${escapeHtml(t(lang, "week.prev"))}, ${escapeHtml(t(lang, "week.label", { n: isoWeek(prev) }))}">${abbr} ${isoWeek(prev)} <span aria-hidden="true">‹</span></a>
-<a href="/plan?week=${next}" rel="next" aria-label="${escapeHtml(t(lang, "week.next"))}, ${escapeHtml(t(lang, "week.label", { n: isoWeek(next) }))}"><span aria-hidden="true">›</span> ${abbr} ${isoWeek(next)}</a>
-</nav>`;
-}
-
 /**
  * The seven almanac rows, all open (density `full`). Per-day hooks for later tickets:
  * `swapHtml` takes the Swap control (#81; until then the almanac's disabled placeholder) and
@@ -205,7 +194,7 @@ export const planRoutes: FeaturePlugin = async (app, ctx) => {
       message = `${t(lang, NOTICES["lunch-changed"])}${changes.length ? `: ${changes.join(", ")}` : ""}`;
     }
     const body = `${weekHead(lang, weekStart)}
-${weekNav(lang, weekStart)}
+${weekNav(lang, weekStart, "/plan")}
 ${message ? notice({ text: message, role: "status" }) : ""}
 ${plan ? renderPlanTop(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlanTop(lang, weekStart, runInFlight)}
 ${planRunBanner(ctx, lang, weekStart)}

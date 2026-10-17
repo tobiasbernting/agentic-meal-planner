@@ -94,7 +94,6 @@ export const sv: Dictionary = {
   "shopping.sentTo": "Skickad till {sink} {when}",
   "shopping.sendFailed": "Kunde inte skicka till {sink}: {error}",
   "shopping.failedLabel": "Misslyckades",
-  "shopping.weekLink": "v. {n}",
   "shopping.pushAgain": "Skicka igen",
   "shopping.notPushed": "Inte skickad någonstans",
   "shopping.unknownError": "okänt fel",
