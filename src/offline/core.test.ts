@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cacheKeysFor, classify, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
+import { cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
@@ -182,6 +182,18 @@ describe("offlineResponseFor", () => {
     expect(passthrough.status).toBe(204);
     expect(await passthrough.text()).toBe("");
     expect(offlineResponseFor({ kind: "asset" }, { config, lang: "sv" }).status).toBe(404);
+  });
+});
+
+describe("extractLang", () => {
+  it("reads the language of a rendered page", async () => {
+    expect(extractLang(await renderedPage("/", "en"))).toBe("en");
+    expect(extractLang(await renderedPage("/", "sv"))).toBe("sv");
+  });
+
+  it("defaults to Swedish when the page names no language", () => {
+    expect(extractLang("<!doctype html><html><body></body></html>")).toBe("sv");
+    expect(extractLang("")).toBe("sv");
   });
 });
 

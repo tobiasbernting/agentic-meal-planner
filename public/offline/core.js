@@ -128,6 +128,14 @@ export function injectBanner(html, text) {
 }
 
 /**
+ * The language a page was rendered in, from `<html lang="xx">`; Swedish when it names none.
+ * @param {string} html
+ */
+export function extractLang(html) {
+  return /<html[^>]*\slang="([^"]+)"/.exec(html)?.[1] ?? "sv";
+}
+
+/**
  * `HH:MM` (24-hour) of an ISO timestamp on the device's clock.
  * @param {string} iso
  */
