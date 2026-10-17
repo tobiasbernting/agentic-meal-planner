@@ -135,7 +135,7 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
   // (FR-16) and never spawns a process, so tests stay agent-free. src/server.ts applies the
   // FR-15 `copilot -p` default via AGENT_COMMAND. A blank saved command means "not set".
   const readAgentCommand = () => (readSetting(db, SETTING_AGENT_COMMAND)?.trim() || process.env.AGENT_COMMAND)?.trim() || undefined;
-  const llmFromSettings = configuredLlmAgent(readAgentCommand);
+  const llmFromSettings = configuredLlmAgent(readAgentCommand, { log: log.child({ component: "llm" }) });
   const ctx: AppContext = {
     db,
     log,

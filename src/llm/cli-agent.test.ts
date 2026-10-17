@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CliAgent, type ProcessRunner } from "./cli-agent.js";
+import { createCapturingLogger } from "../logging/logger.js";
+import { AgentTimeoutError, CliAgent, type ProcessRunner } from "./cli-agent.js";
 
 /** A runner that replies with the scripted stdouts in order and records every call. */
 function scriptedRunner(replies: string[]) {
@@ -7,7 +8,7 @@ function scriptedRunner(replies: string[]) {
   const run: ProcessRunner = async (cmd, args, stdin) => {
     calls.push({ cmd, args, stdin });
     const stdout = replies.shift() ?? "";
-    return { stdout, exitCode: 0 };
+    return { stdout, stderr: "", exitCode: 0 };
   };
   return { run, calls };
 }
@@ -85,32 +86,135 @@ describe("CliAgent.extractIngredients", () => {
 
   it("degrades instead of throwing after two failures", async () => {
     const { run, calls } = scriptedRunner(["nope", "still nope"]);
-    const agent = new CliAgent("copilot -p", { run });
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
 
     const result = await agent.extractIngredients("page");
 
-    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry" });
+    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry: still nope" });
     expect(calls).toHaveLength(2);
+    expect(records.find((r) => r.level === "warn")).toMatchObject({
+      operation: "extractIngredients",
+      cause: "invalid-json",
+      exitCode: 0,
+      stdoutTail: "still nope",
+    });
   });
 
-  it("degrades when the agent process fails", async () => {
+  it("degrades when the agent process cannot be spawned", async () => {
     const run: ProcessRunner = async () => {
-      throw new Error("spawn copilot ENOENT");
+      throw Object.assign(new Error("spawn copilot EACCES"), { code: "EACCES" });
     };
-    const agent = new CliAgent("copilot -p", { run });
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
 
     const result = await agent.extractIngredients("page");
 
-    expect(result).toEqual({ ok: false, reason: "agent failed: spawn copilot ENOENT" });
+    expect(result).toEqual({ ok: false, reason: "agent failed: spawn copilot EACCES" });
+    expect(records.find((r) => r.level === "warn")).toMatchObject({ cause: "spawn-error", exitCode: null });
   });
 
-  it("degrades when the agent exits non-zero", async () => {
-    const run: ProcessRunner = async () => ({ stdout: "", exitCode: 1 });
-    const agent = new CliAgent("copilot -p", { run });
+  it("reports a missing agent binary as not found", async () => {
+    const run: ProcessRunner = async () => {
+      throw Object.assign(new Error("spawn copilot ENOENT"), { code: "ENOENT" });
+    };
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
 
     const result = await agent.extractIngredients("page");
 
-    expect(result).toEqual({ ok: false, reason: "agent exited with code 1" });
+    expect(result).toEqual({ ok: false, reason: "agent binary not found: copilot" });
+    expect(records.find((r) => r.level === "warn")).toMatchObject({ cause: "not-found", command: "copilot -p", exitCode: null });
+  });
+
+  it("reports a timed-out agent as a timeout, with what it printed so far", async () => {
+    const run: ProcessRunner = async () => {
+      throw new AgentTimeoutError(200, "partial", "thinking...");
+    };
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result).toEqual({ ok: false, reason: "agent timed out after 200ms" });
+    expect(records.find((r) => r.level === "warn")).toMatchObject({
+      cause: "timeout",
+      exitCode: null,
+      stdoutTail: "partial",
+      stderrTail: "thinking...",
+    });
+  });
+
+  it("keeps the stderr tail in the reason short and the warn tail at 8 KB", async () => {
+    const stderr = "x".repeat(20_000) + "THE END";
+    const run: ProcessRunner = async () => ({ stdout: "", stderr, exitCode: 3 });
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result.ok).toBe(false);
+    const reason = (result as { reason: string }).reason;
+    expect(reason.startsWith("agent exited with code 3: ")).toBe(true);
+    expect(reason.endsWith("THE END")).toBe(true);
+    expect(reason.length).toBeLessThanOrEqual("agent exited with code 3: ".length + 500);
+    const stderrTail = records.find((r) => r.level === "warn")!.stderrTail as string;
+    expect(stderrTail.length).toBe(8192);
+    expect(stderrTail.endsWith("THE END")).toBe(true);
+  });
+
+  it("degrades with the exit code and stderr tail when the agent exits non-zero", async () => {
+    const run: ProcessRunner = async () => ({ stdout: "", stderr: "Error: not logged in. Run `copilot auth`.\n", exitCode: 1 });
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result).toEqual({ ok: false, reason: "agent exited with code 1: Error: not logged in. Run `copilot auth`." });
+    const warn = records.find((r) => r.level === "warn");
+    expect(warn).toMatchObject({
+      operation: "extractIngredients",
+      command: "copilot -p",
+      exitCode: 1,
+      cause: "exit",
+      stdoutTail: "",
+      stderrTail: "Error: not logged in. Run `copilot auth`.\n",
+    });
+    expect(warn!.durationMs).toEqual(expect.any(Number));
+  });
+});
+
+describe("CliAgent logging", () => {
+  it("logs one info record per call with operation, duration, outcome and attempt", async () => {
+    const { run } = scriptedRunner(["not json", '[{"name": "milk"}]', "nope", "nope"]);
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
+
+    await agent.extractIngredients("page");
+    await agent.findRecipe("Pannkakor");
+
+    const infos = records.filter((r) => r.level === "info");
+    expect(infos).toMatchObject([
+      { operation: "extractIngredients", outcome: "ok", attempt: 2, durationMs: expect.any(Number) },
+      { operation: "findRecipe", outcome: "degraded", attempt: 2, durationMs: expect.any(Number) },
+    ]);
+    expect(records.filter((r) => r.level === "warn")).toHaveLength(1);
+  });
+
+  it("logs the prompt and full output at debug only", async () => {
+    const { run } = scriptedRunner(['[{"name": "milk"}]']);
+    const { logger, records } = createCapturingLogger();
+    const agent = new CliAgent("copilot -p", { run, log: logger });
+
+    await agent.extractIngredients("<html>Pannkakor recipe</html>");
+
+    const debug = records.filter((r) => r.level === "debug");
+    expect(debug.some((r) => String(r.prompt).includes("Pannkakor recipe"))).toBe(true);
+    expect(debug.some((r) => r.stdout === '[{"name": "milk"}]')).toBe(true);
+    for (const r of records.filter((r) => r.level !== "debug")) {
+      expect(JSON.stringify(r)).not.toContain("Pannkakor recipe");
+      expect(r).not.toHaveProperty("stdout");
+    }
   });
 });
 
@@ -142,7 +246,7 @@ describe("CliAgent.extractLunchMenu", () => {
 
     const result = await agent.extractLunchMenu("page", "2026-10-19");
 
-    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry" });
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
   });
 });
 
@@ -223,7 +327,7 @@ describe("CliAgent.matchPantryItems", () => {
 
     const result = await agent.matchPantryItems(input);
 
-    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry" });
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
   });
 });
 
@@ -253,7 +357,7 @@ describe("CliAgent.suggestMainCategory", () => {
 
     expect(await new CliAgent("copilot -p", { run }).suggestMainCategory("Steak", [...candidates])).toEqual({
       ok: false,
-      reason: "invalid JSON after retry",
+      reason: expect.stringMatching(/^invalid JSON after retry: /),
     });
   });
 });
@@ -318,6 +422,6 @@ describe("CliAgent.selectDishes", () => {
 
     const result = await agent.selectDishes(input);
 
-    expect(result).toEqual({ ok: false, reason: "invalid JSON after retry" });
+    expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
   });
 });

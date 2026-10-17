@@ -16,7 +16,7 @@ describe("createLlmAgent", () => {
     const agent = createLlmAgent("copilot -p", {
       run: async (cmd) => {
         calls.push(cmd);
-        return { stdout: '[{"name":"milk"}]', exitCode: 0 };
+        return { stdout: '[{"name":"milk"}]', stderr: "", exitCode: 0 };
       },
     });
 

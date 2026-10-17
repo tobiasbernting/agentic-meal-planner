@@ -141,3 +141,24 @@ describe("logging", () => {
     expect(incoming.map((r) => r.runId)).toEqual(completed.map((r) => r.runId));
   });
 });
+
+describe("agent call logging", () => {
+  it("routes the configured agent's records through the app logger under component llm", async () => {
+    vi.stubEnv("AGENT_COMMAND", "mp-no-such-agent-binary -p");
+    const { app, records } = await startLogged();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/dishes",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: "name=Pannkakor",
+    });
+
+    expect(res.statusCode).toBe(303);
+    expect(records.find((r) => r.level === "warn" && r.operation === "suggestMainCategory")).toMatchObject({
+      component: "llm",
+      cause: "not-found",
+      reason: "agent binary not found: mp-no-such-agent-binary",
+    });
+  });
+});
