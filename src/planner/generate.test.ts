@@ -22,12 +22,12 @@ function freshDb() {
 describe("generatePlan", () => {
   it("plans the week from Favorite Dishes and stores one Planned Dinner per date with a rationale", async () => {
     const db = freshDb();
-    const burgers = createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    const favorites = ["Burgers", "Pasta", "Soup", "Tacos", "Curry", "Stew", "Pie"].map((name) => createDish(db, { name, prepTimeMinutes: 20 }));
     createDish(db, { name: "Parked", inRotation: false });
     const llm = new ScriptedLlmAgent({
       selectDishes: (req) => ({
         ok: true,
-        value: req.days.map((d) => ({ date: d.date, dishId: String(burgers), rationale: `burgers on ${d.date}` })),
+        value: req.days.map((d, i) => ({ date: d.date, dishId: String(favorites[i]), rationale: `favorite on ${d.date}` })),
       }),
     });
 
@@ -37,7 +37,8 @@ describe("generatePlan", () => {
     const stored = getPlanForWeek(db, WEEK);
     expect(stored?.generatedAt).toBe(NOW);
     expect(stored?.dinners).toHaveLength(7);
-    expect(stored?.dinners.every((d) => d.dishId === burgers && d.rationale.startsWith("burgers on "))).toBe(true);
+    expect(stored?.dinners.map((d) => d.dishId)).toEqual(favorites);
+    expect(stored?.dinners.every((d) => d.rationale.startsWith("favorite on "))).toBe(true);
     const req = llm.calls[0]?.args[0] as SelectDishesInput;
     expect(req.candidates.flat().map((d) => d.name)).not.toContain("Parked");
   });
@@ -95,24 +96,28 @@ describe("generatePlan", () => {
 
     const result = await generatePlan({ db, llm: new NoAgent(), now: () => NOW }, WEEK);
 
-    expect(result).toEqual({ planId: expect.any(Number), degradedReasons: [NO_AGENT_REASON] });
+    expect(result).toMatchObject({ planId: expect.any(Number) });
+    expect("degradedReasons" in result && result.degradedReasons[0]).toBe(NO_AGENT_REASON);
     const stored = getPlanForWeek(db, WEEK);
-    expect(stored?.degradedReasons).toEqual([{ code: "no-agent", date: null }]);
-    expect(stored?.dinners.every((d) => d.dishId !== null && d.rationale === t("sv", "rationale.noAgent"))).toBe(true);
+    expect(stored?.degradedReasons[0]).toEqual({ code: "no-agent", date: null });
+    // Once a Week: A and B take the first two dates, the seed list fills the rest.
+    expect(stored?.dinners.slice(0, 2).every((d) => d.dishId !== null && d.rationale === t("sv", "rationale.noAgent"))).toBe(true);
+    expect(stored?.dinners.slice(2).every((d) => d.rationale === t("sv", "rationale.seedFallback"))).toBe(true);
   });
 
   it("does not replace a confirmed plan unless asked (FR-9a)", async () => {
     const db = freshDb();
-    const a = createDish(db, { name: "A", prepTimeMinutes: 20 });
+    createDish(db, { name: "A", prepTimeMinutes: 20 });
     await generatePlan({ db, llm: new NoAgent(), now: () => NOW }, WEEK);
     confirmPlan(db, WEEK);
+    const confirmedDinners = getPlanForWeek(db, WEEK)?.dinners;
     createDish(db, { name: "B", prepTimeMinutes: 20 });
 
     const skipped = await generatePlan({ db, llm: new NoAgent(), now: () => "2026-10-12T00:00:00.000Z" }, WEEK);
 
     expect(skipped).toEqual({ skipped: "confirmed" });
     expect(getPlanForWeek(db, WEEK)).toMatchObject({ status: "confirmed", generatedAt: NOW });
-    expect(getPlanForWeek(db, WEEK)?.dinners.every((d) => d.dishId === a)).toBe(true);
+    expect(getPlanForWeek(db, WEEK)?.dinners).toEqual(confirmedDinners);
 
     const replaced = await generatePlan({ db, llm: new NoAgent(), now: () => "2026-10-12T00:00:00.000Z" }, WEEK, { replace: true });
 

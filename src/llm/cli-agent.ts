@@ -36,7 +36,8 @@ const LANGUAGE_NAMES = { sv: "Swedish", en: "English" } as const;
 /** Cleaning rules shared by extraction and recipe search: what the Shopping List needs from an Ingredient. */
 function ingredientRules(language: "sv" | "en" | undefined): string {
   return (
-    `Name each ingredient bare, as it would be bought in a shop (no amounts, no cooking words), in ${LANGUAGE_NAMES[language ?? "sv"]}. ` +
+    `Name each ingredient bare, as it would be bought in a shop (no cooking words), in ${LANGUAGE_NAMES[language ?? "sv"]}. ` +
+    `Give the amount in "quantity" and "unit", as the recipe states it, never in the name; do not scale it to a household size. ` +
     `Use metric units only: convert cups, lb and oz to ml, dl, g or kg. ` +
     `Put how the dish uses the ingredient (e.g. "finely chopped", "for the mash") in "preparationNote", never in the name. `
   );
@@ -98,7 +99,7 @@ const JSON_ONLY_NUDGE =
 /**
  * Runs the configured agent CLI (`agent_command`, e.g. `copilot -p`, `claude -p`) as a
  * subprocess, one prompt per call (ADR-0005). The prompt is passed both as the last
- * argument and on stdin. The first JSON value in stdout is parsed and validated; one
+ * argument and on stdin. The last complete JSON value in stdout is parsed and validated; one
  * retry with a JSON-only nudge, then the result degrades (NFR-4). Never throws for
  * agent failure.
  */
@@ -158,6 +159,12 @@ export class CliAgent implements LlmAgent {
       `A day with an empty candidate list gets exactly one suggestion instead: a new dish in the household's suggestionStyle. ` +
       `seedDishes is inspiration only; you may go beyond it. The suggestion's mainCategory must be one of: ${MAIN_CATEGORY_KEYS.join(", ")} (use "other" when unsure); prepTimeMinutes is an optional positive integer. ` +
       `Never suggest a dish for a day that has candidates. ` +
+      `A suggestion must pass the hard rules: not the same Main Category or name as that day's lunch; ` +
+      `on a Quick Day, a prepTimeMinutes at or under the day's quickDayLimitMinutes; ` +
+      `a Weekend Dish only on Saturday or Sunday; ` +
+      `Once a Week: no Dish, and no near-identical meal under another name, on two dates of the week. ` +
+      `existingDishes lists the household's Dishes by id and name: kind "favorite" is in the household's rotation, kind "suggested" is an earlier suggestion they kept. When a suggestion would be the same meal as one of existingDishes, return that Dish's id as {"date", "dishId", "rationale"} instead of a new name. ` +
+      `Avoid the same Main Category on consecutive dinners; when you don't, say why in the rationale. ` +
       `Write each rationale as one short sentence in ${LANGUAGE_NAMES[input.language ?? "sv"]}, for the household to read. ` +
       `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string} for a pick, ` +
       `or {"date": "YYYY-MM-DD", "suggestion": {"name": string, "mainCategory": string, "prepTimeMinutes"?: number}, "rationale": string} for a suggestion, one per day, in order.` +
@@ -254,27 +261,32 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Finds the first JSON object or array in `text`, tolerating code fences and prose
- * around it. Returns undefined when nothing parses.
+ * Finds the last complete JSON object or array in `text`, tolerating code fences and prose
+ * around it (agents often print tool logs before the answer). Returns undefined when
+ * nothing parses.
  */
 export function extractJson(text: string): unknown {
-  const starts: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "{" || ch === "[") starts.push(i);
-  }
-  for (const start of starts) {
-    const close = text[start] === "{" ? "}" : "]";
+  let found: unknown;
+  let from = 0;
+  while (from < text.length) {
+    const start = text.slice(from).search(/[{[]/);
+    if (start < 0) break;
+    const open = from + start;
+    const close = text[open] === "{" ? "}" : "]";
     let end = text.lastIndexOf(close);
-    while (end > start) {
+    let parsed = false;
+    while (end > open) {
       try {
-        return JSON.parse(text.slice(start, end + 1));
+        found = JSON.parse(text.slice(open, end + 1));
+        parsed = true;
+        break;
       } catch {
         end = text.lastIndexOf(close, end - 1);
       }
     }
+    from = parsed ? end + 1 : open + 1;
   }
-  return undefined;
+  return found;
 }
 
 // --- validators (hand-written, no deps) ---
@@ -344,6 +356,8 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
   const allowed = new Map(
     input.days.map((d, i) => [d.date, new Set((input.candidates[i] ?? []).map((c) => String(c.id)))]),
   );
+  // A day with no candidates may reuse an existing Dish by id instead of suggesting a twin.
+  const existing = new Set((input.existingDishes ?? []).map((d) => d.id));
   return validateArray(v, (item) => {
     if (!isRecord(item)) return undefined;
     const { date, rationale } = item;
@@ -355,7 +369,9 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
     }
     const dishId = typeof item.dishId === "number" ? String(item.dishId) : item.dishId;
     if (typeof dishId !== "string") return undefined;
-    if (!allowed.get(date)?.has(dishId)) return undefined;
+    const candidates = allowed.get(date);
+    if (candidates === undefined) return undefined;
+    if (candidates.size === 0 ? !existing.has(dishId) : !candidates.has(dishId)) return undefined;
     return { date, dishId, rationale };
   });
 }

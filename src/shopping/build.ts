@@ -18,6 +18,8 @@ export type ShoppingListDeps = ResolveDeps;
 
 export interface ShoppingList extends ShoppingSections {
   degradedReasons: string[];
+  /** Ids of the planned Dishes that resolved to no Ingredients. */
+  missingDishIds: number[];
 }
 
 export type Section = "buy" | "check_pantry";
@@ -30,16 +32,22 @@ interface ItemRow {
   source_dish_ids: string;
 }
 
-export async function buildShoppingList(deps: ShoppingListDeps, planId: number): Promise<ShoppingList> {
+/**
+ * `freshDishIds`: Dishes re-resolved past their caches, for Försök igen on the Dishes the
+ * last build recorded as missing; every other Dish resolves as usual (cached when it can).
+ */
+export async function buildShoppingList(deps: ShoppingListDeps, planId: number, freshDishIds?: ReadonlySet<number>): Promise<ShoppingList> {
   // #30: also writes LLM-found recipe source links to planned_dinner.source_url.
-  const entries = await resolvePlanIngredients(deps, planId);
+  const entries = await resolvePlanIngredients(deps, planId, freshDishIds);
 
   const perDish: DishIngredients[] = [];
   const degradedReasons: string[] = [];
+  const missingDishIds: number[] = [];
   const seen = new Set<number>();
   for (const { dish, resolved } of entries) {
     if (seen.has(dish.id)) continue;
     seen.add(dish.id);
+    if (resolved.ingredients.length === 0) missingDishIds.push(dish.id);
     perDish.push({ dishId: dish.id, ingredients: resolved.ingredients });
     if (resolved.degradedReason) degradedReasons.push(`${dish.name}: ${resolved.degradedReason}`);
   }
@@ -52,8 +60,14 @@ export async function buildShoppingList(deps: ShoppingListDeps, planId: number):
     deps.llm,
   );
   const sections = splitSections(items, matches);
-  replaceItems(deps.db, planId, sections);
-  return { ...sections, degradedReasons };
+  replaceItems(deps.db, planId, sections, missingDishIds);
+  return { ...sections, degradedReasons, missingDishIds };
+}
+
+/** The planned Dishes that resolved to no Ingredients at the plan's last build, in plan order. */
+export function getMissingDishIds(db: Database.Database, planId: number): number[] {
+  const rows = db.prepare("SELECT dish_id FROM shopping_list_missing WHERE plan_id = ? ORDER BY rowid").all(planId) as { dish_id: number }[];
+  return rows.map((r) => r.dish_id);
 }
 
 /**
@@ -91,7 +105,7 @@ export function pushedItem({ name, quantity, unit, sourceDishIds }: ShoppingLine
   return { name, quantity, unit, sourceDishIds };
 }
 
-function replaceItems(db: Database.Database, planId: number, { buy, checkPantry }: ShoppingSections): void {
+function replaceItems(db: Database.Database, planId: number, { buy, checkPantry }: ShoppingSections, missingDishIds: number[]): void {
   db.transaction(() => {
     db.prepare("DELETE FROM shopping_list_item WHERE plan_id = ?").run(planId);
     const insert = db.prepare(
@@ -104,6 +118,8 @@ function replaceItems(db: Database.Database, planId: number, { buy, checkPantry 
         insert.run(planId, position++, item.name, item.quantity, item.unit, section, JSON.stringify(item.sourceDishIds));
       }
     };
+    db.prepare("DELETE FROM shopping_list_missing WHERE plan_id = ?").run(planId);
+    for (const dishId of missingDishIds) db.prepare("INSERT INTO shopping_list_missing (plan_id, dish_id) VALUES (?, ?)").run(planId, dishId);
     insertAll(buy, "buy");
     insertAll(checkPantry, "check_pantry");
   })();

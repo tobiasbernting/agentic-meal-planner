@@ -241,7 +241,7 @@ section + section { margin-top: 24px; }
 .ingredient-row { padding: 8px 0 12px; border-bottom: 1px solid var(--rule); }
 
 /* Shopping List: week neighbours, section labels over ruled rows, sink status. */
-main > section#buy, main > section#check-pantry, main > section#sinks { margin-inline: 0; }
+main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin-inline: 0; }
 .section-label { margin: 0; padding: 18px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
 #buy .rows, #check-pantry .rows { border-top: 1px solid var(--rule); }
 #sinks > .notice { margin-inline: 0; }
@@ -249,14 +249,17 @@ main > section#buy, main > section#check-pantry, main > section#sinks { margin-i
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
 .sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
 
-/* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the line beside it.
+/* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the dense line beside
+   it (name and quantity lead, the quiet "till" line under), the quiet actions at the end.
    Checked Off lines are struck through and muted, never removed; the add row closes Buy. */
-.rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr; align-items: start; gap: 0 4px; padding: 10px var(--gutter) 10px calc(var(--gutter) - 8px); }
+.rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 4px var(--gutter) 4px calc(var(--gutter) - 8px); }
 .line form { margin: 0; }
+.line > .line-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
+.line-end button { min-height: var(--tap); font-size: var(--fs-small); }
 .line .tick { width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; }
 .line .tick::before { content: ""; display: block; width: 22px; height: 22px; border: 1.5px solid var(--ink); background: var(--raised); }
 .line-checked .tick::before { background: var(--ink); box-shadow: inset 0 0 0 3px var(--raised); }
-.line-body { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: var(--tap); }
+.line-body { grid-column: 2; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
 .line-checked .row-label { color: var(--muted); font-weight: 400; }
 .line-checked .row-status { opacity: 0.7; }
 .extra-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 10px var(--gutter) 0; }
@@ -276,3 +279,4 @@ main > #removed { margin-inline: 0; }
   align-items: flex-start; text-align: left; padding-inline: 0;
 }
 .swap-list button.row:hover { background: var(--raised); }
+.tag-favorited { font-size: var(--fs-small); font-weight: 600; border: 1.5px solid var(--ink); padding: 2px 8px; }

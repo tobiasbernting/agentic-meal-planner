@@ -11,6 +11,7 @@ import {
   SETTING_SUGGESTION_STYLE,
   DEFAULT_SUGGESTION_STYLE,
   SETTING_VARIETY_WINDOW_WEEKS,
+  DEFAULT_AGENT_COMMAND,
   quickDayLimitFor,
   readPlannerSettings,
 } from "./settings.js";
@@ -99,5 +100,16 @@ describe("quickDayLimitFor", () => {
 
   it("a per-week override can add a Quick Day with its own limit", () => {
     expect(quickDayLimitFor(settings, "2026-10-12", "fri")).toBe(20);
+  });
+});
+
+describe("DEFAULT_AGENT_COMMAND", () => {
+  it("grants Copilot the web-fetch permission only, never allow-all", () => {
+    const args = DEFAULT_AGENT_COMMAND.split(/\s+/);
+
+    expect(args[0]).toBe("copilot");
+    expect(args).toContain("--allow-tool=url");
+    expect(args.filter((a) => /^--(allow-all|yolo)/.test(a))).toEqual([]);
+    expect(args.at(-1)).toBe("-p");
   });
 });

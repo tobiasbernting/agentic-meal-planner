@@ -135,8 +135,9 @@ describe("buildShoppingList", () => {
 
     const list = await buildShoppingList({ db, llm, fetchPage: noFetch, now: () => NOW }, generated.planId);
 
-    expect(llm.calls.filter((c) => c.method === "findRecipe").map((c) => c.args[0])).toEqual(["Kalops"]);
-    expect(list.buy.map((i) => i.name)).toEqual(["högrev"]);
+    // Once a Week keeps Kalops to Monday; seed fallbacks fill the rest of the week.
+    expect(llm.calls.filter((c) => c.method === "findRecipe").map((c) => c.args[0])).toContain("Kalops");
+    expect(list.buy.map((i) => i.name)).toContain("högrev");
   });
 
   it("is empty for a plan that has not been built", () => {

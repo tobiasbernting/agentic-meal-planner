@@ -3,6 +3,7 @@
  * no network. Filters Favorite Dishes per dinner date by the hard rules; the LLM selection
  * step (FR-7) picks among what is left.
  */
+import { isMainCategory, type MainCategory } from "../dishes/categories.js";
 import type { Dish, Weekday } from "../dishes/repo.js";
 import { normaliseName } from "../text.js";
 import type { LunchEntry } from "../types.js";
@@ -16,6 +17,34 @@ export interface DayInput {
   quickDayLimitMinutes: number | null;
   /** That date's Lunch Entries across all active Schools. */
   lunch: LunchEntry[];
+  /** Once a Week: the dinners already planned on the Weekly Plan's other dates. */
+  plannedElsewhere?: PlannedElsewhere[];
+}
+
+/** A dinner planned on another date of the same Weekly Plan. */
+export interface PlannedElsewhere {
+  date: string;
+  /** `null` for a new Suggested Dish not yet stored; it is then matched by name. */
+  dishId: number | null;
+  name: string;
+  /** The dinner's Main Category, when known; the seed fallback avoids repeating it. */
+  mainCategory?: MainCategory | null;
+}
+
+/**
+ * A planned dinner as Once a Week sees it: its Dish from `dishes`, or a new Suggested Dish by
+ * name. `undefined` for an empty dinner or a Dish id not in `dishes`.
+ */
+export function plannedElsewhereOf(
+  dinner: { date: string; dishId: number | null; suggestion?: { name: string; mainCategory: string } | null },
+  dishes: Dish[],
+): PlannedElsewhere | undefined {
+  if (dinner.suggestion) {
+    const { name, mainCategory } = dinner.suggestion;
+    return { date: dinner.date, dishId: null, name, mainCategory: isMainCategory(mainCategory) ? mainCategory : null };
+  }
+  const dish = dinner.dishId === null ? undefined : dishes.find((d) => d.id === dinner.dishId);
+  return dish && { date: dinner.date, dishId: dish.id, name: dish.name, mainCategory: dish.mainCategory };
 }
 
 export interface FilterOptions {
@@ -43,6 +72,12 @@ function lunchNameMatch(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefined
   );
 }
 
+/** Once a Week: the other date `dish` is already planned on, matched by id or, failing that, by name. */
+function plannedOn(dish: Dish, planned: PlannedElsewhere[]): PlannedElsewhere | undefined {
+  const wanted = normaliseName(dish.name);
+  return planned.find((p) => (p.dishId !== null && p.dishId === dish.id) || normaliseName(p.name) === wanted);
+}
+
 /** FR-6b: `other` means uncategorised and never collides, on either side. */
 function categoryCollision(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefined {
   const category = dish.mainCategory;
@@ -53,6 +88,7 @@ function categoryCollision(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefi
 /** Which hard rule excludes a Dish on a day, with what the household message needs. */
 export type ExclusionRule =
   | { code: "not-in-rotation" }
+  | { code: "once-a-week"; date: string }
   | { code: "same-as-lunch"; lunch: string }
   | { code: "lunch-category"; category: string; lunch: string }
   | { code: "weekend-only"; date: string; weekday: Weekday }
@@ -73,6 +109,9 @@ export function exclusionRule(dish: Dish, day: DayInput, options: FilterOptions)
   if (day.quickDayLimitMinutes !== null && (dish.prepTimeMinutes === null || dish.prepTimeMinutes > day.quickDayLimitMinutes)) {
     return { code: "quick-day", limit: day.quickDayLimitMinutes, minutes: dish.prepTimeMinutes };
   }
+  // Once a Week comes last: a rule about the day itself explains a drop better than a repeat does.
+  const elsewhere = plannedOn(dish, day.plannedElsewhere ?? []);
+  if (elsewhere) return { code: "once-a-week", date: elsewhere.date };
   return null;
 }
 
@@ -86,6 +125,7 @@ type Params = Record<string, string | number>;
  */
 const RULES: { [C in ExclusionCode]: { describe(rule: RuleOf<C>): string; params(rule: RuleOf<C>): Params | undefined } } = {
   "not-in-rotation": { describe: () => "not in rotation", params: () => undefined },
+  "once-a-week": { describe: (r) => `already planned on ${r.date} (Once a Week)`, params: () => undefined },
   "same-as-lunch": { describe: (r) => `same dish as lunch "${r.lunch}"`, params: () => undefined },
   "lunch-category": { describe: (r) => `same Main Category (${r.category}) as lunch "${r.lunch}"`, params: (r) => ({ category: r.category }) },
   "weekend-only": { describe: (r) => `Weekend Dish, and ${r.date} is a ${r.weekday}`, params: () => undefined },

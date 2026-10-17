@@ -72,6 +72,19 @@ describe("exclusionRule", () => {
     expect(exclusionRule(dish({ name: "Fiskgratäng", mainCategory: "fish" }), day({ lunch: [fishLunch] }), collisionOn)?.code).toBe("same-as-lunch");
   });
 
+  it("excludes a Dish already planned on another date of the Weekly Plan (Once a Week)", () => {
+    const burgers = dish({ name: "Burgers", id: 7 });
+    const elsewhere = day({ plannedElsewhere: [{ date: "2026-10-12", dishId: 7, name: "Burgers" }] });
+    expect(exclusionRule(burgers, elsewhere, collisionOn)).toEqual({ code: "once-a-week", date: "2026-10-12" });
+    expect(describeExclusion({ code: "once-a-week", date: "2026-10-12" })).toBe("already planned on 2026-10-12 (Once a Week)");
+  });
+
+  it("matches a Dish planned elsewhere by name when it has no id yet (a new Suggested Dish)", () => {
+    const elsewhere = day({ plannedElsewhere: [{ date: "2026-10-13", dishId: null, name: "Köttbullar" }] });
+    expect(exclusionRule(dish({ name: "köttbullar", id: 99 }), elsewhere, collisionOn)?.code).toBe("once-a-week");
+    expect(exclusionRule(dish({ name: "Pannkakor", id: 99 }), elsewhere, collisionOn)).toBeNull();
+  });
+
   it("skips the category rule when collision is off", () => {
     const fishLunch = lunch({ rawText: "Fiskgratäng", mainCategory: "fish" });
     expect(exclusionRule(dish({ name: "Lax", mainCategory: "fish" }), day({ lunch: [fishLunch] }), { categoryCollisionEnabled: false })).toBeNull();

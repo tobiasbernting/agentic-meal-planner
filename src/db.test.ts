@@ -77,6 +77,27 @@ describe("openDatabase", () => {
     expect(afterReopen).toBe(2);
   });
 
+  it("clears both extraction caches once more so stored Dishes are re-extracted with quantities (spec #86)", () => {
+    const dataDir = tempDataDir();
+    const first = openDatabase(dataDir);
+    first.exec(`DELETE FROM settings WHERE key = 'migrated.extraction-cache-quantities-86';
+      INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'sv', '[]', 'now');
+      INSERT INTO found_recipe (dish_name, language, url, ingredients_json, found_at) VALUES ('d', 'sv', 'u', '[]', 'now');`);
+    first.close();
+
+    const upgraded = openDatabase(dataDir);
+    const count = (db: Database.Database, table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const afterUpgrade = [count(upgraded, "recipe_extraction"), count(upgraded, "found_recipe")];
+    upgraded.exec(`INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'sv', '[]', 'now')`);
+    upgraded.close();
+    const reopened = openDatabase(dataDir);
+    const afterReopen = count(reopened, "recipe_extraction");
+    reopened.close();
+
+    expect(afterUpgrade).toEqual([0, 0]);
+    expect(afterReopen).toBe(1);
+  });
+
   it("adds the suggested column, default 0, to a pre-#51 dish table, and reopens cleanly", () => {
     const dataDir = tempDataDir();
     const old = new Database(join(dataDir, DB_FILENAME));
