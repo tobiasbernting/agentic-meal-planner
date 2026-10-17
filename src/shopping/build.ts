@@ -13,6 +13,7 @@ import { getPlanById } from "../planner/repo.js";
 import { aggregateIngredients, type AggregatedItem, type DishIngredients } from "./aggregate.js";
 import { applyEdits, type ShoppingLine, type StoredShoppingList } from "./edits.js";
 import { splitSections, type ShoppingSections } from "./split.js";
+import { normaliseName } from "../text.js";
 
 export type ShoppingListDeps = ResolveDeps;
 
@@ -94,10 +95,13 @@ export function getShoppingList(db: Database.Database, planId: number): StoredSh
 
 /**
  * A stable fingerprint of what a push sends, recorded with each push so the view can tell the
- * list changed since. Checked Off is never pushed, so a tick does not change it.
+ * list changed since. Hashed in normalised-name order, so neither a tick (which sorts the line
+ * last) nor any other reorder changes it; only a line's content or presence does.
  */
 export function buyFingerprint(buy: ShoppingLine[]): string {
-  return createHash("sha256").update(JSON.stringify(buy.map(pushedItem))).digest("hex");
+  const keyed = buy.map((line) => [normaliseName(line.name), pushedItem(line)] as const);
+  const sorted = keyed.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, item]) => item);
+  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
 }
 
 /** The line as a sink receives it: the Ingredient fields only, no tick and no Extra Item id. */
