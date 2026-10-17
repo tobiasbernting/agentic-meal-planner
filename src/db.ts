@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { SCHEMA_DISHES } from "./dishes/schema.js";
 import { SCHEMA_PLANNER } from "./planner/schema.js";
 import { SCHEMA_SCHOOLS } from "./schools/schema.js";
-import { SCHEMA_LUNCH } from "./lunch/schema.js";
+import { SCHEMA_INGEST_OUTCOME, SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
 import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
 import { SCHEMA_SHOPPING } from "./shopping/schema.js";
@@ -26,6 +26,7 @@ const SCHEMA: string[] = [
   SCHEMA_DISHES,
   SCHEMA_SCHOOLS,
   SCHEMA_LUNCH,
+  SCHEMA_INGEST_OUTCOME,
   SCHEMA_PANTRY,
   SCHEMA_PLANNER,
   SCHEMA_INGREDIENTS,
