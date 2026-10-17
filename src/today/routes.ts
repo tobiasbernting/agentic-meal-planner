@@ -1,5 +1,6 @@
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
+import { runLogger } from "../logging/logger.js";
 import { renderNoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
@@ -66,8 +67,14 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
 
   // Manual lunch refresh (FR-4): ingest the current week for every active School, then back to Today.
   // Scrape failures are recorded as no-data by ingestWeek, so this never fails the request.
-  app.post("/lunch/refresh", async (_req, reply) => {
-    await ingestWeek(ctx, mondayOf(householdToday(ctx.db, ctx.now())), { force: true });
+  app.post("/lunch/refresh", async (req, reply) => {
+    const weekStart = mondayOf(householdToday(ctx.db, ctx.now()));
+    const log = runLogger(ctx.log, req, "lunch");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "refresh" }, "run started");
+    const { results, changed } = await ingestWeek({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log }, weekStart, { force: true });
+    const statuses = Object.fromEntries(["ok", "cached", "no-data"].map((s) => [s, results.filter((r) => r.status === s).length]));
+    log.info({ weekStart, schools: results.length, ...statuses, changed: changed.length, durationMs: Date.now() - started }, "run finished");
     return reply.redirect("/", 303);
   });
 };

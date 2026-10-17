@@ -1,10 +1,11 @@
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { withEnglish } from "./i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "./llm/fake.js";
+import { createCapturingLogger } from "./logging/logger.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -15,7 +16,25 @@ async function start() {
   return app;
 }
 
+async function startLogged() {
+  const dataDir = mkdtempSync(join(tmpdir(), "mp-app-"));
+  const { logger, records } = createCapturingLogger();
+  const app = withEnglish(await buildApp({ dataDir, logger }));
+  apps.push(app);
+  return { app, records, dataDir };
+}
+
+/** A temp executable named `name`; returns its absolute path. */
+function fakeAgentBinary(name = "fakeagent"): string {
+  const dir = mkdtempSync(join(tmpdir(), "mp-bin-"));
+  const path = join(dir, name);
+  writeFileSync(path, "#!/bin/sh\n");
+  chmodSync(path, 0o755);
+  return path;
+}
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
   while (apps.length) await apps.pop()!.close();
 });
 
@@ -50,12 +69,75 @@ describe("llm port", () => {
 });
 
 describe("GET /health", () => {
-  it("returns ok", async () => {
+  it("reports ok and no agent when none is configured", async () => {
+    vi.stubEnv("AGENT_COMMAND", "");
     const app = await start();
 
     const res = await app.inject({ method: "GET", url: "/health" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "ok" });
+    expect(res.json()).toEqual({ status: "ok", agentBinaryFound: false, agentCommand: null });
+  });
+
+  it("reports whether the agent binary is found on PATH", async () => {
+    const bin = fakeAgentBinary("fakeagent");
+    vi.stubEnv("PATH", `${join(bin, "..")}:/nonexistent`);
+    vi.stubEnv("AGENT_COMMAND", "fakeagent -p");
+    const app = await start();
+    expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({ status: "ok", agentBinaryFound: true, agentCommand: "fakeagent -p" });
+
+    vi.stubEnv("AGENT_COMMAND", "no-such-agent-xyz -p");
+    expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({
+      status: "ok",
+      agentBinaryFound: false,
+      agentCommand: "no-such-agent-xyz -p",
+    });
+  });
+});
+
+describe("logging", () => {
+  it("logs a startup record with what the server resolved", async () => {
+    const bin = fakeAgentBinary("fakeagent");
+    vi.stubEnv("PATH", join(bin, ".."));
+    vi.stubEnv("AGENT_COMMAND", "fakeagent -p");
+    vi.stubEnv("TZ", "Europe/Stockholm");
+    const { records, dataDir } = await startLogged();
+
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        msg: "startup",
+        agentCommand: "fakeagent -p",
+        agentBinaryFound: true,
+        tz: "Europe/Stockholm",
+        dataDir,
+        cronExpression: "0 18 * * 0",
+      }),
+    );
+    expect(records.filter((r) => r.level === "warn")).toEqual([]);
+  });
+
+  it("warns at startup when the agent binary is not on PATH", async () => {
+    vi.stubEnv("PATH", "/nonexistent");
+    vi.stubEnv("AGENT_COMMAND", "copilot -p");
+    const { records } = await startLogged();
+
+    expect(records).toContainEqual(expect.objectContaining({ level: "warn", agentBinary: "copilot", agentBinaryFound: false }));
+  });
+
+  it("logs every HTTP request with its request id as runId", async () => {
+    const { app, records } = await startLogged();
+
+    await app.inject({ method: "GET", url: "/health" });
+    await app.inject({ method: "GET", url: "/" });
+
+    const completed = records.filter((r) => r.msg === "request completed");
+    expect(completed).toEqual([
+      expect.objectContaining({ level: "info", url: "/health", statusCode: 200, runId: expect.any(String) }),
+      expect.objectContaining({ level: "info", url: "/", statusCode: 200, runId: expect.any(String) }),
+    ]);
+    expect(completed[0]!.runId).not.toBe(completed[1]!.runId);
+    const incoming = records.filter((r) => r.msg === "incoming request");
+    expect(incoming.map((r) => r.runId)).toEqual(completed.map((r) => r.runId));
   });
 });

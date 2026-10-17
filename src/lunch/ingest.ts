@@ -1,3 +1,4 @@
+import type { Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
 import { isMainCategory } from "../dishes/categories.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -15,6 +16,8 @@ export interface IngestDeps {
   now: () => Date;
   /** Defaults to the registry in src/plugins/schools; override in tests. */
   plugins?: SchoolPlugin[];
+  /** Run logger (bound to `runId`); defaults to `silentLogger`. */
+  log?: Logger;
 }
 
 export interface IngestOptions {
