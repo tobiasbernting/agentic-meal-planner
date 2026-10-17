@@ -1,7 +1,7 @@
 import type { FeaturePlugin } from "../app.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
 import {
   createSchool,
   deleteSchool,
@@ -12,8 +12,6 @@ import {
   type School,
   type SchoolInput,
 } from "./repo.js";
-
-NAV.push({ href: "/schools", label: "nav.schools" });
 
 interface SchoolForm {
   name?: string;
@@ -58,14 +56,14 @@ function schoolFields(lang: Lang, school?: SchoolInput): string {
   <label>${t(lang, "schools.menuUrl")} <input name="url" type="url" required value="${escapeHtml(school?.url ?? "")}" /></label>`;
 }
 
-function notice(error?: string): string {
-  return error ? `<p role="alert">${escapeHtml(error)}</p>` : "";
+function errorNotice(error?: string): string {
+  return error ? notice({ text: error }) : "";
 }
 
 function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], error?: string): string {
   const bySchool = new Map(outcomes.map((o) => [o.schoolId, o]));
   const body = `<h1>${t(lang, "schools.title")}</h1>
-${notice(error)}
+${errorNotice(error)}
 <ul>
 ${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id))).join("\n")}
 </ul>
@@ -74,18 +72,18 @@ ${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id))).join("\n")}
   ${schoolFields(lang)}
   <button type="submit">${t(lang, "common.add")}</button>
 </form>`;
-  return page({ title: t(lang, "schools.title"), body, lang });
+  return page({ title: t(lang, "schools.title"), body, lang, tab: "more" });
 }
 
 function editPage(lang: Lang, school: School, error?: string): string {
   const body = `<h1>${t(lang, "schools.editHeading")}</h1>
-${notice(error)}
+${errorNotice(error)}
 <form method="post" action="/schools/${school.id}">
   ${schoolFields(lang, school)}
   <button type="submit">${t(lang, "common.save")}</button>
 </form>
 <p><a href="/schools">${t(lang, "schools.back")}</a></p>`;
-  return page({ title: t(lang, "schools.editTitle"), body, lang });
+  return page({ title: t(lang, "schools.editTitle"), body, lang, tab: "more" });
 }
 
 export const schoolRoutes: FeaturePlugin = async (app, { db }) => {

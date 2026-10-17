@@ -1,8 +1,10 @@
 /**
- * Shared server-rendered page shell. Every screen renders through `page()` so the nav,
- * viewport meta and HTMX script are in one place. Keep this file free of feature logic.
+ * Shared server-rendered page shell (spec #71). Every screen renders through `page()`, which
+ * owns the document head, the stylesheet, vendored HTMX and the bottom tab bar. Visual tokens
+ * and component classes live in public/app.css (see `ASSET_PATHS`). Keep feature logic out.
  */
 import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
+import { ASSET_PATHS } from "./assets.js";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -13,50 +15,70 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-export interface NavItem {
-  href: string;
-  /** Message key of the nav label (translated per request in `page()`). */
-  label: MessageKey;
-}
+/** The four tabs. Library and admin pages (Dishes, Schools, Pantry, Settings, Logs) use "more". */
+export type Tab = "today" | "plan" | "shopping" | "more";
 
-/** Navigation order. Features append their entry here (Today first, per FR-17a). */
-export const NAV: NavItem[] = [{ href: "/", label: "nav.today" }];
+/** Fixed tab order (Idag, Plan, Inköp, Mer); not driven by feature registration order. */
+const TABS: { tab: Tab; href: string; label: MessageKey }[] = [
+  { tab: "today", href: "/", label: "nav.today" },
+  { tab: "plan", href: "/plan", label: "nav.plan" },
+  { tab: "shopping", href: "/shopping", label: "nav.shopping" },
+  { tab: "more", href: "/more", label: "nav.more" },
+];
 
 export interface PageOptions {
   title: string;
   body: string;
+  /** The tab marked active in the tab bar. */
+  tab: Tab;
   lang?: Lang;
 }
 
-/** Language switch button; posts to /lang, which returns to the page via the Referer. */
-function langButton(value: Lang, label: string, current: Lang): string {
-  return `<button type="submit" name="lang" value="${value}"${value === current ? ' aria-current="true" disabled' : ""}>${label}</button>`;
+function tabBar(lang: Lang, active: Tab): string {
+  const links = TABS.map(
+    (item) => `<a href="${item.href}"${item.tab === active ? ' aria-current="page"' : ""}>${escapeHtml(t(lang, item.label))}</a>`,
+  ).join("");
+  return `<nav class="tabbar" aria-label="${escapeHtml(t(lang, "nav.label"))}">${links}</nav>`;
 }
 
-export function page({ title, body, lang = DEFAULT_LANG }: PageOptions): string {
-  const nav = NAV.map((n) => `<a href="${escapeHtml(n.href)}">${escapeHtml(t(lang, n.label))}</a>`).join(" ");
+export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): string {
   return `<!doctype html>
 <html lang="${escapeHtml(lang)}">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>${escapeHtml(title)} - ${escapeHtml(t(lang, "app.name"))}</title>
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 0 auto; padding: 1rem; }
-      .lang-switch { margin: 0.25rem 0; }
-      nav a { margin-right: 0.75rem; }
-      label { display: block; margin-top: 0.5rem; }
-      input, select, textarea, button { font-size: 1rem; max-width: 100%; }
-    </style>
+    <link rel="preload" href="${ASSET_PATHS.fontRegular}" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="${ASSET_PATHS.stylesheet}" />
+    <script src="${ASSET_PATHS.htmx}" defer></script>
   </head>
   <body>
-    <nav>${nav}</nav>
-    <form method="post" action="/lang" class="lang-switch">${langButton("sv", "Svenska", lang)} | ${langButton("en", "English", lang)}</form>
-    <main>
+    <main class="page">
 ${body}
     </main>
+    ${tabBar(lang, tab)}
   </body>
 </html>
 `;
+}
+
+export interface NoticeOptions {
+  /** Short label set in bold before the text ("Misslyckades"). Optional. */
+  label?: string;
+  /** Plain text, HTML-escaped here. */
+  text: string;
+  /** `alert` for failures that need attention now; `status` for warnings and in-flight state. */
+  role?: "alert" | "status";
+  /** Extra HTML appended inside the block (a retry button, a link). Not escaped. */
+  actionsHtml?: string;
+}
+
+/**
+ * The inverted-ink notice block for failures and warnings (failed sink or Plan Run, no lunch
+ * data, degraded reasons). Red is reserved for red days; never use it for errors.
+ */
+export function notice({ label, text, role = "alert", actionsHtml = "" }: NoticeOptions): string {
+  const head = label ? `<strong class="notice-label">${escapeHtml(label)}</strong> ` : "";
+  return `<div class="notice" role="${role}">${head}<span class="notice-text">${escapeHtml(text)}</span>${actionsHtml}</div>`;
 }

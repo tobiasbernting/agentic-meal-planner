@@ -17,6 +17,8 @@ ENV NODE_ENV=production \
 ENV TZ=UTC
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+# Stylesheet, vendored HTMX and bundled fonts (served by the app; no CDN, NFR-2)
+COPY public ./public
 COPY package.json ./
 RUN mkdir -p /data && chown node:node /data
 VOLUME ["/data"]

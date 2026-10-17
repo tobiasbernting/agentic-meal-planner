@@ -29,9 +29,7 @@ import {
 } from "../planner/settings.js";
 import { mondayOf } from "../week.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
-
-NAV.push({ href: "/settings", label: "nav.settings" });
+import { escapeHtml, notice, page } from "../ui/layout.js";
 
 interface SettingsView {
   planner: PlannerSettings;
@@ -48,14 +46,27 @@ function quickDayFields(lang: Lang, template: PlannerSettings["quickDayTemplate"
   }).join("\n  ");
 }
 
-function notice(error?: string): string {
-  return error ? `<p role="alert">${escapeHtml(error)}</p>` : "";
+function errorNotice(error?: string): string {
+  return error ? notice({ text: error }) : "";
+}
+
+/** Språk: the language switch (moved here from the page header). Posts to /lang and returns. */
+function languageSection(lang: Lang): string {
+  const button = (value: Lang, label: string) =>
+    `<button type="submit" name="lang" value="${value}"${value === lang ? ' class="primary" aria-pressed="true"' : ' aria-pressed="false"'}>${label}</button>`;
+  return `<section id="language">
+  <h2>${t(lang, "settings.language")}</h2>
+  <form method="post" action="/lang" class="actions">
+    <input type="hidden" name="next" value="/settings" />
+    ${button("sv", "Svenska")} ${button("en", "English")}
+  </form>
+</section>`;
 }
 
 function settingsPage(lang: Lang, view: SettingsView, error?: string): string {
   const { planner } = view;
   const body = `<h1>${t(lang, "settings.title")}</h1>
-${notice(error)}
+${errorNotice(error)}
 <form method="post" action="/settings">
   <fieldset>
     <legend>${t(lang, "settings.quickDayTemplate")}</legend>
@@ -72,8 +83,9 @@ ${notice(error)}
   <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">${t(lang, "common.save")}</button>
 </form>
+${languageSection(lang)}
 <p><a href="/logs">${t(lang, "logs.title")}</a></p>`;
-  return page({ title: t(lang, "settings.title"), body, lang });
+  return page({ title: t(lang, "settings.title"), body, lang, tab: "more" });
 }
 
 type SettingsForm = Partial<Record<string, string>>;
@@ -156,7 +168,7 @@ function quickDaysPage(lang: Lang, settings: PlannerSettings, weekStart: string,
   }
   const hasOverride = weekStart in settings.quickDayOverrides;
   const body = `<h1>${escapeHtml(t(lang, "settings.quickDays.heading", { week: weekStart }))}</h1>
-${notice(error)}
+${errorNotice(error)}
 <p>${t(lang, hasOverride ? "settings.quickDays.hasOverride" : "settings.quickDays.followsTemplate")} ${t(lang, "settings.quickDays.help")}</p>
 <form method="post" action="/settings/quick-days">
   <input type="hidden" name="week" value="${escapeHtml(weekStart)}" />
@@ -168,7 +180,7 @@ ${notice(error)}
   <button type="submit"${hasOverride ? "" : " disabled"}>${t(lang, "settings.quickDays.clear")}</button>
 </form>
 <p><a href="/settings">${t(lang, "settings.back")}</a></p>`;
-  return page({ title: t(lang, "settings.quickDays.title"), body, lang });
+  return page({ title: t(lang, "settings.quickDays.title"), body, lang, tab: "more" });
 }
 
 function isMondayIso(value: string | undefined): value is string {

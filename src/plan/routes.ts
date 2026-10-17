@@ -24,9 +24,7 @@ import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
-
-NAV.push({ href: "/plan", label: "nav.plan" });
+import { escapeHtml, page } from "../ui/layout.js";
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -212,7 +210,7 @@ ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
 ${planRunBanner(ctx, lang, weekStart)}
 ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(lang, weekStart, runInFlight)}`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: t(lang, "plan.title"), body, lang });
+    return page({ title: t(lang, "plan.title"), body, lang, tab: "plan" });
   });
 
   /**
@@ -256,7 +254,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
       const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
-      return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang });
+      return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang, tab: "plan" });
     }
     return startRun(req, reply, weekStart, "regenerate");
   });

@@ -23,12 +23,12 @@ afterEach(async () => {
 });
 
 describe("Settings page", () => {
-  it("links to Settings last in the nav", async () => {
+  it("is listed on More, before Logs", async () => {
     const app = await start();
 
-    const res = await app.inject({ method: "GET", url: "/" });
+    const res = await app.inject({ method: "GET", url: "/more" });
 
-    expect(res.body).toMatch(/<a href="\/settings">Settings<\/a><\/nav>/);
+    expect(res.body).toMatch(/<a class="row-link" href="\/settings"><span class="row-label">Settings<\/span>[\s\S]*href="\/logs"/);
   });
 
   it("shows the documented defaults in the form", async () => {

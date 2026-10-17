@@ -22,12 +22,12 @@ async function createSchool(app: Awaited<ReturnType<typeof buildApp>>, name: str
 }
 
 describe("Schools pages", () => {
-  it("links to Schools from the nav", async () => {
+  it("is listed on More", async () => {
     const app = await start();
 
-    const res = await app.inject({ method: "GET", url: "/" });
+    const res = await app.inject({ method: "GET", url: "/more" });
 
-    expect(res.body).toContain('<a href="/schools">Schools</a>');
+    expect(res.body).toContain('<a class="row-link" href="/schools"><span class="row-label">Schools</span>');
   });
 
   it("creates a School from the form and lists it", async () => {

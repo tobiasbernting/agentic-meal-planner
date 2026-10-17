@@ -32,13 +32,12 @@ function form(fields: Record<string, string | string[]>): string {
 const urlencoded = { "content-type": "application/x-www-form-urlencoded" };
 
 describe("GET /dishes/new", () => {
-  it("offers the Main Category from the fixed list of 11 and shows Dishes in the nav", async () => {
+  it("offers the Main Category from the fixed list of 11", async () => {
     const app = await start();
 
     const res = await app.inject({ method: "GET", url: "/dishes/new" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('<a href="/dishes">Dishes</a>');
     const options = [...res.body.matchAll(/<option value="([a-z]*)"/g)].map((m) => m[1]);
     expect(options).toEqual(["", ...MAIN_CATEGORY_KEYS]);
   });

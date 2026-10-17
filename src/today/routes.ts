@@ -64,7 +64,7 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
   ${renderDinner(ctx, lang, today)}
 </section>`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: t(lang, "today.title"), body, lang });
+    return page({ title: t(lang, "today.title"), body, lang, tab: "today" });
   });
 
   // Manual lunch refresh (FR-4): ingest the current week for every active School, then back to Today.

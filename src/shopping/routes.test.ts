@@ -72,7 +72,7 @@ describe("GET /shopping", () => {
     expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*<li>2 dl mjölk<\/li>/);
     expect(res.body.match(/mjölk/g)).toHaveLength(1);
     expect(res.body).toMatch(/<form method="post" action="\/shopping\/build">[\s\S]*name="weekStart" value="2026-10-19"/);
-    expect(res.body).toContain('<a href="/shopping">Shopping</a>');
+    expect(res.body).toContain('<a href="/shopping" aria-current="page">Shopping</a>');
   });
 
   it("is built automatically when a plan is generated", async () => {

@@ -66,15 +66,23 @@ describe("POST /lang (FR-18)", () => {
   });
 });
 
-describe("language switch in the page shell", () => {
-  it("offers Svenska and English posting to /lang", async () => {
+describe("language switch on Settings → Språk", () => {
+  it("offers Svenska and English posting to /lang, returning to Settings", async () => {
     const app = await makeApp();
-    const body = (await app.inject({ method: "GET", url: "/dishes" })).body;
-    expect(body).toContain('action="/lang"');
-    expect(body).toContain('value="sv"');
-    expect(body).toContain('value="en"');
-    expect(body).toContain("Svenska");
-    expect(body).toContain("English");
+    const body = (await app.inject({ method: "GET", url: "/settings" })).body;
+    const section = /<section id="language">([\s\S]*?)<\/section>/.exec(body)?.[1] ?? "";
+    expect(section).toContain("<h2>Språk</h2>");
+    expect(section).toContain('action="/lang"');
+    expect(section).toContain('name="next" value="/settings"');
+    expect(section).toMatch(/<button[^>]*value="sv"[^>]*>Svenska<\/button>/);
+    expect(section).toMatch(/<button[^>]*value="en"[^>]*>English<\/button>/);
+  });
+
+  it("is not in the header of other pages", async () => {
+    const app = await makeApp();
+    for (const url of ["/", "/plan", "/shopping", "/dishes", "/more"]) {
+      expect((await app.inject({ method: "GET", url })).body, url).not.toContain('action="/lang"');
+    }
   });
 });
 

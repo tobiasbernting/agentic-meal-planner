@@ -1,5 +1,5 @@
 import type { FeaturePlugin } from "../app.js";
-import { NAV, escapeHtml, page } from "../ui/layout.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { MAIN_CATEGORY_KEYS, categoryLabel, isMainCategory, type MainCategory } from "./categories.js";
 import {
@@ -16,8 +16,6 @@ import {
   type Ingredient,
 } from "./repo.js";
 import { promoteForm } from "./suggested-badge.js";
-
-NAV.push({ href: "/dishes", label: "nav.dishes" });
 
 /** Raw urlencoded body of the dish form. Checkbox groups arrive as string | string[] | undefined. */
 interface DishFormBody {
@@ -142,7 +140,7 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
   const dayBoxes = WEEKDAYS.map((d) =>
     checkbox("preferred_days", d, weekdayName(lang, d, "short"), dish.preferredDays.includes(d)),
   ).join("\n        ");
-  return `${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ""}
+  return `${error ? notice({ text: error }) : ""}
     <form method="post" action="${escapeHtml(action)}">
       ${editing ? '<input type="hidden" name="main_category_touched" value="1" />' : ""}
       <label>${t(lang, "common.name")} <input name="name" required value="${escapeHtml(dish.name)}" /></label>
@@ -215,13 +213,13 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     const body = `<h1>${t(lang, "dishes.title")}</h1>
     <p><a href="/dishes/new">${t(lang, "dishes.add")}</a></p>
     ${dishes.length ? `<ul>${dishes.map((d) => dishListItem(lang, d)).join("\n")}</ul>` : `<p>${t(lang, "dishes.none")}</p>`}`;
-    return page({ title: t(lang, "dishes.title"), body, lang });
+    return page({ title: t(lang, "dishes.title"), body, lang, tab: "more" });
   });
 
   app.get("/dishes/new", async (req, reply) => {
     const lang = langOf(req);
     html(reply);
-    return page({ title: t(lang, "dishes.new"), body: `<h1>${t(lang, "dishes.new")}</h1>${dishForm(lang, "/dishes", NEW_DISH)}`, lang });
+    return page({ title: t(lang, "dishes.new"), body: `<h1>${t(lang, "dishes.new")}</h1>${dishForm(lang, "/dishes", NEW_DISH)}`, lang, tab: "more" });
   });
 
   app.post<{ Body: DishFormBody }>("/dishes", async (req, reply) => {
@@ -231,7 +229,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
       html(reply);
       return reply
         .code(400)
-        .send(page({ title: t(lang, "dishes.new"), body: `<h1>${t(lang, "dishes.new")}</h1>${dishForm(lang, "/dishes", NEW_DISH, parsed.error)}`, lang }));
+        .send(page({ title: t(lang, "dishes.new"), body: `<h1>${t(lang, "dishes.new")}</h1>${dishForm(lang, "/dishes", NEW_DISH, parsed.error)}`, lang, tab: "more" }));
     }
     createDish(db, await withProposedCategory(parsed));
     return reply.redirect("/dishes", 303);
@@ -242,7 +240,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     const dish = getDish(db, Number(req.params.id));
     if (!dish) return reply.code(404).send(t(lang, "dishes.notFound"));
     html(reply);
-    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish, undefined, true)}`, lang });
+    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish, undefined, true)}`, lang, tab: "more" });
   });
 
   app.post<{ Params: { id: string }; Body: DishFormBody }>("/dishes/:id", async (req, reply) => {
@@ -255,7 +253,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
       html(reply);
       return reply
         .code(400)
-        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error, true)}`, lang }));
+        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error, true)}`, lang, tab: "more" }));
     }
     if (!updateDish(db, id, await withProposedCategory(parsed))) return reply.code(404).send(t(lang, "dishes.notFound"));
     return reply.redirect("/dishes", 303);

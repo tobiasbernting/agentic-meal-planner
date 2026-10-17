@@ -10,14 +10,12 @@ import { addDays, mondayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
+import { escapeHtml, page } from "../ui/layout.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
 import { planRunBanner } from "../plan-run/routes.js";
-
-NAV.push({ href: "/shopping", label: "nav.shopping" });
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -95,7 +93,7 @@ ${renderPushes(lang, ctx, plan.id, weekStart)}`;
 ${planRunBanner(ctx, lang, weekStart)}
 ${content}`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: t(lang, "shopping.title"), body, lang });
+    return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
   app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {

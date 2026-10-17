@@ -22,12 +22,12 @@ async function createItem(app: Awaited<ReturnType<typeof buildApp>>, name: strin
 }
 
 describe("Pantry pages", () => {
-  it("links to Pantry from the nav, after Schools", async () => {
+  it("is listed on More, after Schools", async () => {
     const app = await start();
 
-    const res = await app.inject({ method: "GET", url: "/" });
+    const res = await app.inject({ method: "GET", url: "/more" });
 
-    expect(res.body).toContain('<a href="/schools">Schools</a> <a href="/pantry">Pantry</a>');
+    expect(res.body).toMatch(/<a class="row-link" href="\/schools">[\s\S]*<a class="row-link" href="\/pantry"><span class="row-label">Pantry<\/span>/);
   });
 
   it("creates a Pantry Item with comma-separated aliases and lists it", async () => {
