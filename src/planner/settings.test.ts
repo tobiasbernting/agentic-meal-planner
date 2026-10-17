@@ -8,6 +8,8 @@ import {
   SETTING_DEFAULT_PREP_LIMIT_MINUTES,
   SETTING_QUICK_DAY_OVERRIDES,
   SETTING_QUICK_DAY_TEMPLATE,
+  SETTING_SUGGESTION_STYLE,
+  DEFAULT_SUGGESTION_STYLE,
   SETTING_VARIETY_WINDOW_WEEKS,
   quickDayLimitFor,
   readPlannerSettings,
@@ -27,7 +29,16 @@ describe("readPlannerSettings", () => {
       quickDayTemplate: { tue: 30 },
       quickDayOverrides: {},
       defaultPrepLimitMinutes: 30,
+      suggestionStyle: DEFAULT_SUGGESTION_STYLE,
     });
+  });
+
+  it("reads the saved suggestion style, and treats blank as the default", () => {
+    const db = freshDb();
+    writeSetting(db, SETTING_SUGGESTION_STYLE, "vegetarian Indian");
+    expect(readPlannerSettings(db).suggestionStyle).toBe("vegetarian Indian");
+    writeSetting(db, SETTING_SUGGESTION_STYLE, "   ");
+    expect(readPlannerSettings(db).suggestionStyle).toBe(DEFAULT_SUGGESTION_STYLE);
   });
 
   it("reads stored values", () => {
