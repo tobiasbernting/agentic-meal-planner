@@ -87,7 +87,7 @@ describe("dish repository", () => {
       inRotation: false,
       preferredDays: [],
       weekendOnly: false,
-      suggested: false,
+      suggested: true, // not given on update, so kept
       ingredients: [{ name: "cod", quantity: 400, unit: "g" }],
     });
   });
