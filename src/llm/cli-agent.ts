@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import type { MainCategory } from "../dishes/categories.js";
+import { isMainCategory, type MainCategory } from "../dishes/categories.js";
 import { silentLogger, type Logger } from "../logging/logger.js";
 import type {
+  DishSuggestion,
   ExtractIngredientsOptions,
   FoundRecipe,
   Ingredient,
@@ -144,7 +145,11 @@ export class CliAgent implements LlmAgent {
     const prompt =
       `Pick one dinner dish per day for a household, from each day's candidates only. ` +
       `Prefer variety (avoid dishes in recentlyPlanned when alternatives exist, but repeats are allowed with a rationale). ` +
-      `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string}, one per day, in order.` +
+      `A day with an empty candidate list gets exactly one suggestion instead: a new dish in the household's suggestionStyle. ` +
+      `seedDishes is inspiration only; you may go beyond it. The suggestion's mainCategory must be one of: ${MAIN_CATEGORY_KEYS.join(", ")} (use "other" when unsure); prepTimeMinutes is an optional positive integer. ` +
+      `Never suggest a dish for a day that has candidates. ` +
+      `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string} for a pick, ` +
+      `or {"date": "YYYY-MM-DD", "suggestion": {"name": string, "mainCategory": string, "prepTimeMinutes"?: number}, "rationale": string} for a suggestion, one per day, in order.` +
       `\n\n${JSON.stringify(input, null, 2)}`;
     return this.ask("selectDishes", prompt, (json) => validateSelection(json, input));
   }
@@ -319,7 +324,10 @@ export const validateFoundRecipe: Validator<FoundRecipe> = (v) => {
   return { url: v.url, ingredients };
 };
 
-/** A selection is valid only when every chosen dish was a candidate for that date. */
+/**
+ * A selection is valid only when every pick was a candidate for that date, and every
+ * suggestion is well-formed and sits on a date with no candidates.
+ */
 export function validateSelection(v: unknown, input: SelectDishesInput): SelectedDish[] | undefined {
   const allowed = new Map(
     input.days.map((d, i) => [d.date, new Set((input.candidates[i] ?? []).map((c) => String(c.id)))]),
@@ -327,11 +335,26 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
   return validateArray(v, (item) => {
     if (!isRecord(item)) return undefined;
     const { date, rationale } = item;
+    if (typeof date !== "string" || typeof rationale !== "string") return undefined;
+    if (item.suggestion !== undefined) {
+      if (allowed.get(date)?.size !== 0) return undefined;
+      const suggestion = validateSuggestion(item.suggestion);
+      return suggestion && { date, suggestion, rationale };
+    }
     const dishId = typeof item.dishId === "number" ? String(item.dishId) : item.dishId;
-    if (typeof date !== "string" || typeof dishId !== "string" || typeof rationale !== "string") return undefined;
+    if (typeof dishId !== "string") return undefined;
     if (!allowed.get(date)?.has(dishId)) return undefined;
     return { date, dishId, rationale };
   });
+}
+
+function validateSuggestion(v: unknown): DishSuggestion | undefined {
+  if (!isRecord(v) || typeof v.name !== "string" || v.name.trim().length === 0) return undefined;
+  if (!isMainCategory(v.mainCategory)) return undefined;
+  const prep = v.prepTimeMinutes;
+  if (prep === undefined || prep === null) return { name: v.name, mainCategory: v.mainCategory };
+  if (typeof prep !== "number" || !Number.isInteger(prep) || prep <= 0) return undefined;
+  return { name: v.name, mainCategory: v.mainCategory, prepTimeMinutes: prep };
 }
 
 /** A pantry match is valid only when every non-null `pantryId` is an id from the input pantry. */
