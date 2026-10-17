@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/fake.js";
-import { createSchool as insertSchool } from "./repo.js";
+import { createSchool as insertSchool, setSchoolActive } from "./repo.js";
 import { getIngestOutcome, recordIngestOutcome } from "../lunch/outcome.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -174,6 +174,32 @@ describe("Schools pages", () => {
     expect(pages).toEqual(["https://north.example/menu"]);
     expect(getIngestOutcome(app.ctx.db, north.id)).toMatchObject({ status: "fetched", recordedAt: NOW.toISOString() });
     expect(getIngestOutcome(app.ctx.db, 2)).toBeNull();
+  });
+
+  it("offers no retry on a paused School, and refuses one with a notice instead of silently doing nothing", async () => {
+    const pages: string[] = [];
+    const app = await start({
+      fetchPage: async (url) => {
+        pages.push(url);
+        return "<html/>";
+      },
+    });
+    const north = insertSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    recordIngestOutcome(app.ctx.db, { schoolId: north.id, weekStart: "2026-10-12", status: "no-data", reason: "boom", recordedAt: NOW.toISOString() });
+    setSchoolActive(app.ctx.db, north.id, false);
+
+    const list = await app.inject({ method: "GET", url: "/schools" });
+    const res = await app.inject({ method: "POST", url: `/schools/${north.id}/retry` });
+    const after = await app.inject({ method: "GET", url: res.headers.location as string });
+    const sv = await app.inject({ method: "GET", url: res.headers.location as string, headers: { cookie: "lang=sv" } });
+
+    expect(list.body).toContain("Could not fetch the menu");
+    expect(list.body).not.toContain(`/schools/${north.id}/retry`);
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("/schools?notice=paused");
+    expect(pages).toEqual([]);
+    expect(after.body).toContain("Resume the School to fetch its menu.");
+    expect(sv.body).toContain("Återuppta skolan för att hämta dess meny.");
   });
 
   it("retry on an unknown School is 404", async () => {

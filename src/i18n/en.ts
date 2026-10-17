@@ -169,6 +169,7 @@ export const en = {
   "schools.outcome.no-data": "No menu data",
   "schools.outcome.failed": "Could not fetch the menu",
   "schools.retry": "Try again",
+  "schools.notice.paused": "Resume the School to fetch its menu.",
   "schools.outcome.when": "fetched {when}",
   "schools.outcome.none": "No ingest attempt yet",
 

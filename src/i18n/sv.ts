@@ -171,6 +171,7 @@ export const sv: Dictionary = {
   "schools.outcome.no-data": "Ingen menydata",
   "schools.outcome.failed": "Kunde inte hämta menyn",
   "schools.retry": "Försök igen",
+  "schools.notice.paused": "Återuppta skolan för att hämta dess meny.",
   "schools.outcome.when": "hämtad {when}",
   "schools.outcome.none": "Inget hämtningsförsök än",
 

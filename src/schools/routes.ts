@@ -48,11 +48,15 @@ function hostOf(url: string): string {
   }
 }
 
-/** The Ingest Outcome in household terms: "hämtad lör 10:20", or a plain failure line with a retry. */
+/**
+ * The Ingest Outcome in household terms: "hämtad lör 10:20", or a plain failure line with a
+ * retry. A paused School gets no retry: ingest skips it until it is resumed.
+ */
 function outcomeLine(lang: Lang, school: School, outcome: IngestOutcome | undefined, timeZone: string | undefined): string {
   if (!outcome) return `<p class="row-status">${t(lang, "schools.outcome.none")}</p>`;
   if (outcome.status === "no-data") {
-    return `<p class="row-status">${t(lang, "schools.outcome.failed")}</p>${action(school, "retry", t(lang, "schools.retry"), "")}`;
+    const retry = school.active ? action(school, "retry", t(lang, "schools.retry"), "") : "";
+    return `<p class="row-status">${t(lang, "schools.outcome.failed")}</p>${retry}`;
   }
   return `<p class="row-status">${t(lang, "schools.outcome.when", { when: shortWhen(lang, outcome.recordedAt, timeZone) })}</p>`;
 }
@@ -77,9 +81,16 @@ function errorNotice(error?: string): string {
   return error ? notice({ text: error }) : "";
 }
 
-function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], timeZone: string | undefined, error?: string): string {
+const NOTICES = { paused: "schools.notice.paused" } as const;
+
+function queryNotice(lang: Lang, key: string | undefined): string {
+  return key !== undefined && Object.hasOwn(NOTICES, key) ? notice({ text: t(lang, NOTICES[key as keyof typeof NOTICES]), role: "status" }) : "";
+}
+
+function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], timeZone: string | undefined, error?: string, noticeKey?: string): string {
   const bySchool = new Map(outcomes.map((o) => [o.schoolId, o]));
   const body = `<header class="page-head"><h1>${t(lang, "schools.title")}</h1></header>
+${queryNotice(lang, noticeKey)}
 ${errorNotice(error)}
 <ul class="rows">
 ${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id), timeZone)).join("\n")}
@@ -107,9 +118,9 @@ export const schoolRoutes: FeaturePlugin = async (app, ctx) => {
   const { db } = ctx;
   const html = (reply: { type(t: string): unknown }) => reply.type("text/html; charset=utf-8");
 
-  app.get("/schools", async (req, reply) => {
+  app.get<{ Querystring: { notice?: string } }>("/schools", async (req, reply) => {
     html(reply);
-    return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), readTimezone(db));
+    return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), readTimezone(db), undefined, req.query.notice);
   });
 
   app.post<{ Body: SchoolForm }>("/schools", async (req, reply) => {
@@ -142,10 +153,12 @@ export const schoolRoutes: FeaturePlugin = async (app, ctx) => {
   });
 
   // Retry (FR-4): re-ingest this School for the current week, then back to the list. A failed
-  // scrape is recorded as no-data by ingestWeek, so this never fails the request.
+  // scrape is recorded as no-data by ingestWeek, so this never fails the request. Ingest skips
+  // a paused School, so its retry is refused with a notice rather than doing nothing.
   app.post<{ Params: SchoolParams }>("/schools/:id/retry", async (req, reply) => {
     const school = getSchool(db, Number(req.params.id));
     if (!school) return reply.code(404).send(t(langOf(req), "schools.notFound"));
+    if (!school.active) return reply.redirect("/schools?notice=paused", 303);
     const weekStart = mondayOf(householdToday(db, ctx.now()));
     const log = runLogger(ctx.log, req, "lunch");
     log.info({ weekStart, schoolId: school.id, trigger: "retry" }, "run started");
