@@ -26,6 +26,7 @@ import { createPlanRunRegistry, type PlanRunRegistry } from "./plan-run/registry
 import { planRunRoutes } from "./plan-run/routes.js";
 import { moreRoutes } from "./more/routes.js";
 import { assetRoutes } from "./ui/assets.js";
+import { offlineRoutes } from "./offline/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -93,6 +94,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** The ports this app was built with; also passed to every FeaturePlugin as options. */
     ctx: AppContext;
+    /** Every POST route pattern registered, in order; the offline allowlist test checks it. */
+    postRoutes: string[];
   }
 }
 
@@ -103,7 +106,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, swapRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes, moreRoutes, assetRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, swapRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes, moreRoutes, assetRoutes, offlineRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);
@@ -192,6 +195,12 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
     ...(fetch ? { fetch } : {}),
   };
   app.decorate("ctx", ctx);
+  const postRoutes: string[] = [];
+  app.decorate("postRoutes", postRoutes);
+  app.addHook("onRoute", (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    if (methods.includes("POST")) postRoutes.push(route.url);
+  });
   for (const feature of FEATURES) await app.register(feature, ctx);
 
   // PATH lookup only; the agent is never called here.

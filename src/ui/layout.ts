@@ -41,6 +41,29 @@ function tabBar(lang: Lang, active: Tab): string {
   return `<nav class="tabbar" aria-label="${escapeHtml(t(lang, "nav.label"))}">${links}</nav>`;
 }
 
+/** Paper, the stylesheet's background token in light mode; the installed app's chrome colour. */
+export const THEME_COLOR = "#fbfaf6";
+
+export const MANIFEST_PATH = "/manifest.webmanifest";
+
+/** Installability (ADR-0007): manifest, home-screen icon, standalone on iOS, chrome colour. */
+function installLinks(): string {
+  return `<link rel="manifest" href="${MANIFEST_PATH}" />
+    <link rel="apple-touch-icon" href="${ASSET_PATHS.appleTouchIcon}" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="${THEME_COLOR}" />`;
+}
+
+/** Registers the offline service worker (served by src/offline/routes.ts) where the browser has one. */
+function workerRegistration(): string {
+  return `<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { type: "module" });</script>`;
+}
+
+/** The worker replaces this exact text with the Offline Copy banner; it must appear once per page. */
+function offlineBannerMarker(): string {
+  return `<div id="offline-banner"></div>`;
+}
+
 export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): string {
   return `<!doctype html>
 <html lang="${escapeHtml(lang)}">
@@ -53,9 +76,12 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
     <link rel="stylesheet" href="${ASSET_PATHS.stylesheet}" />
     <script src="${ASSET_PATHS.htmx}" defer></script>
     <script src="${ASSET_PATHS.pending}" defer></script>
+    ${installLinks()}
+    ${workerRegistration()}
   </head>
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
+${offlineBannerMarker()}
 ${body}
     </main>
     ${tabBar(lang, tab)}
