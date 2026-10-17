@@ -14,6 +14,9 @@ function isLogLevel(value: unknown): value is LogLevel {
   return typeof value === "string" && (LOG_LEVELS as readonly string[]).includes(value);
 }
 
+/** How often an idle live stream gets a `: ping` comment line. */
+const HEARTBEAT_MS = 15_000;
+
 /** One SSE event per record: `data: <JSON>` and a blank line. */
 export function sseEvent(record: BufferedRecord): string {
   return `data: ${JSON.stringify(record)}\n\n`;
@@ -181,14 +184,31 @@ export const logsRoutes: FeaturePlugin = async (app, ctx) => {
       res.end();
       return;
     }
-    const unsubscribe = buffer.subscribe((record) => res.write(sseEvent(record)));
+    // A client that stops reading gets records dropped until its socket drains, never queued.
+    let draining = false;
+    const send = (chunk: string) => {
+      if (draining) return;
+      if (!res.write(chunk)) {
+        draining = true;
+        res.once("drain", () => void (draining = false));
+      }
+    };
+    const unsubscribe = buffer.subscribe((record) => send(sseEvent(record)));
+    // Keeps proxies and the browser from timing out an idle stream.
+    const heartbeat = setInterval(() => send(": ping\n\n"), HEARTBEAT_MS);
+    let ended = false;
     const end = () => {
+      if (ended) return;
+      ended = true;
+      clearInterval(heartbeat);
       unsubscribe();
       open.delete(end);
       res.end();
     };
     open.add(end);
     req.raw.on("close", end);
+    res.on("close", end);
+    res.on("error", end);
   });
 
   /** Sets the live level (debug/info/warn/error), in memory only: a restart restores LOG_LEVEL. */

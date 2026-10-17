@@ -33,6 +33,11 @@ export class LogBuffer {
     return [...this.records];
   }
 
+  /** How many live subscribers there are (open Logs page streams). */
+  subscriberCount(): number {
+    return this.listeners.size;
+  }
+
   /** Calls `listener` with every record pushed from now on; returns the unsubscribe function. */
   subscribe(listener: (record: BufferedRecord) => void): () => void {
     this.listeners.add(listener);

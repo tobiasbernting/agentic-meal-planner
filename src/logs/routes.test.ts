@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { writeSetting } from "../db.js";
@@ -73,6 +73,39 @@ describe("GET /logs/stream", () => {
 
     expect(await pending).toMatchObject({ statusCode: 200 });
     stream.destroy();
+  });
+});
+
+describe("GET /logs/stream, live", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("unsubscribes from the buffer when the client disconnects", async () => {
+    const { app } = await start();
+    const disconnect = new AbortController();
+    const res = await app.inject({ method: "GET", url: "/logs/stream", payloadAsStream: true, signal: disconnect.signal });
+    res.stream().on("error", () => {});
+    expect(app.ctx.logs.buffer.subscriberCount()).toBe(1);
+
+    disconnect.abort();
+    await vi.waitFor(() => expect(app.ctx.logs.buffer.subscriberCount()).toBe(0));
+  });
+
+  it("sends a heartbeat comment every 15 s and clears its timer on app.close()", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const { app } = await start();
+    const res = await app.inject({ method: "GET", url: "/logs/stream", payloadAsStream: true });
+    const stream = res.stream();
+    let text = "";
+    stream.on("data", (chunk) => (text += String(chunk)));
+
+    vi.advanceTimersByTime(15_000);
+    await vi.waitFor(() => expect(text).toContain(": ping\n\n"));
+
+    await apps.pop()!.close();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(app.ctx.logs.buffer.subscriberCount()).toBe(0);
   });
 });
 
