@@ -297,7 +297,7 @@ describe("POST /plan/generate with Suggested Dishes", () => {
 
     const requests = llm.calls.filter((c) => c.method === "selectDishes").map((c) => c.args[0] as SelectDishesInput);
     expect(requests).toHaveLength(2);
-    expect(requests[1]!.recentlyPlanned).toEqual([{ dishId: String(kalops!.id), lastDate: "2026-10-25" }]);
+    expect(requests[1]!.recentlyPlanned).toEqual([{ dishId: String(kalops!.id), name: "Kalops", lastDate: "2026-10-25" }]);
   });
 });
 

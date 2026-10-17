@@ -60,7 +60,7 @@ describe("generatePlan", () => {
     expect(req.candidates[0]?.map((d) => d.name)).toEqual(["Stew"]); // Monday: fish collides with lunch
     expect(req.days[2]?.isQuickDay).toBe(true);
     expect(req.candidates[2]?.map((d) => d.name)).toEqual(["Fish"]); // Wednesday: Stew too slow
-    expect(req.recentlyPlanned).toEqual([{ dishId: String(stew), lastDate: "2026-10-05" }]);
+    expect(req.recentlyPlanned).toEqual([{ dishId: String(stew), name: "Stew", lastDate: "2026-10-05" }]);
     expect(getPlanForWeek(db, WEEK)?.dinners[0]?.lunchThatDay).toBe("Fiskpinnar");
     expect(fish).toBeGreaterThan(0);
   });

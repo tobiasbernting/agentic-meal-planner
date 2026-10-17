@@ -50,7 +50,7 @@ export interface SelectDishesInput {
   /** Per day, pre-filtered by the deterministic engine; same index as `days`. */
   candidates: Dish[][];
   /** Soft variety preference. */
-  recentlyPlanned: { dishId: string; lastDate: string }[];
+  recentlyPlanned: { dishId: string; name: string; lastDate: string }[];
   /** Free-text style for Suggested Dishes (settings `suggestion_style`). */
   suggestionStyle: string;
   /** Inspiration only: the built-in seed list. */

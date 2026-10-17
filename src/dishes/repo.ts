@@ -133,7 +133,7 @@ export function updateDish(db: Database.Database, id: number, input: DishInput):
       .prepare(
         `UPDATE dish SET name = ?, recipe_url = ?, adaptation_notes = ?, prep_time_minutes = ?,
                          main_category = ?, in_rotation = ?, preferred_days = ?, weekend_only = ?,
-                         suggested = COALESCE(?, suggested)
+                         suggested = CASE WHEN ? = 1 THEN 0 ELSE COALESCE(?, suggested) END
          WHERE id = ?`,
       )
       .run(
@@ -145,6 +145,8 @@ export function updateDish(db: Database.Database, id: number, input: DishInput):
         dish.inRotation ? 1 : 0,
         JSON.stringify(dish.preferredDays),
         dish.weekendOnly ? 1 : 0,
+        // A Dish in rotation is never suggested.
+        dish.inRotation ? 1 : 0,
         input.suggested === undefined ? null : input.suggested ? 1 : 0,
         id,
       );
