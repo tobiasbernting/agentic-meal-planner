@@ -57,6 +57,8 @@ export interface SelectDishesInput {
   suggestionStyle: string;
   /** Inspiration only: the built-in seed list. */
   seedDishes: SeedDish[];
+  /** The household's UI language: rationales come back in it (spec #71). Default: Swedish. */
+  language?: "sv" | "en";
 }
 
 export type SelectedDish =

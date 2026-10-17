@@ -464,6 +464,16 @@ describe("CliAgent.selectDishes", () => {
     expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
   });
 
+  it.each([
+    ["sv", "Swedish"],
+    ["en", "English"],
+  ] as const)("asks for rationales in the UI language (%s)", async (language, name) => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    await new CliAgent("copilot -p", { run }).selectDishes({ ...input, language });
+
+    expect(calls[0]!.args.at(-1)).toContain(`Write each rationale as one short sentence in ${name}`);
+  });
+
   it("hands the suggestion style and seed list to the agent in the request JSON", async () => {
     const { run, calls } = scriptedRunner(["[]"]);
     await new CliAgent("copilot -p", { run }).selectDishes(input);

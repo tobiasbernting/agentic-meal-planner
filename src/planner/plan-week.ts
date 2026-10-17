@@ -18,13 +18,17 @@ import {
   type SelectedDish,
 } from "../llm/index.js";
 import type { LunchEntry } from "../types.js";
-import { createSeedPicker, resolveSuggestion } from "./suggestions.js";
+import { createSeedPicker, resolveSuggestion, type SuggestionOutcome } from "./suggestions.js";
 import { quickDayLimitFor, type PlannerSettings } from "./settings.js";
 import { weekDates, weekdayOf } from "../week.js";
+import { DEFAULT_LANG, t, type Lang } from "../i18n/index.js";
+import type { ExclusionRule } from "../engine/filter.js";
+import type { DegradedReasonDraft } from "./degraded.js";
 
-export const NO_ELIGIBLE_DISH_RATIONALE = "no eligible dish, pick one";
-/** Rationale for a date filled from the built-in seed list (no agent, or the agent's suggestion was dropped). */
-export const SEED_FALLBACK_RATIONALE = "no eligible Favorite Dish; picked from the seed list";
+/** The no-eligible-dish rationale in the default language; `planWeek` writes it in `input.language`. */
+export const NO_ELIGIBLE_DISH_RATIONALE = t(DEFAULT_LANG, "rationale.noEligible");
+/** The seed-list rationale in the default language; `planWeek` writes it in `input.language`. */
+export const SEED_FALLBACK_RATIONALE = t(DEFAULT_LANG, "rationale.seedFallback");
 
 export interface RecentlyPlanned {
   dishId: string;
@@ -43,6 +47,8 @@ export interface PlanWeekInput {
   /** Variety Preference input: Dishes planned within the variety window. */
   recentlyPlanned: RecentlyPlanned[];
   llm: LlmAgent;
+  /** The UI language rationales are written in (spec #71). Default: Swedish. */
+  language?: Lang;
 }
 
 export interface PlannedDinnerDraft {
@@ -61,7 +67,7 @@ export interface PlanWeekResult {
   weekStart: string;
   dinners: PlannedDinnerDraft[];
   /** What the planner could not do; empty for a fully agent-selected plan. */
-  degradedReasons: string[];
+  degradedReasons: DegradedReasonDraft[];
 }
 
 /** What the agent sees per candidate: the port's shape plus Preferred Days (soft preference, FR-7). */
@@ -95,12 +101,12 @@ function toDayInputs(input: PlanWeekInput): DayInput[] {
 async function select(
   llm: LlmAgent,
   request: SelectDishesInput,
-  degradedReasons: string[],
+  degradedReasons: DegradedReasonDraft[],
 ): Promise<{ picks: SelectedDish[]; fromNoAgent: boolean }> {
-  if (llm instanceof NoAgent) degradedReasons.push(NO_AGENT_REASON);
+  if (llm instanceof NoAgent) degradedReasons.push({ code: "no-agent", date: null, detail: NO_AGENT_REASON });
   const result = await llm.selectDishes(request);
   if (result.ok) return { picks: result.value, fromNoAgent: llm instanceof NoAgent };
-  degradedReasons.push(result.reason);
+  degradedReasons.push({ code: "agent-failed", date: null, detail: result.reason });
   const fallback = await new NoAgent().selectDishes(request);
   return { picks: fallback.ok ? fallback.value : [], fromNoAgent: true };
 }
@@ -116,9 +122,15 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     recentlyPlanned: input.recentlyPlanned,
     suggestionStyle: input.settings.suggestionStyle,
     seedDishes: SEED_DISHES,
+    language: input.language ?? DEFAULT_LANG,
   };
-  const degradedReasons: string[] = [];
+  const lang = input.language ?? DEFAULT_LANG;
+  const noEligibleRationale = t(lang, "rationale.noEligible");
+  const seedRationale = t(lang, "rationale.seedFallback");
+  const degradedReasons: DegradedReasonDraft[] = [];
   const { picks, fromNoAgent } = await select(input.llm, request, degradedReasons);
+  // NoAgent's rationale is a technical marker; write the household's words instead.
+  const rationaleOf = (pick: SelectedDish) => (fromNoAgent ? t(lang, "rationale.noAgent") : pick.rationale);
   const pickByDate = new Map(picks.map((p) => [p.date, p]));
   const filterOptions = { categoryCollisionEnabled: input.settings.categoryCollisionEnabled };
   const pickSeed = createSeedPicker(
@@ -136,41 +148,58 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
       lunchThatDay: day.lunch.length > 0 ? day.lunch.map((l) => l.rawText).join("; ") : null,
     };
     const pick = pickByDate.get(day.date);
+    let dropped = false;
 
     if (eligible.length === 0) {
       if (pick !== undefined && !fromNoAgent) {
-        const outcome =
+        const outcome: SuggestionOutcome =
           "suggestion" in pick
             ? resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions)
             : ({ kind: "dropped", why: `agent picked dish ${pick.dishId} instead of suggesting one` } as const);
         if (outcome.kind === "reuse") return { ...base, dishId: outcome.dishId, suggestion: null, rationale: pick.rationale };
         if (outcome.kind === "new") return { ...base, dishId: null, suggestion: outcome.suggestion, rationale: pick.rationale };
         const name = "suggestion" in pick ? String((pick.suggestion as { name?: unknown } | null)?.name ?? "") : "";
-        degradedReasons.push(`${day.date}: suggestion "${name}" dropped: ${outcome.why}`);
+        const detail = `${day.date}: suggestion "${name}" dropped: ${outcome.why}`;
+        const { code, params } = droppedCode("suggestion" in pick, outcome.rule);
+        degradedReasons.push({ code, date: day.date, params: { name, ...params }, detail });
+        dropped = true;
       }
       const seed = pickSeed(day);
-      if (seed === undefined) return { ...base, dishId: null, suggestion: null, rationale: NO_ELIGIBLE_DISH_RATIONALE };
-      degradedReasons.push(`${day.date}: seed fallback used`);
+      if (seed === undefined) return { ...base, dishId: null, suggestion: null, rationale: noEligibleRationale };
+      // A dropped suggestion already explains the day; the seed fallback only goes to Logs then.
+      const detail = `${day.date}: seed fallback used`;
+      degradedReasons.push(dropped ? { code: "unknown", date: day.date, detail, logOnly: true } : { code: "seed-fallback", date: day.date, detail });
       return seed.kind === "reuse"
-        ? { ...base, dishId: seed.dishId, suggestion: null, rationale: SEED_FALLBACK_RATIONALE }
-        : { ...base, dishId: null, suggestion: seed.suggestion, rationale: SEED_FALLBACK_RATIONALE };
+        ? { ...base, dishId: seed.dishId, suggestion: null, rationale: seedRationale }
+        : { ...base, dishId: null, suggestion: seed.suggestion, rationale: seedRationale };
     }
 
-    if (pick === undefined) return { ...base, dishId: null, suggestion: null, rationale: NO_ELIGIBLE_DISH_RATIONALE };
+    if (pick === undefined) return { ...base, dishId: null, suggestion: null, rationale: noEligibleRationale };
     const pickedId = "dishId" in pick ? pick.dishId : undefined;
     const chosen = eligible.find((d) => String(d.id) === pickedId);
     if (chosen === undefined) {
       const reason = `${day.date}: agent picked dish ${pickedId ?? "(suggestion)"}, which is not eligible that day; dropped`;
-      degradedReasons.push(reason);
-      return {
-        ...base,
-        dishId: null,
-        suggestion: null,
-        rationale: `agent pick dropped (not eligible); ${NO_ELIGIBLE_DISH_RATIONALE}`,
-      };
+      degradedReasons.push({ code: "pick-not-eligible", date: day.date, detail: reason });
+      return { ...base, dishId: null, suggestion: null, rationale: t(lang, "rationale.pickDropped") };
     }
-    return { ...base, dishId: chosen.id, suggestion: null, rationale: pick.rationale || NO_ELIGIBLE_DISH_RATIONALE };
+    return { ...base, dishId: chosen.id, suggestion: null, rationale: rationaleOf(pick) || noEligibleRationale };
   });
 
   return { weekStart: input.weekStart, dinners, degradedReasons };
+}
+
+/** The household-facing code for a dropped agent pick on a day with no eligible Favorite Dish. */
+function droppedCode(wasSuggestion: boolean, rule: ExclusionRule | undefined): Pick<DegradedReasonDraft, "code" | "params"> {
+  if (!wasSuggestion) return { code: "pick-not-eligible" };
+  switch (rule?.code) {
+    case "same-as-lunch":
+    case "weekend-only":
+      return { code: rule.code };
+    case "lunch-category":
+      return { code: "lunch-category", params: { category: rule.category } };
+    case "quick-day":
+      return { code: "quick-day", params: { limit: rule.limit } };
+    default:
+      return { code: "suggestion-invalid" };
+  }
 }

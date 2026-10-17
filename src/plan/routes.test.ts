@@ -6,7 +6,6 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish, listDishes } from "../dishes/repo.js";
 import {
-  NO_AGENT_REASON,
   NoAgent,
   ScriptedLlmAgent,
   type DishSuggestion,
@@ -169,15 +168,15 @@ describe("GET /plan", () => {
     expect(row(res.body, "2026-10-24")).toContain("No school lunch");
   });
 
-  it("shows the plan status and degraded reasons as a notice above the days", async () => {
+  it("shows the plan status and week-wide degraded reasons as a notice above the days", async () => {
     const app = await start();
-    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [NO_AGENT_REASON] }, NOW.toISOString());
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [{ code: "no-agent", date: null }] }, NOW.toISOString());
     confirmPlan(app.ctx.db, WEEK);
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 
     expect(top(res.body)).toContain("Status: confirmed");
-    expect(top(res.body)).toMatch(/<div class="notice" role="alert">[\s\S]*no agent configured/);
+    expect(top(res.body)).toMatch(/<div class="notice" role="alert">[\s\S]*No agent is set up, so the dishes were picked automatically./);
   });
 
   it("warns when a day's Lunch Entry no longer matches what the plan was made with (Q17)", async () => {
@@ -264,7 +263,7 @@ describe("POST /plan/generate", () => {
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body.match(/Burgers/g)).toHaveLength(7);
-    expect(view.body).toContain("no agent configured");
+    expect(view.body).toContain("Picked automatically; no agent is set up.");
   });
 
   it("ingests the week's lunch first so the category collision rule applies (FR-4, FR-6b)", async () => {

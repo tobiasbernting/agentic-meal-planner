@@ -21,6 +21,7 @@ import { launchPlanRun } from "../plan-run/launch.js";
 import { planRunBanner } from "../plan-run/routes.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type WeeklyPlan } from "../planner/repo.js";
+import { describeDegraded, type DegradedReason } from "../planner/degraded.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, weekNav } from "../ui/almanac.js";
@@ -93,9 +94,8 @@ function defaultWeek(db: Database.Database, raw: string | undefined, today: stri
  * buttons hide while the week's Plan Run is in flight.
  */
 function renderPlanTop(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan, runInFlight: boolean): string {
-  // #80 moves degraded reasons onto the day they affect; until then they stay one plan-wide notice.
-  const degraded =
-    plan.degradedReasons.length === 0 ? "" : notice({ label: t(lang, "plan.degraded"), text: plan.degradedReasons.join("; ") });
+  // Only week-wide reasons (no agent, agent failed) sit here; the rest go on their day.
+  const degraded = degradedNotices(lang, plan.degradedReasons, null);
   const changedDates = datesWithChangedLunch(db, plan);
   const lunchChanged =
     changedDates.length === 0 ? "" : notice({ text: `${t(lang, "plan.notice.lunch-changed")}: ${changedDates.join(", ")}` });
@@ -124,8 +124,17 @@ ${runInFlight ? "" : `<div class="actions">${weekForm(weekStart, "/plan/generate
  */
 function renderDays(db: Database.Database, lang: Lang, weekStart: string, today: string): string {
   const days = almanac(db, lang);
+  const reasons = getPlanForWeek(db, weekStart)?.degradedReasons ?? [];
   return weekDates(weekStart)
-    .map((date) => days.day({ date, density: "full", today: date === today }))
+    .map((date) => days.day({ date, density: "full", today: date === today, extraHtml: degradedNotices(lang, reasons, date) }))
+    .join("\n");
+}
+
+/** The degraded reasons for `date` (`null`: the whole week) as inverted notices in household language. */
+function degradedNotices(lang: Lang, reasons: DegradedReason[], date: string | null): string {
+  return reasons
+    .filter((r) => r.date === date)
+    .map((r) => notice({ label: t(lang, date === null ? "plan.degraded" : "day.degraded"), text: describeDegraded(lang, r) }))
     .join("\n");
 }
 
@@ -216,7 +225,7 @@ ${renderDays(ctx.db, lang, weekStart, today)}`;
       // FR-9 / Q17: regenerate re-checks the school menus (forced ingest) and reports changed entries.
       const { changed } = await ingestWeek({ ...ingestDeps(), log, onProgress }, weekStart, { force: trigger === "regenerate" });
       const result = await generatePlan(
-        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress },
+        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress, language: langOf(req) },
         weekStart,
         { replace: trigger === "regenerate" },
       );

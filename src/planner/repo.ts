@@ -4,6 +4,7 @@
  */
 import type Database from "better-sqlite3";
 import type { PlanWeekResult, RecentlyPlanned } from "./plan-week.js";
+import { parseDegradedReasons, toStored, type DegradedReason } from "./degraded.js";
 
 export type PlanStatus = "generated" | "confirmed";
 
@@ -22,7 +23,8 @@ export interface WeeklyPlan {
   weekStart: string;
   generatedAt: string;
   status: PlanStatus;
-  degradedReasons: string[];
+  /** Per date (or the whole week) as reason codes; render with `describeDegraded`. */
+  degradedReasons: DegradedReason[];
   dinners: PlannedDinner[];
 }
 
@@ -44,12 +46,16 @@ interface DinnerRow {
 }
 
 /** Saves (replacing any existing plan for that week) and returns the plan id. Status resets to `generated`. */
-export function savePlan(db: Database.Database, plan: PlanWeekResult, generatedAt: string): number {
+export function savePlan(
+  db: Database.Database,
+  plan: Omit<PlanWeekResult, "degradedReasons"> & { degradedReasons: Parameters<typeof toStored>[0] },
+  generatedAt: string,
+): number {
   return db.transaction(() => {
     db.prepare("DELETE FROM weekly_plan WHERE week_start = ?").run(plan.weekStart);
     const result = db
       .prepare("INSERT INTO weekly_plan (week_start, generated_at, status, degraded_reasons) VALUES (?, ?, 'generated', ?)")
-      .run(plan.weekStart, generatedAt, JSON.stringify(plan.degradedReasons));
+      .run(plan.weekStart, generatedAt, JSON.stringify(toStored(plan.degradedReasons)));
     const id = Number(result.lastInsertRowid);
     const insert = db.prepare(
       `INSERT INTO planned_dinner (plan_id, date, dish_id, is_quick_day, lunch_that_day, selection_rationale)
@@ -70,7 +76,7 @@ export function getPlanForWeek(db: Database.Database, weekStart: string): Weekly
     weekStart: row.week_start,
     generatedAt: row.generated_at,
     status: row.status,
-    degradedReasons: JSON.parse(row.degraded_reasons) as string[],
+    degradedReasons: parseDegradedReasons(row.degraded_reasons),
     dinners: listPlannedDinners(db, row.id),
   };
 }

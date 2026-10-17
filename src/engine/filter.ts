@@ -50,23 +50,53 @@ function categoryCollision(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefi
   return lunch.find((entry) => entry.mainCategory === category);
 }
 
-function exclusionReason(dish: Dish, day: DayInput, options: FilterOptions): string | null {
-  if (!dish.inRotation) return "not in rotation";
+/** Which hard rule excludes a Dish on a day, with what the household message needs. */
+export type ExclusionRule =
+  | { code: "not-in-rotation" }
+  | { code: "same-as-lunch"; lunch: string }
+  | { code: "lunch-category"; category: string; lunch: string }
+  | { code: "weekend-only"; date: string; weekday: Weekday }
+  | { code: "quick-day"; limit: number; minutes: number | null };
+
+/** FR-6: the first hard rule `dish` breaks on `day`, or null when it is eligible. */
+export function exclusionRule(dish: Dish, day: DayInput, options: FilterOptions): ExclusionRule | null {
+  if (!dish.inRotation) return { code: "not-in-rotation" };
   const sameName = lunchNameMatch(dish, day.lunch);
-  if (sameName) return `same dish as lunch "${sameName.rawText}"`;
+  if (sameName) return { code: "same-as-lunch", lunch: sameName.rawText };
   if (options.categoryCollisionEnabled) {
     const collision = categoryCollision(dish, day.lunch);
-    if (collision) return `same Main Category (${dish.mainCategory}) as lunch "${collision.rawText}"`;
+    if (collision) return { code: "lunch-category", category: dish.mainCategory!, lunch: collision.rawText };
   }
-  if (dish.weekendOnly && !isWeekend(day.weekday)) return `Weekend Dish, and ${day.date} is a ${day.weekday}`;
-  if (day.quickDayLimitMinutes !== null) {
-    const limit = day.quickDayLimitMinutes;
-    // Decision: a Dish with no prep time cannot be shown to be fast enough, so it is excluded
-    // on Quick Days (see the notes README, ticket #25).
-    if (dish.prepTimeMinutes === null) return `Quick Day (limit ${limit} min) and prep time is unknown`;
-    if (dish.prepTimeMinutes > limit) return `Quick Day (limit ${limit} min) and prep time is ${dish.prepTimeMinutes} min`;
+  if (dish.weekendOnly && !isWeekend(day.weekday)) return { code: "weekend-only", date: day.date, weekday: day.weekday };
+  // Decision: a Dish with no prep time cannot be shown to be fast enough, so it is excluded
+  // on Quick Days (see the notes README, ticket #25).
+  if (day.quickDayLimitMinutes !== null && (dish.prepTimeMinutes === null || dish.prepTimeMinutes > day.quickDayLimitMinutes)) {
+    return { code: "quick-day", limit: day.quickDayLimitMinutes, minutes: dish.prepTimeMinutes };
   }
   return null;
+}
+
+/** The rule as technical text for Logs and rationale debugging. */
+export function describeExclusion(rule: ExclusionRule): string {
+  switch (rule.code) {
+    case "not-in-rotation":
+      return "not in rotation";
+    case "same-as-lunch":
+      return `same dish as lunch "${rule.lunch}"`;
+    case "lunch-category":
+      return `same Main Category (${rule.category}) as lunch "${rule.lunch}"`;
+    case "weekend-only":
+      return `Weekend Dish, and ${rule.date} is a ${rule.weekday}`;
+    case "quick-day":
+      return rule.minutes === null
+        ? `Quick Day (limit ${rule.limit} min) and prep time is unknown`
+        : `Quick Day (limit ${rule.limit} min) and prep time is ${rule.minutes} min`;
+  }
+}
+
+function exclusionReason(dish: Dish, day: DayInput, options: FilterOptions): string | null {
+  const rule = exclusionRule(dish, day, options);
+  return rule === null ? null : describeExclusion(rule);
 }
 
 function isWeekend(weekday: Weekday): boolean {

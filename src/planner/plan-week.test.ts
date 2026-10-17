@@ -9,7 +9,11 @@ import {
   type DishSuggestion,
   type SelectDishesInput,
 } from "../llm/index.js";
-import { planWeek, NO_ELIGIBLE_DISH_RATIONALE, type PlanWeekInput } from "./plan-week.js";
+import { planWeek, NO_ELIGIBLE_DISH_RATIONALE, type PlanWeekInput, type PlanWeekResult } from "./plan-week.js";
+import { t } from "../i18n/index.js";
+
+/** The raw technical text of each degraded reason, as Logs get it. */
+const details = (result: PlanWeekResult) => result.degradedReasons.map((r) => r.detail);
 import { DEFAULT_PLANNER_SETTINGS, type PlannerSettings } from "./settings.js";
 
 const WEEK = "2026-10-12"; // Monday
@@ -80,7 +84,7 @@ describe("planWeek", () => {
       burgers.id,
     ]);
     expect(result.dinners[0]?.rationale).toBe("scripted pick for 2026-10-12");
-    expect(result.degradedReasons).toEqual([]);
+    expect(details(result)).toEqual([]);
   });
 
   it("hands the LLM the filtered candidates, Quick Day flags, lunch and recent plans", async () => {
@@ -154,7 +158,7 @@ describe("planWeek", () => {
     }
     expect(result.dinners[5]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
     expect(result.dinners[6]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
-    expect(result.degradedReasons).toEqual([]);
+    expect(details(result)).toEqual([]);
   });
 
   it("drops a pick that is not in that day's candidate set and marks the plan degraded", async () => {
@@ -170,10 +174,11 @@ describe("planWeek", () => {
     const result = await planWeek(input({ dishes: [roast, pasta], llm }));
 
     expect(result.dinners[0]).toMatchObject({ date: "2026-10-12", dishId: null });
-    expect(result.dinners[0]?.rationale).toMatch(/not eligible|dropped/i);
+    expect(result.dinners[0]?.rationale).toBe(t("sv", "rationale.pickDropped"));
+    expect(result.degradedReasons[0]).toMatchObject({ code: "pick-not-eligible", date: "2026-10-12" });
     expect(result.dinners[5]).toMatchObject({ dishId: roast.id, rationale: "always roast" });
-    expect(result.degradedReasons.length).toBeGreaterThan(0);
-    expect(result.degradedReasons[0]).toMatch(/2026-10-12/);
+    expect(details(result).length).toBeGreaterThan(0);
+    expect(details(result)[0]).toMatch(/2026-10-12/);
   });
 
   it("records the lunch of the day on each Planned Dinner", async () => {
@@ -222,7 +227,7 @@ describe("planWeek", () => {
         expect(dinner.suggestion).toEqual({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90 });
         expect(dinner.rationale).toBe(`scripted suggestion ${dinner.date}`);
       }
-      expect(result.degradedReasons).toEqual([]);
+      expect(details(result)).toEqual([]);
     });
 
     it("suggests only on a date where every Favorite Dish is excluded, and drops a suggestion for a date with candidates", async () => {
@@ -248,10 +253,10 @@ describe("planWeek", () => {
       });
       for (const dinner of result.dinners.filter((_, i) => i !== 2)) {
         expect(dinner).toMatchObject({ dishId: null, suggestion: null });
-        expect(dinner.rationale).toMatch(/dropped/);
+        expect(dinner.rationale).toBe(t("sv", "rationale.pickDropped"));
       }
-      expect(result.degradedReasons).toHaveLength(6);
-      expect(result.degradedReasons[0]).toMatch(/^2026-10-12: /);
+      expect(details(result)).toHaveLength(6);
+      expect(details(result)[0]).toMatch(/^2026-10-12: /);
     });
 
     describe("drops a suggestion that breaks a hard rule or is malformed, and falls back to the seed list", () => {
@@ -263,15 +268,15 @@ describe("planWeek", () => {
         });
 
       it.each([
-        ["same name as lunch", monday, { name: "  köttbullar  ", mainCategory: "other", prepTimeMinutes: 20 }, /same dish as lunch/],
-        ["same Main Category as lunch", monday, { name: "Biff", mainCategory: "beef", prepTimeMinutes: 20 }, /Main Category/],
-        ["over the Quick Day limit", tuesday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 90 }, /Quick Day/],
-        ["no prep time on a Quick Day", tuesday, { name: "Kalops", mainCategory: "other" }, /prep time is unknown/],
-        ["empty name", monday, { name: "  ", mainCategory: "other" }, /name/],
-        ["unknown Main Category", monday, { name: "Kalops", mainCategory: "stew" }, /Main Category/],
-        ["non-integer prep time", monday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 12.5 }, /prep time/],
-        ["zero prep time", monday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 0 }, /prep time/],
-      ])("%s", async (_label, date, suggestion, why) => {
+        ["same name as lunch", monday, { name: "  köttbullar  ", mainCategory: "other", prepTimeMinutes: 20 }, /same dish as lunch/, "same-as-lunch"],
+        ["same Main Category as lunch", monday, { name: "Biff", mainCategory: "beef", prepTimeMinutes: 20 }, /Main Category/, "lunch-category"],
+        ["over the Quick Day limit", tuesday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 90 }, /Quick Day/, "quick-day"],
+        ["no prep time on a Quick Day", tuesday, { name: "Kalops", mainCategory: "other" }, /prep time is unknown/, "quick-day"],
+        ["empty name", monday, { name: "  ", mainCategory: "other" }, /name/, "suggestion-invalid"],
+        ["unknown Main Category", monday, { name: "Kalops", mainCategory: "stew" }, /Main Category/, "suggestion-invalid"],
+        ["non-integer prep time", monday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 12.5 }, /prep time/, "suggestion-invalid"],
+        ["zero prep time", monday, { name: "Kalops", mainCategory: "other", prepTimeMinutes: 0 }, /prep time/, "suggestion-invalid"],
+      ])("%s", async (_label, date, suggestion, why, code) => {
         const lunch = { [monday]: [{ date: monday, rawText: "Köttbullar", mainCategory: "beef" }] };
         const settings = { ...DEFAULT_PLANNER_SETTINGS, quickDayTemplate: { tue: 30 } };
 
@@ -280,10 +285,14 @@ describe("planWeek", () => {
         const dinner = result.dinners.find((d) => d.date === date)!;
         expect(dinner.suggestion).not.toBeNull();
         expect(dinner.suggestion?.name).not.toBe((suggestion as DishSuggestion).name);
-        const dropped = result.degradedReasons.find((r) => r.startsWith(`${date}: suggestion `));
+        const dropped = details(result).find((r) => r.startsWith(`${date}: suggestion `));
         expect(dropped).toMatch(/ dropped: /);
         expect(dropped).toMatch(why);
-        expect(result.degradedReasons).toContain(`${date}: seed fallback used`);
+        expect(details(result)).toContain(`${date}: seed fallback used`);
+        // One household reason per day: the drop explains it, the seed fallback only reaches Logs.
+        expect(result.degradedReasons.filter((r) => r.date === date && !r.logOnly)).toEqual([
+          expect.objectContaining({ code, date, params: expect.objectContaining({ name: (suggestion as DishSuggestion).name }) }),
+        ]);
       });
     });
 
@@ -306,8 +315,8 @@ describe("planWeek", () => {
 
       expect(result.dinners.slice(1).every((d) => d.dishId === pasta.id && d.rationale === "favorite")).toBe(true);
       expect(result.dinners[0]?.suggestion?.name).not.toBe("Sushi");
-      expect(result.degradedReasons[0]).toMatch(/^2026-10-12: suggestion "Sushi" dropped: Main Category "sushi"/);
-      expect(result.degradedReasons).toContain("2026-10-12: seed fallback used");
+      expect(details(result)[0]).toMatch(/^2026-10-12: suggestion "Sushi" dropped: Main Category "sushi"/);
+      expect(details(result)).toContain("2026-10-12: seed fallback used");
     });
 
     it("reuses an existing out-of-rotation Dish whose name matches the suggestion", async () => {
@@ -319,7 +328,7 @@ describe("planWeek", () => {
       for (const dinner of result.dinners) {
         expect(dinner).toMatchObject({ dishId: shelved.id, suggestion: null, rationale: `scripted suggestion ${dinner.date}` });
       }
-      expect(result.degradedReasons).toEqual([]);
+      expect(details(result)).toEqual([]);
     });
 
     it("drops a suggestion matching a Favorite Dish the filter excluded that day", async () => {
@@ -336,8 +345,8 @@ describe("planWeek", () => {
 
       expect(result.dinners[0]?.dishId).toBeNull();
       expect(result.dinners[0]?.suggestion?.name).not.toMatch(/fiskpinnar/i);
-      expect(result.degradedReasons[0]).toMatch(/^2026-10-12: suggestion "fiskpinnar" dropped: .*Favorite Dish "Fiskpinnar"/);
-      expect(result.degradedReasons).toContain("2026-10-12: seed fallback used");
+      expect(details(result)[0]).toMatch(/^2026-10-12: suggestion "fiskpinnar" dropped: .*Favorite Dish "Fiskpinnar"/);
+      expect(details(result)).toContain("2026-10-12: seed fallback used");
     });
 
     it("hands the agent the seed list as inspiration", async () => {
@@ -369,7 +378,7 @@ describe("planWeek", () => {
       ]);
       expect(result.dinners.every((d) => d.dishId === null)).toBe(true);
       expect(result.dinners[1]?.suggestion).toEqual({ name: "Falukorv med makaroner", mainCategory: "pork", prepTimeMinutes: 20 });
-      expect(result.degradedReasons).toEqual([
+      expect(details(result)).toEqual([
         NO_AGENT_REASON,
         ...result.dinners.map((d) => `${d.date}: seed fallback used`),
       ]);
@@ -400,10 +409,10 @@ describe("planWeek", () => {
       expect(result.dinners).toHaveLength(7);
       for (const dinner of result.dinners) {
         expect(dinner.dishId).not.toBeNull();
-        expect(dinner.rationale).toBe(NO_AGENT_REASON);
+        expect(dinner.rationale).toBe(t("sv", "rationale.noAgent"));
       }
       expect(new Set(result.dinners.map((d) => d.dishId)).size).toBe(3);
-      expect(result.degradedReasons).toEqual([NO_AGENT_REASON]);
+      expect(details(result)).toEqual([NO_AGENT_REASON]);
     });
 
     it("falls back to round-robin when the agent fails", async () => {
@@ -412,7 +421,7 @@ describe("planWeek", () => {
       const result = await planWeek(input({ llm }));
 
       expect(result.dinners.every((d) => d.dishId !== null)).toBe(true);
-      expect(result.degradedReasons).toEqual(["agent exited with code 1"]);
+      expect(details(result)).toEqual(["agent exited with code 1"]);
     });
   });
 });

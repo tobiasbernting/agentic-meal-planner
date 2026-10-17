@@ -158,6 +158,7 @@ export class CliAgent implements LlmAgent {
       `A day with an empty candidate list gets exactly one suggestion instead: a new dish in the household's suggestionStyle. ` +
       `seedDishes is inspiration only; you may go beyond it. The suggestion's mainCategory must be one of: ${MAIN_CATEGORY_KEYS.join(", ")} (use "other" when unsure); prepTimeMinutes is an optional positive integer. ` +
       `Never suggest a dish for a day that has candidates. ` +
+      `Write each rationale as one short sentence in ${LANGUAGE_NAMES[input.language ?? "sv"]}, for the household to read. ` +
       `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string} for a pick, ` +
       `or {"date": "YYYY-MM-DD", "suggestion": {"name": string, "mainCategory": string, "prepTimeMinutes"?: number}, "rationale": string} for a suggestion, one per day, in order.` +
       `\n\n${JSON.stringify(input, null, 2)}`;
