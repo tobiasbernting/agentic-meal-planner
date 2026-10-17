@@ -8,7 +8,6 @@
 import type { Dish, Weekday } from "../dishes/repo.js";
 import { buildCandidateSets, type DayInput } from "../engine/filter.js";
 import {
-  DEFAULT_SUGGESTION_STYLE,
   NO_AGENT_REASON,
   NoAgent,
   SEED_DISHES,
@@ -107,7 +106,7 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     days: days.map((d) => ({ date: d.date, isQuickDay: d.quickDayLimitMinutes !== null, lunch: d.lunch })),
     candidates: candidates.map((c) => c.eligible.map(toCandidate)),
     recentlyPlanned: input.recentlyPlanned,
-    suggestionStyle: DEFAULT_SUGGESTION_STYLE,
+    suggestionStyle: input.settings.suggestionStyle,
     seedDishes: SEED_DISHES,
   };
   const degradedReasons: string[] = [];
