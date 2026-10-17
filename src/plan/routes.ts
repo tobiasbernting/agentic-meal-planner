@@ -33,8 +33,6 @@ const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 interface PlanQuery {
   week?: string;
   notice?: string;
-  /** Lunch changes behind a `lunch-changed` notice: `<schoolId>:<date>` pairs, comma-separated. */
-  changed?: string;
 }
 
 interface GenerateForm {
@@ -44,18 +42,6 @@ interface GenerateForm {
 interface RegenerateForm extends GenerateForm {
   /** FR-9a: set when the user confirmed replacing a confirmed plan. */
   confirmed_override?: string;
-}
-
-/** Human-readable "School date" list for a `changed` query value; unknown Schools are skipped. */
-function describeChanges(db: Database.Database, changed: string | undefined): string[] {
-  if (!changed) return [];
-  const out: string[] = [];
-  for (const pair of changed.split(",")) {
-    const [id, date] = pair.split(":");
-    const school = id && /^\d+$/.test(id) ? getSchool(db, Number(id)) : undefined;
-    if (school && date && WEEK_START.test(date)) out.push(`${school.name} ${date}`);
-  }
-  return out;
 }
 
 /** The requested week's Monday; an absent or malformed `week` means the current week. */
@@ -161,7 +147,6 @@ ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.replaceConfirmed"), { co
 const NOTICES = {
   confirmed: "plan.notice.confirmed",
   "plan-confirmed": "plan.notice.plan-confirmed",
-  "lunch-changed": "plan.notice.lunch-changed",
   "run-in-progress": "plan.notice.run-in-progress",
 } as const;
 
@@ -193,11 +178,7 @@ export const planRoutes: FeaturePlugin = async (app, ctx) => {
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
     const runInFlight = ctx.planRuns.isInFlight(weekStart);
-    let notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
-    if (req.query.notice === "lunch-changed") {
-      const changes = describeChanges(ctx.db, req.query.changed);
-      notice = `${t(lang, NOTICES["lunch-changed"])}${changes.length ? `: ${changes.join(", ")}` : ""}`;
-    }
+    const notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
     const body = `<h1>${t(lang, "plan.heading")}</h1>
 <p>
   <a href="/plan?week=${addDays(weekStart, -7)}">${t(lang, "week.prev")}</a>
