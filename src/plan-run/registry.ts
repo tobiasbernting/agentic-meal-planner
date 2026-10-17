@@ -20,7 +20,17 @@ export type PlanRunOutcome =
   | { kind: "finished"; runId: string; at: Date; lunchChanged: LunchChange[] }
   | { kind: "failed"; runId: string; at: Date; message: string };
 
+/** What a finished pipeline hands back for the outcome. */
+export interface PlanRunDetails {
+  lunchChanged?: LunchChange[];
+}
+
 export type PlanRunState = { inFlight: InFlightPlanRun } | { outcome: PlanRunOutcome };
+
+/** True when `state` is a run in flight rather than an outcome. */
+export function isInFlightState(state: PlanRunState | undefined): state is { inFlight: InFlightPlanRun } {
+  return state !== undefined && "inFlight" in state;
+}
 
 export interface PlanRunRegistry {
   /** Registers a Plan Run for the week; false (and nothing changes) when one is already in flight. */
@@ -28,18 +38,20 @@ export interface PlanRunRegistry {
   /** Records a Phase transition or progress for the week's in-flight run. */
   report(weekStart: string, event: PlanRunEvent): void;
   /** Ends the week's in-flight run as finished. */
-  finish(weekStart: string, at: Date, details?: { lunchChanged?: LunchChange[] }): void;
+  finish(weekStart: string, at: Date, details?: PlanRunDetails): void;
   /** Ends the week's in-flight run as failed with the error message. */
   fail(weekStart: string, at: Date, message: string): void;
   /** The week's in-flight run, else its last outcome, else undefined. */
   get(weekStart: string): PlanRunState | undefined;
+  /** True while the week has a Plan Run in flight. */
+  isInFlight(weekStart: string): boolean;
 }
 
 export function createPlanRunRegistry(): PlanRunRegistry {
   const weeks = new Map<string, PlanRunState>();
   const inFlight = (weekStart: string) => {
     const state = weeks.get(weekStart);
-    return state && "inFlight" in state ? state.inFlight : undefined;
+    return isInFlightState(state) ? state.inFlight : undefined;
   };
   return {
     start(weekStart, { runId, startedAt }) {
@@ -64,6 +76,9 @@ export function createPlanRunRegistry(): PlanRunRegistry {
     },
     get(weekStart) {
       return weeks.get(weekStart);
+    },
+    isInFlight(weekStart) {
+      return inFlight(weekStart) !== undefined;
     },
   };
 }

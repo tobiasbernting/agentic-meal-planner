@@ -34,7 +34,7 @@ const scheduler = startScheduler(
     },
     // The same registry the Plan page reads, so the scheduled run shows in its banner (spec #61).
     planRuns: app.ctx.planRuns,
-    afterPlan: (planId, log, onProgress) => buildAndPushShoppingList({ ...app.ctx, ...(log ? { log } : {}), onProgress }, planId),
+    afterPlan: ({ planId, log, onProgress }) => buildAndPushShoppingList({ ...app.ctx, ...(log ? { log } : {}), onProgress }, planId),
   },
   { ...readSchedulerOptions(app.ctx.db), logger: app.ctx.log.child({ component: "scheduler" }) },
 );

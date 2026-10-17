@@ -9,11 +9,10 @@ import type Database from "better-sqlite3";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { almanac } from "../almanac/day.js";
-import { addDays, mondayOf, weekDates } from "../week.js";
+import { addDays, mondayOf, resolveWeek, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate } from "../lunch/repo.js";
-import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import { runLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
@@ -33,8 +32,6 @@ const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 interface PlanQuery {
   week?: string;
   notice?: string;
-  /** Lunch changes behind a `lunch-changed` notice: `<schoolId>:<date>` pairs, comma-separated. */
-  changed?: string;
 }
 
 interface GenerateForm {
@@ -44,23 +41,6 @@ interface GenerateForm {
 interface RegenerateForm extends GenerateForm {
   /** FR-9a: set when the user confirmed replacing a confirmed plan. */
   confirmed_override?: string;
-}
-
-/** Human-readable "School date" list for a `changed` query value; unknown Schools are skipped. */
-function describeChanges(db: Database.Database, changed: string | undefined): string[] {
-  if (!changed) return [];
-  const out: string[] = [];
-  for (const pair of changed.split(",")) {
-    const [id, date] = pair.split(":");
-    const school = id && /^\d+$/.test(id) ? getSchool(db, Number(id)) : undefined;
-    if (school && date && WEEK_START.test(date)) out.push(`${school.name} ${date}`);
-  }
-  return out;
-}
-
-/** The requested week's Monday; an absent or malformed `week` means the current week. */
-function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
 /**
@@ -170,7 +150,6 @@ ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.replaceConfirmed"), { co
 const NOTICES = {
   confirmed: "plan.notice.confirmed",
   "plan-confirmed": "plan.notice.plan-confirmed",
-  "lunch-changed": "plan.notice.lunch-changed",
   "run-in-progress": "plan.notice.run-in-progress",
 } as const;
 
@@ -196,22 +175,14 @@ async function finishPlan(
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
   // Read the ports at run time: `ctx.llm` follows the Settings agent command.
   const ingestDeps = () => ({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now });
-  const inFlight = (weekStart: string) => {
-    const run = ctx.planRuns.get(weekStart);
-    return run !== undefined && "inFlight" in run;
-  };
 
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
     const today = householdToday(ctx.db, ctx.now());
     const weekStart = defaultWeek(ctx.db, req.query.week, today);
     const plan = getPlanForWeek(ctx.db, weekStart);
-    const runInFlight = inFlight(weekStart);
-    let message = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
-    if (req.query.notice === "lunch-changed") {
-      const changes = describeChanges(ctx.db, req.query.changed);
-      message = `${t(lang, NOTICES["lunch-changed"])}${changes.length ? `: ${changes.join(", ")}` : ""}`;
-    }
+    const runInFlight = ctx.planRuns.isInFlight(weekStart);
+    const message = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
     const body = `${weekHead(lang, weekStart)}
 ${weekNav(lang, weekStart, "/plan")}
 ${message ? notice({ text: message, role: "status" }) : ""}
@@ -225,6 +196,7 @@ ${renderDays(ctx, lang, weekStart, today)}`;
   /**
    * Starts the week's Plan Run without awaiting it and redirects to the Plan page at once; the
    * page's banner follows the run. A week with a run in flight gets a notice and nothing new.
+   * A throw leaves the rows written before it: one after Dish selection keeps the new plan.
    */
   const startRun = (req: FastifyRequest, reply: FastifyReply, weekStart: string, trigger: "generate" | "regenerate") => {
     const log = runLogger(ctx.log, req, "plan");
@@ -249,7 +221,7 @@ ${renderDays(ctx, lang, weekStart, today)}`;
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     // FR-9a: generate never replaces a confirmed plan.
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed") return reply.redirect(`/plan?week=${weekStart}&notice=confirmed`, 303);
     return startRun(req, reply, weekStart, "generate");
@@ -259,7 +231,7 @@ ${renderDays(ctx, lang, weekStart, today)}`;
   // week's plan, and reports stored Lunch Entries that changed. No silent re-plan.
   app.post<{ Body: RegenerateForm }>("/plan/regenerate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (inFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
       const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
@@ -268,9 +240,11 @@ ${renderDays(ctx, lang, weekStart, today)}`;
     return startRun(req, reply, weekStart, "regenerate");
   });
 
-  // FR-9a: lock the week's plan from automatic changes.
+  // FR-9a: lock the week's plan from automatic changes. Not while a run is in flight: a
+  // Regenerate in progress would overwrite the plan the user just confirmed.
   app.post<{ Body: GenerateForm }>("/plan/confirm", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(`/plan?week=${weekStart}&notice=run-in-progress`, 303);
     confirmPlan(ctx.db, weekStart);
     return reply.redirect(`/plan?week=${weekStart}&notice=plan-confirmed`, 303);
   });

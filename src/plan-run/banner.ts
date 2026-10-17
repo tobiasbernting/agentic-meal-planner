@@ -7,7 +7,7 @@ import { t, type Lang } from "../i18n/index.js";
 import { escapeHtml } from "../ui/layout.js";
 import { localTime } from "../week.js";
 import { PHASES, type Phase } from "./phase.js";
-import type { PlanRunState } from "./registry.js";
+import { isInFlightState, type PlanRunState } from "./registry.js";
 import type { LunchChange } from "../lunch/ingest.js";
 
 export const BANNER_ID = "plan-run-banner";
@@ -31,7 +31,7 @@ const AFTER_SELECTION = PHASES.indexOf("ingredient-resolution");
  * has ended, or the dinners were saved since. The banner route then asks HTMX to reload the page.
  */
 export function pageIsStale(shown: ShownPhase, state: PlanRunState | undefined): boolean {
-  if (!state || !("inFlight" in state)) return true;
+  if (!isInFlightState(state)) return true;
   const before = shown === "start" ? -1 : PHASES.indexOf(shown);
   const now = state.inFlight.phase ? PHASES.indexOf(state.inFlight.phase) : -1;
   return before < AFTER_SELECTION && now >= AFTER_SELECTION;
@@ -45,7 +45,7 @@ export interface BannerOptions {
 }
 
 export function renderPlanRunBanner(lang: Lang, weekStart: string, state: PlanRunState | undefined, { timezone, describeChanges }: BannerOptions = {}): string {
-  if (state && "inFlight" in state) {
+  if (isInFlightState(state)) {
     const { startedAt, phase, progress } = state.inFlight;
     const shown: ShownPhase = phase ?? "start";
     const phaseText = phase ? t(lang, `planRun.phase.${phase}`) : t(lang, "planRun.starting");

@@ -6,7 +6,7 @@
  */
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { mondayOf } from "../week.js";
+import { resolveWeek } from "../week.js";
 import { householdToday, readTimezone } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
@@ -21,8 +21,6 @@ import { buildShoppingList, getShoppingList } from "./build.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
-const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
-
 interface ShoppingQuery {
   week?: string;
 }
@@ -33,10 +31,6 @@ interface BuildForm {
 
 interface PantryForm extends BuildForm {
   name?: string;
-}
-
-function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
 /** "pasta" / "400 g pasta" as the row's main text. */
@@ -105,9 +99,10 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    const run = ctx.planRuns.get(weekStart);
+    const runInFlight = ctx.planRuns.isInFlight(weekStart);
     const dishName = (id: number) => getDish(ctx.db, id)?.name;
-    const rebuild = (label: string) => (run && "inFlight" in run ? "" : buildForm(weekStart, label));
+    /** The Build or Rebuild form, or nothing while the week's Plan Run is in flight. */
+    const rebuild = (label: string) => (runInFlight ? "" : buildForm(weekStart, label));
     let content: string;
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
