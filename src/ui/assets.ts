@@ -17,6 +17,9 @@ const FILES: Record<string, { file: string; type: string }> = {
   "libre-franklin-600.woff2": { file: "fonts/libre-franklin-600.woff2", type: "font/woff2" },
   "libre-franklin-800.woff2": { file: "fonts/libre-franklin-800.woff2", type: "font/woff2" },
   "libre-franklin-900.woff2": { file: "fonts/libre-franklin-900.woff2", type: "font/woff2" },
+  "icon-192.png": { file: "icons/icon-192.png", type: "image/png" },
+  "icon-512.png": { file: "icons/icon-512.png", type: "image/png" },
+  "apple-touch-icon.png": { file: "icons/apple-touch-icon.png", type: "image/png" },
 };
 
 /** URL paths pages reference. The stylesheet's @font-face rules use the font paths directly. */
@@ -25,7 +28,13 @@ export const ASSET_PATHS = {
   htmx: "/assets/htmx-2.0.4.min.js",
   pending: "/assets/pending.js",
   fontRegular: "/assets/libre-franklin-400.woff2",
+  icon192: "/assets/icon-192.png",
+  icon512: "/assets/icon-512.png",
+  appleTouchIcon: "/assets/apple-touch-icon.png",
 } as const;
+
+/** Every served asset's URL path, for the service worker to cache. */
+export const ALL_ASSET_PATHS: readonly string[] = Object.keys(FILES).map((name) => `/assets/${name}`);
 
 export const assetRoutes: FeaturePlugin = async (app) => {
   const loaded = new Map(Object.entries(FILES).map(([name, { file, type }]) => [name, { body: readFileSync(new URL(file, PUBLIC_DIR)), type }]));
