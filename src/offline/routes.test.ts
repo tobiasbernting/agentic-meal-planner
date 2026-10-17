@@ -88,6 +88,17 @@ describe("the service worker script", () => {
     for (const url of config.assets) expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(200);
   });
 
+  it("imports the pure core from an asset the app serves as JavaScript and the worker pre-caches", async () => {
+    const { app, res, config } = await workerScript();
+
+    expect(res.body).toMatch(/^import \{[^}]+\} from "\/assets\/offline-core\.js";$/m);
+    expect(config.assets).toContain("/assets/offline-core.js");
+    const core = await app.inject({ method: "GET", url: "/assets/offline-core.js" });
+    expect(core.statusCode).toBe(200);
+    expect(core.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+    expect(core.body).toBe(readFileSync(new URL("../../public/offline/core.js", import.meta.url), "utf8"));
+  });
+
   it("labels each queueable route and carries the offline texts in both languages", async () => {
     const { config } = await workerScript();
 
