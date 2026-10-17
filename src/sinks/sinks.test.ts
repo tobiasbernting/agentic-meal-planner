@@ -10,6 +10,7 @@ import { createPantryItem } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { SETTING_SHOPPING_LIST_SINKS } from "../planner/settings.js";
 import { buildShoppingList } from "../shopping/build.js";
+import { createCapturingLogger } from "../logging/logger.js";
 import { pushShoppingList } from "./push.js";
 import { configuredSinks } from "./registry.js";
 import { createTrelloSink, trelloSinkFromEnv } from "./trello.js";
@@ -175,8 +176,23 @@ describe("pushShoppingList", () => {
     expect(planId).toBeGreaterThan(0);
   });
 
+  it("logs a warn per failed sink while still recording the row, and counts accepted sinks", async () => {
+    const { logger, records } = createCapturingLogger();
+    const failing = await planWithList(recorder(() => true).fetch);
+    const ok = await planWithList(recorder().fetch);
+
+    const failedCount = await pushShoppingList({ db: failing.app.ctx.db, env: ENV, fetch: recorder(() => true).fetch, log: logger.child({ runId: "r1" }) }, failing.planId);
+    const okCount = await pushShoppingList({ db: ok.app.ctx.db, env: ENV, fetch: recorder().fetch, log: logger }, ok.planId);
+
+    expect([failedCount, okCount]).toEqual([0, 1]);
+    expect(records.filter((r) => r.level === "warn")).toEqual([
+      expect.objectContaining({ component: "sinks", runId: "r1", sinkId: "trello", reason: expect.stringContaining("Trello HTTP 401") }),
+    ]);
+    expect(failing.app.ctx.db.prepare("SELECT ok FROM sink_push").all()).toEqual([{ ok: 0 }]);
+  });
+
   it("does not throw for an unknown plan or with no sinks", async () => {
     const { app } = await planWithList(recorder().fetch);
-    await expect(pushShoppingList({ db: app.ctx.db, env: {} }, 9999)).resolves.toBeUndefined();
+    await expect(pushShoppingList({ db: app.ctx.db, env: {} }, 9999)).resolves.toBe(0);
   });
 });

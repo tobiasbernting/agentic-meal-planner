@@ -1,4 +1,4 @@
-import type { Logger } from "../logging/logger.js";
+import { silentLogger, type Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
 import { isMainCategory } from "../dishes/categories.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -55,10 +55,12 @@ export interface IngestResult {
  * keep their stored entry.
  */
 export async function ingestWeek(deps: IngestDeps, weekStart: string, options: IngestOptions = {}): Promise<IngestResult> {
-  const plugins = deps.plugins ?? createSchoolPlugins(deps.fetchPage);
+  const runLog = deps.log ?? silentLogger;
+  const log = runLog.child({ component: "lunch-ingest" });
+  const plugins = deps.plugins ?? createSchoolPlugins(deps.fetchPage, runLog.child({ component: "school-plugin" }));
   const results: SchoolIngestResult[] = [];
   for (const school of listActiveSchools(deps.db)) {
-    const result = await ingestSchool(deps, plugins, school, weekStart, options.force === true);
+    const { entries, ...result } = await ingestSchool(deps, plugins, school, weekStart, options.force === true, log);
     recordIngestOutcome(deps.db, {
       schoolId: school.id,
       weekStart,
@@ -66,6 +68,7 @@ export async function ingestWeek(deps: IngestDeps, weekStart: string, options: I
       reason: result.reason ?? null,
       recordedAt: deps.now().toISOString(),
     });
+    log.info({ schoolId: school.id, status: result.status, entries, weekStart }, "ingest summary");
     results.push(result);
   }
   return { results, changed: results.flatMap((r) => r.changed) };
@@ -77,18 +80,22 @@ async function ingestSchool(
   school: School,
   weekStart: string,
   force: boolean,
-): Promise<SchoolIngestResult> {
+  log: Logger,
+): Promise<SchoolIngestResult & { entries: number }> {
   const dates = weekDates(weekStart);
   const stored = new Map(listLunchEntries(deps.db, school.id, dates[0]!, dates[dates.length - 1]!).map((e) => [e.date, e]));
   if (!force && weekdayDates(weekStart).every((date) => stored.has(date))) {
-    return { schoolId: school.id, status: "cached", changed: [] };
+    return { schoolId: school.id, status: "cached", changed: [], entries: stored.size };
   }
 
-  const scraped = await scrape(deps, plugins, school, weekStart);
-  if (!scraped.ok) return { schoolId: school.id, status: "no-data", reason: scraped.reason, changed: [] };
+  const scraped = await scrape(deps, plugins, school, weekStart, log);
+  if (!scraped.ok) return { schoolId: school.id, status: "no-data", reason: scraped.reason, changed: [], entries: 0 };
 
   const entries = mergeByDate(scraped.value.filter((e) => dates.includes(e.date)));
-  if (entries.length === 0) return { schoolId: school.id, status: "no-data", reason: "no entries for this week", changed: [] };
+  if (entries.length === 0) {
+    log.warn({ schoolId: school.id, url: school.url, reason: "no entries for this week" }, "no lunch entries for this week");
+    return { schoolId: school.id, status: "no-data", reason: "no entries for this week", changed: [], entries: 0 };
+  }
 
   const fetchedAt = deps.now().toISOString();
   const changed: LunchChange[] = [];
@@ -109,27 +116,32 @@ async function ingestSchool(
     }
   });
   store();
-  return { schoolId: school.id, status: "ok", changed };
+  return { schoolId: school.id, status: "ok", changed, entries: entries.length };
 }
 
 type ScrapeResult = { ok: true; value: LunchEntry[] } | { ok: false; reason: string };
 
-async function scrape(deps: IngestDeps, plugins: SchoolPlugin[], school: School, weekStart: string): Promise<ScrapeResult> {
+async function scrape(deps: IngestDeps, plugins: SchoolPlugin[], school: School, weekStart: string, log: Logger): Promise<ScrapeResult> {
   const plugin = findPlugin(school.url, plugins);
   if (plugin) {
     try {
       return { ok: true, value: await plugin.scrape(school.url, weekStart) };
     } catch (error) {
+      log.warn({ schoolId: school.id, url: school.url, pluginId: plugin.id, reason: message(error), err: error }, "school plugin failed");
       return { ok: false, reason: `plugin ${plugin.id} failed: ${message(error)}` };
     }
   }
+  log.info({ schoolId: school.id, url: school.url }, "using LLM fallback");
   let page: string;
   try {
     page = await deps.fetchPage(school.url);
   } catch (error) {
+    log.warn({ schoolId: school.id, url: school.url, reason: message(error), err: error }, "menu fetch failed");
     return { ok: false, reason: `fetch failed: ${message(error)}` };
   }
-  return deps.llm.extractLunchMenu(page, weekStart);
+  const extracted = await deps.llm.extractLunchMenu(page, weekStart);
+  if (!extracted.ok) log.warn({ schoolId: school.id, url: school.url, reason: extracted.reason }, "agent lunch extraction failed");
+  return extracted;
 }
 
 /** One Lunch Entry per date: texts joined by newline, first non-empty normalized name/category kept. */

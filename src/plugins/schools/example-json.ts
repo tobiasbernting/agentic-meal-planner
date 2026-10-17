@@ -1,3 +1,4 @@
+import { silentLogger, type Logger } from "../../logging/logger.js";
 import type { LunchEntry, SchoolPlugin } from "../../types.js";
 import { weekDates } from "../../week.js";
 
@@ -10,7 +11,8 @@ export type FetchPage = (url: string) => Promise<string>;
  * `{ "days": [{ "date": "YYYY-MM-DD", "dishes": ["..."] }] }`.
  * Several dishes on one date become one Lunch Entry with the dishes joined by newline.
  */
-export function exampleJsonPlugin(fetchPage: FetchPage): SchoolPlugin {
+export function exampleJsonPlugin(fetchPage: FetchPage, logger: Logger = silentLogger): SchoolPlugin {
+  const log = logger.child({ component: "school-plugin" });
   return {
     id: "example-json",
     claims: (url) => url.endsWith(".lunch.json"),
@@ -18,7 +20,7 @@ export function exampleJsonPlugin(fetchPage: FetchPage): SchoolPlugin {
       const body = await fetchPage(url);
       const week = new Set(weekDates(weekStart));
       const entries: LunchEntry[] = [];
-      for (const day of parseDays(body)) {
+      for (const day of parseDays(body, (reason) => log.warn({ pluginId: "example-json", url, reason }, "school plugin got malformed data; returning no entries"))) {
         if (!week.has(day.date) || day.dishes.length === 0) continue;
         entries.push({ date: day.date, rawText: day.dishes.join("\n") });
       }
@@ -32,15 +34,19 @@ interface MenuDay {
   dishes: string[];
 }
 
-function parseDays(body: string): MenuDay[] {
+function parseDays(body: string, malformed: (reason: string) => void): MenuDay[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
-  } catch {
+  } catch (error) {
+    malformed(`body is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
   const days = (parsed as { days?: unknown })?.days;
-  if (!Array.isArray(days)) return [];
+  if (!Array.isArray(days)) {
+    malformed('expected { "days": [...] }');
+    return [];
+  }
   return days.flatMap((day): MenuDay[] => {
     const { date, dishes } = (day ?? {}) as { date?: unknown; dishes?: unknown };
     if (typeof date !== "string" || !Array.isArray(dishes)) return [];

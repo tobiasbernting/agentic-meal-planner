@@ -4,6 +4,7 @@
  * automatically after plan generation (src/plan/routes.ts and src/server.ts).
  */
 import type { FeaturePlugin } from "../app.js";
+import { runLogger } from "../logging/logger.js";
 import { addDays, mondayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { getPlanForWeek } from "../planner/repo.js";
@@ -95,14 +96,18 @@ ${content}`;
   app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) { await buildShoppingList(ctx, plan.id); await pushShoppingList(ctx, plan.id); }
+    if (plan) {
+      const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping") };
+      await buildShoppingList(deps, plan.id);
+      await pushShoppingList(deps, plan.id);
+    }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });
 
   app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) await pushShoppingList(ctx, plan.id);
+    if (plan) await pushShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping") }, plan.id);
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });
 };
