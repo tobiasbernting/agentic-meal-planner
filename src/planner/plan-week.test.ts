@@ -194,6 +194,28 @@ describe("planWeek", () => {
     ]);
   });
 
+  it("keeps the agent's same-Main-Category picks on consecutive dinners, with its rationale (Variety Preference is soft)", async () => {
+    const salmon = dish({ name: "Lax", mainCategory: "fish" });
+    const cod = dish({ name: "Torsk", mainCategory: "fish" });
+    const llm = new ScriptedLlmAgent({
+      selectDishes: {
+        ok: true,
+        value: [
+          { date: "2026-10-12", dishId: String(salmon.id), rationale: "Lax while it is fresh" },
+          { date: "2026-10-13", dishId: String(cod.id), rationale: "Fish again: the torsk must be eaten before Wednesday" },
+        ],
+      },
+    });
+
+    const result = await planWeek(input({ dishes: [salmon, cod], llm }));
+
+    expect(result.dinners.slice(0, 2)).toMatchObject([
+      { dishId: salmon.id, rationale: "Lax while it is fresh" },
+      { dishId: cod.id, rationale: "Fish again: the torsk must be eaten before Wednesday" },
+    ]);
+    expect(result.degradedReasons.filter((r) => r.date === "2026-10-13")).toEqual([]);
+  });
+
   it("records the lunch of the day on each Planned Dinner", async () => {
     const lunch = {
       "2026-10-13": [
@@ -386,6 +408,17 @@ describe("planWeek", () => {
       expect(result.degradedReasons.filter((r) => r.date === "2026-10-12" && !r.logOnly)).toEqual([
         expect.objectContaining({ code: "quick-day", params: { name: "Kalops", limit: 30 } }),
       ]);
+    });
+
+    it("matches a suggestion to an existing Dish by exact normalised name only: Pasta does not reuse Pasta med lax", async () => {
+      const pastaWithSalmon = dish({ name: "Pasta med lax", mainCategory: "pasta", inRotation: false, suggested: true });
+      const llm = new ScriptedLlmAgent({
+        selectDishes: { ok: true, value: [{ date: "2026-10-12", suggestion: { name: "Pasta", mainCategory: "pasta", prepTimeMinutes: 20 }, rationale: "x" }] },
+      });
+
+      const result = await planWeek(input({ dishes: [pastaWithSalmon], llm }));
+
+      expect(result.dinners[0]).toMatchObject({ dishId: null, suggestion: { name: "Pasta" } });
     });
 
     it("drops a suggestion matching a Favorite Dish the filter excluded that day", async () => {
