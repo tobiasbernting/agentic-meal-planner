@@ -158,4 +158,18 @@ export const sv: Dictionary = {
   "settings.quickDays.save": "Spara för den här veckan",
   "settings.quickDays.clear": "Ta bort ändring (följ mallen)",
   "settings.back": "Tillbaka till inställningar",
+
+  "logs.title": "Loggar",
+  "logs.currentLevel": "Aktuell nivå: {level}",
+  "logs.levelLabel": "Live-nivå (till omstart)",
+  "logs.setLevel": "Ändra nivå",
+  "logs.minLevel": "Lägsta nivå",
+  "logs.search": "Sök",
+  "logs.runId": "Körning",
+  "logs.component": "Komponent",
+  "logs.clearFilter": "Rensa",
+  "logs.help": "Visar de senaste 2000 posterna och sedan nya i realtid. Klicka på en posts körning eller komponent för att filtrera på den.",
+  "logs.connecting": "Ansluter…",
+  "logs.live": "Live",
+  "logs.disconnected": "Frånkopplad, ansluter igen…",
 };

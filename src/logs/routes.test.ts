@@ -107,3 +107,36 @@ describe("POST /logs/level", () => {
     expect(app.ctx.logs.getLevel()).toBe("info");
   });
 });
+
+describe("GET /logs", () => {
+  it("renders the live log view with the current level selected", async () => {
+    const { app } = await start({ logLevel: "info" });
+    await app.inject({ method: "POST", url: "/logs/level", payload: { level: "debug" } });
+
+    const res = await app.inject({ method: "GET", url: "/logs" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.body).toContain("<h1>Logs</h1>");
+    expect(res.body).toContain("Current level: debug");
+    expect(res.body).toMatch(/<form method="post" action="\/logs\/level">/);
+    expect(res.body).toContain('<option value="debug" selected>');
+    expect(res.body).toContain('new EventSource("/logs/stream")');
+  });
+
+  it("is in Swedish by default", async () => {
+    const { app } = await start();
+
+    const res = await app.inject({ method: "GET", url: "/logs", headers: { cookie: "" } });
+
+    expect(res.body).toContain("<h1>Loggar</h1>");
+  });
+
+  it("is linked from Settings", async () => {
+    const { app } = await start();
+
+    const res = await app.inject({ method: "GET", url: "/settings" });
+
+    expect(res.body).toContain('<a href="/logs">Logs</a>');
+  });
+});

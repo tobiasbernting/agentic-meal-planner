@@ -156,4 +156,18 @@ export const en = {
   "settings.quickDays.save": "Save for this week",
   "settings.quickDays.clear": "Remove override (follow the template)",
   "settings.back": "Back to Settings",
+
+  "logs.title": "Logs",
+  "logs.currentLevel": "Current level: {level}",
+  "logs.levelLabel": "Live level (until restart)",
+  "logs.setLevel": "Set level",
+  "logs.minLevel": "Minimum level",
+  "logs.search": "Search",
+  "logs.runId": "Run",
+  "logs.component": "Component",
+  "logs.clearFilter": "Clear",
+  "logs.help": "Shows the last 2000 records, then new ones live. Click a record's run or component to filter by it.",
+  "logs.connecting": "Connecting…",
+  "logs.live": "Live",
+  "logs.disconnected": "Disconnected, reconnecting…",
 } as const satisfies Record<string, string>;
