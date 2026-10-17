@@ -10,3 +10,4 @@ dist
 # Local SQLite data
 *.db
 data/
+.impeccable/mocks/
