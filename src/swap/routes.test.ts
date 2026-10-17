@@ -172,6 +172,18 @@ describe("Byt on Plan and Today", () => {
     expect(today.body).not.toContain("disabled>Swap dish");
   });
 
+  it("refuses a malformed date with 400 in plain text", async () => {
+    const app = withEnglish(await start());
+
+    for (const res of [
+      await app.inject({ method: "GET", url: "/plan/swap?date=monday" }),
+      await app.inject({ method: "POST", url: "/plan/swap", payload: { date: "monday", dishId: "1" } }),
+    ]) {
+      expect(res.statusCode).toBe(400);
+      expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    }
+  });
+
   it("hides Byt and refuses the Swap on a confirmed plan", async () => {
     const app = withEnglish(await start());
     const burgers = createDish(app.ctx.db, { name: "Burgers" });

@@ -34,9 +34,14 @@ export function mondayOf(date: string): string {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Whether a request value has the ISO `YYYY-MM-DD` shape every date route accepts. */
+export function isIsoDate(raw: string | undefined): raw is string {
+  return raw !== undefined && ISO_DATE.test(raw);
+}
+
 /** The Monday of a requested week (a `?week=` or form value); absent or malformed means `today`'s week. */
 export function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && ISO_DATE.test(raw) ? raw : today);
+  return mondayOf(isIsoDate(raw) ? raw : today);
 }
 
 /**

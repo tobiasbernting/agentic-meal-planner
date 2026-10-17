@@ -7,6 +7,7 @@
  * with `swapControl`.
  */
 import type Database from "better-sqlite3";
+import type { FastifyReply } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
@@ -15,9 +16,7 @@ import { eligibleDishesOn } from "../planner/eligible.js";
 import { getPlanForWeek, setPlannedDinnerDish, type WeeklyPlan } from "../planner/repo.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { escapeHtml, page } from "../ui/layout.js";
-import { mondayOf } from "../week.js";
-
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+import { isIsoDate, mondayOf } from "../week.js";
 
 /** The week's plan when its dinner on `date` may be swapped: generated (not confirmed), no Plan Run in flight. */
 function swappablePlan(ctx: Pick<AppContext, "db" | "planRuns">, date: string): WeeklyPlan | undefined {
@@ -73,12 +72,23 @@ interface SwapForm extends SwapQuery {
 }
 
 export const swapRoutes: FeaturePlugin = async (app, ctx) => {
+  /**
+   * The date and its swappable plan, or undefined after refusing the request in plain text:
+   * 400 for a malformed date, 409 when Swap is unavailable on it.
+   */
+  const swapTarget = (reply: FastifyReply, lang: Lang, raw: string | undefined): { date: string; plan: WeeklyPlan } | undefined => {
+    const refuse = (code: 400 | 409) => void reply.code(code).type("text/plain; charset=utf-8").send(t(lang, "swap.refused"));
+    if (!isIsoDate(raw)) return refuse(400);
+    const plan = swappablePlan(ctx, raw);
+    if (!plan) return refuse(409);
+    return { date: raw, plan };
+  };
+
   app.get<{ Querystring: SwapQuery }>("/plan/swap", async (req, reply) => {
     const lang = langOf(req);
-    const date = req.query.date ?? "";
-    if (!DATE.test(date)) return reply.code(400).send(t(lang, "swap.refused"));
-    const plan = swappablePlan(ctx, date);
-    if (!plan) return reply.code(409).type("text/plain; charset=utf-8").send(t(lang, "swap.refused"));
+    const target = swapTarget(reply, lang, req.query.date);
+    if (!target) return reply;
+    const { date, plan } = target;
     const next = safeNext(req.query.next, date);
     const current = plan.dinners.find((d) => d.date === date)?.dishId ?? null;
     const list = swapList(ctx.db, lang, date, current, next);
@@ -90,10 +100,9 @@ export const swapRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.post<{ Body: SwapForm }>("/plan/swap", async (req, reply) => {
     const lang = langOf(req);
-    const date = req.body.date ?? "";
-    if (!DATE.test(date)) return reply.code(400).send(t(lang, "swap.refused"));
-    const plan = swappablePlan(ctx, date);
-    if (!plan) return reply.code(409).type("text/plain; charset=utf-8").send(t(lang, "swap.refused"));
+    const target = swapTarget(reply, lang, req.body.date);
+    if (!target) return reply;
+    const { date, plan } = target;
     const dishId = Number(req.body.dishId);
     if (!eligibleDishesOn(ctx.db, date).some((dish) => dish.id === dishId)) {
       return reply.code(400).type("text/plain; charset=utf-8").send(t(lang, "swap.notEligible"));

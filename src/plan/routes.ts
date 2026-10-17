@@ -9,7 +9,7 @@ import type Database from "better-sqlite3";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { almanac } from "../almanac/day.js";
-import { addDays, mondayOf, resolveWeek, weekDates } from "../week.js";
+import { addDays, isIsoDate, mondayOf, resolveWeek, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate } from "../lunch/repo.js";
@@ -26,8 +26,6 @@ import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, weekNav } from "../ui/almanac.js";
 import { swapControl } from "../swap/routes.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
-
-const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
 
 interface PlanQuery {
   week?: string;
@@ -65,7 +63,7 @@ function datesWithChangedLunch(db: Database.Database, plan: WeeklyPlan): string[
  * Plan exists for it (the Sunday review), else this week.
  */
 function defaultWeek(db: Database.Database, raw: string | undefined, today: string): string {
-  if (raw && WEEK_START.test(raw)) return mondayOf(raw);
+  if (isIsoDate(raw)) return resolveWeek(raw, today);
   const next = addDays(mondayOf(today), 7);
   return getPlanForWeek(db, next) ? next : mondayOf(today);
 }
