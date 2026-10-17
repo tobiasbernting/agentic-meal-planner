@@ -276,8 +276,21 @@ describe("Shopping List as the almanac notes page", () => {
       expect(sinks(en.body)).not.toContain("Send again");
     });
 
+    it("says no recipient is set up and offers no Skicka igen even after earlier pushes", async () => {
+      const { app, planId } = await builtList();
+      app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 0, 'Trello HTTP 401', NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());
+
+      const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+
+      const sinks = /<section id="sinks">[\s\S]*?<\/section>/.exec(sv.body)![0];
+      expect(sinks).toContain('<a href="/settings#recipients">Ingen mottagare inställd</a>');
+      expect(sinks).not.toContain("Skicka igen");
+      expect(sinks).not.toContain("/shopping/push");
+    });
+
     it("says where and when the Buy list was sent, with Skicka igen", async () => {
       const { app, planId } = await builtList();
+      writeSetting(app.ctx.db, "shopping_list_sinks", '[{"type":"webhook","url":"https://hook.example/list"}]');
       app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 1, NULL, NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());
 
       const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
@@ -316,6 +329,7 @@ describe("Shopping List as the almanac notes page", () => {
 
     it("shows an inverted failure block with the reason and Skicka igen", async () => {
       const { app, planId } = await builtList();
+      writeSetting(app.ctx.db, "shopping_list_sinks", '[{"type":"webhook","url":"https://hook.example/list"}]');
       app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 0, 'Trello HTTP 401', NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());
 
       const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });

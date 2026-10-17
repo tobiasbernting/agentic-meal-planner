@@ -136,11 +136,13 @@ function sinkName(sinkId: string): string {
 /**
  * Where and when the Buy list went: one status line per sink, or an inverted block per failure;
  * Skicka igen once. When a rebuild (Swap, Har alltid hemma) changed the Buy list after a
- * successful push, a line says so, since the sink no longer holds the current list.
+ * successful push, a line says so, since the sink no longer holds the current list. With no
+ * sink configured, the history stays but the last line links to Settings instead of Skicka igen.
  */
 function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string, buy: AggregatedItem[]): string {
   const timezone = readTimezone(ctx.db);
   const pushes = latestPushes(ctx.db, planId);
+  const hasSink = configuredSinks(ctx.db, ctx.env ?? process.env, ctx.fetch).length > 0;
   const again = (quiet: boolean) => `<form method="post" action="/shopping/push">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <button type="submit"${quiet ? ' class="quiet"' : ""}>${t(lang, "shopping.pushAgain")}</button>
@@ -153,7 +155,7 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
           label: t(lang, "shopping.failedLabel"),
           text: t(lang, "shopping.sendFailed", { sink: sinkName(p.sinkId), error: p.error ?? t(lang, "shopping.unknownError") }),
           role: "alert",
-          actionsHtml: i === lastFailed ? again(false) : undefined,
+          actionsHtml: hasSink && i === lastFailed ? again(false) : undefined,
         }),
   );
   const current = buyFingerprint(buy);
@@ -161,11 +163,9 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
   if (pushes.some((p) => p.ok && p.buyHash !== null && p.buyHash !== current)) {
     lines.splice(lastOk + 1, 0, `<p class="sink-status">${t(lang, "shopping.changedSinceSent")}</p>`);
   }
-  if (pushes.length === 0 && configuredSinks(ctx.db, ctx.env ?? process.env, ctx.fetch).length === 0) {
-    return `<section id="sinks">\n<p class="sink-status"><a href="/settings#recipients">${t(lang, "shopping.noSink")}</a></p>\n</section>`;
-  }
-  if (pushes.length === 0) lines.push(`<p class="sink-status">${t(lang, "shopping.notPushed")}</p>`);
-  if (lastFailed === -1) lines.push(again(true));
+  if (!hasSink) lines.push(`<p class="sink-status"><a href="/settings#recipients">${t(lang, "shopping.noSink")}</a></p>`);
+  else if (pushes.length === 0) lines.push(`<p class="sink-status">${t(lang, "shopping.notPushed")}</p>`);
+  if (hasSink && lastFailed === -1) lines.push(again(true));
   return `<section id="sinks">\n${lines.join("\n")}\n</section>`;
 }
 
