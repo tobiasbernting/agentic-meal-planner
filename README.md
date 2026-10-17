@@ -47,6 +47,8 @@ Shopping List Sinks are set in Settings as a JSON array (empty = Trello when `TR
 
 The agent command (Settings, or the `AGENT_COMMAND` env var) defaults to `copilot -p` in the running server; set `AGENT_COMMAND=""` to run without an agent (degraded mode). "Today" and the weekly run use the server time zone (`-e TZ=Europe/Stockholm` with Docker; the image defaults to UTC) unless a time zone (IANA name) is saved in Settings.
 
+Logs go to stdout: one JSON object per line when `NODE_ENV=production` (the container), pretty-printed through `pino-pretty` under `npm run dev`. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, or `silent`) sets verbosity; it defaults to `info` in production and `debug` otherwise. Every request, plan run and lunch ingest logs with a `runId` (the request id, or `cron-<ISO time>` for the weekly run), so `docker logs <container> | jq 'select(.runId == "req-7")'` shows one run. At startup the server logs the resolved agent command, whether its binary is on `PATH` (a `warn` when it is not), the time zone, `DATA_DIR` and the cron schedule. `GET /health` returns `{ "status": "ok", "agentBinaryFound": true, "agentCommand": "copilot -p" }`; the check is a `PATH` lookup and never calls the agent.
+
 ## Development
 
 Requires Node 24+.
