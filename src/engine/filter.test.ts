@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Dish, Weekday } from "../dishes/repo.js";
 import type { LunchEntry } from "../types.js";
-import { buildCandidateSets, filterEligibleDishes, type DayInput } from "./filter.js";
+import { buildCandidateSets, describeExclusion, exclusionRule, filterEligibleDishes, type DayInput, type ExclusionRule } from "./filter.js";
 import { weekdayOf } from "../week.js";
 
 function dish(overrides: Partial<Dish> & { name: string }): Dish {
@@ -45,6 +45,50 @@ describe("weekdayOf", () => {
   ];
   it.each(cases)("%s is %s", (date, expected) => {
     expect(weekdayOf(date)).toBe(expected);
+  });
+});
+
+describe("exclusionRule", () => {
+  it("is null for an eligible Dish", () => {
+    expect(exclusionRule(dish({ name: "Burgers", prepTimeMinutes: 20 }), day({ quickDayLimitMinutes: 30 }), collisionOn)).toBeNull();
+  });
+
+  it("names the first hard rule broken, with the parameters the household message needs", () => {
+    const fishLunch = lunch({ rawText: "Fiskgratäng", mainCategory: "fish" });
+    const cases: [Dish, DayInput, ExclusionRule][] = [
+      [dish({ name: "Lasagne", inRotation: false }), day(), { code: "not-in-rotation" }],
+      [dish({ name: "fiskgratäng" }), day({ lunch: [fishLunch] }), { code: "same-as-lunch", lunch: "Fiskgratäng" }],
+      [dish({ name: "Lax", mainCategory: "fish" }), day({ lunch: [fishLunch] }), { code: "lunch-category", category: "fish", lunch: "Fiskgratäng" }],
+      [dish({ name: "Stek", weekendOnly: true }), day(), { code: "weekend-only", date: "2026-10-16", weekday: "fri" }],
+      [dish({ name: "Gryta", prepTimeMinutes: 90 }), day({ quickDayLimitMinutes: 30 }), { code: "quick-day", limit: 30, minutes: 90 }],
+      [dish({ name: "Soppa" }), day({ quickDayLimitMinutes: 30 }), { code: "quick-day", limit: 30, minutes: null }],
+    ];
+    for (const [d, input, expected] of cases) expect(exclusionRule(d, input, collisionOn)).toEqual(expected);
+  });
+
+  it("puts rotation before lunch, and same-name before category", () => {
+    const fishLunch = lunch({ rawText: "Fiskgratäng", mainCategory: "fish" });
+    expect(exclusionRule(dish({ name: "Fiskgratäng", mainCategory: "fish", inRotation: false }), day({ lunch: [fishLunch] }), collisionOn)?.code).toBe("not-in-rotation");
+    expect(exclusionRule(dish({ name: "Fiskgratäng", mainCategory: "fish" }), day({ lunch: [fishLunch] }), collisionOn)?.code).toBe("same-as-lunch");
+  });
+
+  it("skips the category rule when collision is off", () => {
+    const fishLunch = lunch({ rawText: "Fiskgratäng", mainCategory: "fish" });
+    expect(exclusionRule(dish({ name: "Lax", mainCategory: "fish" }), day({ lunch: [fishLunch] }), { categoryCollisionEnabled: false })).toBeNull();
+  });
+});
+
+describe("describeExclusion", () => {
+  const cases: [ExclusionRule, string][] = [
+    [{ code: "not-in-rotation" }, "not in rotation"],
+    [{ code: "same-as-lunch", lunch: "Fiskgratäng" }, 'same dish as lunch "Fiskgratäng"'],
+    [{ code: "lunch-category", category: "fish", lunch: "Fiskgratäng" }, 'same Main Category (fish) as lunch "Fiskgratäng"'],
+    [{ code: "weekend-only", date: "2026-10-16", weekday: "fri" }, "Weekend Dish, and 2026-10-16 is a fri"],
+    [{ code: "quick-day", limit: 30, minutes: 90 }, "Quick Day (limit 30 min) and prep time is 90 min"],
+    [{ code: "quick-day", limit: 30, minutes: null }, "Quick Day (limit 30 min) and prep time is unknown"],
+  ];
+  it.each(cases)("%j reads %s", (rule, text) => {
+    expect(describeExclusion(rule)).toBe(text);
   });
 });
 
