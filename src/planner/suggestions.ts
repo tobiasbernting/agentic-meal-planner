@@ -58,11 +58,6 @@ function asRotationDish(s: DishSuggestion): Dish {
   };
 }
 
-/** The hard rule `dish` breaks on `day`, or null when it passes every one. */
-function hardRuleViolation(dish: Dish, day: DayInput, options: FilterOptions): ExclusionRule | null {
-  return exclusionRule(dish, day, options);
-}
-
 /**
  * Decides what a suggestion becomes on one date. `dishes` is every Dish (in rotation or not).
  * A name match to a Favorite Dish means the filter already excluded it that day, so the pick
@@ -77,18 +72,18 @@ export function resolveSuggestion(
   const valid = validateSuggestion(raw);
   if (!valid.ok) return { kind: "dropped", why: valid.why };
   const suggestion = valid.value;
-  const violation = hardRuleViolation(asRotationDish(suggestion), day, options);
+  const violation = exclusionRule(asRotationDish(suggestion), day, options);
   if (violation !== null) return { kind: "dropped", why: describeExclusion(violation), rule: violation };
 
   const wanted = normaliseName(suggestion.name);
   const match = dishes.find((d) => normaliseName(d.name) === wanted);
   if (match === undefined) return { kind: "new", suggestion };
   if (match.inRotation) {
-    const rule = hardRuleViolation(match, day, options) ?? undefined;
+    const rule = exclusionRule(match, day, options) ?? undefined;
     const reason = rule ? describeExclusion(rule) : "not eligible that day";
     return { kind: "dropped", why: `matches Favorite Dish "${match.name}", excluded that day (${reason})`, rule };
   }
-  const existingViolation = hardRuleViolation({ ...match, inRotation: true }, day, options);
+  const existingViolation = exclusionRule({ ...match, inRotation: true }, day, options);
   if (existingViolation !== null) {
     return {
       kind: "dropped",

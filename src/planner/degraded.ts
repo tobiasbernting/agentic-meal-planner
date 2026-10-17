@@ -5,19 +5,13 @@
  * it goes to Logs and is never stored or shown.
  */
 import { MAIN_CATEGORIES, isMainCategory } from "../dishes/categories.js";
-import { t, type Lang, type MessageKey } from "../i18n/index.js";
+import type { ExclusionCode } from "../engine/filter.js";
+import { t, type Lang } from "../i18n/index.js";
 
-export type DegradedCode =
-  | "no-agent"
-  | "agent-failed"
-  | "pick-not-eligible"
-  | "seed-fallback"
-  | "suggestion-invalid"
-  | "same-as-lunch"
-  | "lunch-category"
-  | "weekend-only"
-  | "quick-day"
-  | "unknown";
+/** The hard rules a dropped suggestion is reported by; a suggestion is never out of rotation. */
+export type DayRuleCode = Exclude<ExclusionCode, "not-in-rotation">;
+
+export type DegradedCode = "no-agent" | "agent-failed" | "pick-not-eligible" | "seed-fallback" | "suggestion-invalid" | DayRuleCode | "unknown";
 
 export interface DegradedReason {
   code: DegradedCode;
@@ -62,6 +56,6 @@ export function describeDegraded(lang: Lang, reason: DegradedReason): string {
   if (typeof category === "string" && isMainCategory(category)) {
     params.category = MAIN_CATEGORIES[category][lang].toLocaleLowerCase(lang);
   }
-  const key = `degraded.${reason.code}${reason.code === "unknown" && reason.date === null ? ".week" : ""}` as MessageKey;
+  const key = reason.code === "unknown" && reason.date === null ? "degraded.unknown.week" : (`degraded.${reason.code}` as const);
   return t(lang, key, params);
 }

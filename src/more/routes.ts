@@ -4,7 +4,7 @@
  */
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { listDishes } from "../dishes/repo.js";
-import { langOf, t, type Lang, type MessageKey } from "../i18n/index.js";
+import { langOf, t, type Lang } from "../i18n/index.js";
 import { agentBinaryFound } from "../logging/startup.js";
 import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
 import { listPantryItems } from "../pantry/repo.js";
@@ -16,7 +16,7 @@ import { shortWhen } from "../ui/when.js";
 type Countable = "dish" | "school" | "pantryItem";
 
 function count(lang: Lang, noun: Countable, n: number): string {
-  return t(lang, `count.${noun}.${n === 1 ? "one" : "other"}` as MessageKey, { n });
+  return t(lang, `count.${noun}.${n === 1 ? "one" : "other"}` as const, { n });
 }
 
 /** The most recent Ingest Outcome across the given (active) Schools' outcomes, as a status phrase. */

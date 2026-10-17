@@ -6,7 +6,7 @@
  * rationale (FR-8). With no agent, selection degrades to round-robin (FR-16).
  */
 import type { Dish, Weekday } from "../dishes/repo.js";
-import { buildCandidateSets, type DayInput } from "../engine/filter.js";
+import { buildCandidateSets, exclusionParams, type DayInput, type ExclusionRule } from "../engine/filter.js";
 import {
   NO_AGENT_REASON,
   NoAgent,
@@ -22,7 +22,6 @@ import { createSeedPicker, resolveSuggestion, type SuggestionOutcome } from "./s
 import { quickDayLimitFor, type PlannerSettings } from "./settings.js";
 import { weekDates, weekdayOf } from "../week.js";
 import { DEFAULT_LANG, t, type Lang } from "../i18n/index.js";
-import type { ExclusionRule } from "../engine/filter.js";
 import type { DegradedReasonDraft } from "./degraded.js";
 
 /** The no-eligible-dish rationale in the default language; `planWeek` writes it in `input.language`. */
@@ -191,15 +190,7 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
 /** The household-facing code for a dropped agent pick on a day with no eligible Favorite Dish. */
 function droppedCode(wasSuggestion: boolean, rule: ExclusionRule | undefined): Pick<DegradedReasonDraft, "code" | "params"> {
   if (!wasSuggestion) return { code: "pick-not-eligible" };
-  switch (rule?.code) {
-    case "same-as-lunch":
-    case "weekend-only":
-      return { code: rule.code };
-    case "lunch-category":
-      return { code: "lunch-category", params: { category: rule.category } };
-    case "quick-day":
-      return { code: "quick-day", params: { limit: rule.limit } };
-    default:
-      return { code: "suggestion-invalid" };
-  }
+  if (rule === undefined || rule.code === "not-in-rotation") return { code: "suggestion-invalid" };
+  const params = exclusionParams(rule);
+  return params ? { code: rule.code, params } : { code: rule.code };
 }

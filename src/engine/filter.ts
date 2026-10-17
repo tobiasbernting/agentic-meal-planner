@@ -76,22 +76,41 @@ export function exclusionRule(dish: Dish, day: DayInput, options: FilterOptions)
   return null;
 }
 
+export type ExclusionCode = ExclusionRule["code"];
+type RuleOf<C extends ExclusionCode> = Extract<ExclusionRule, { code: C }>;
+type Params = Record<string, string | number>;
+
+/**
+ * Per rule: its technical text (Logs, rationale debugging) and the parameters a household
+ * message about it needs (`undefined` when the message needs none).
+ */
+const RULES: { [C in ExclusionCode]: { describe(rule: RuleOf<C>): string; params(rule: RuleOf<C>): Params | undefined } } = {
+  "not-in-rotation": { describe: () => "not in rotation", params: () => undefined },
+  "same-as-lunch": { describe: (r) => `same dish as lunch "${r.lunch}"`, params: () => undefined },
+  "lunch-category": { describe: (r) => `same Main Category (${r.category}) as lunch "${r.lunch}"`, params: (r) => ({ category: r.category }) },
+  "weekend-only": { describe: (r) => `Weekend Dish, and ${r.date} is a ${r.weekday}`, params: () => undefined },
+  "quick-day": {
+    describe: (r) =>
+      r.minutes === null
+        ? `Quick Day (limit ${r.limit} min) and prep time is unknown`
+        : `Quick Day (limit ${r.limit} min) and prep time is ${r.minutes} min`,
+    params: (r) => ({ limit: r.limit }),
+  },
+};
+
+/** One rule's entry, typed for the union (TypeScript cannot correlate `RULES[rule.code]` with `rule`). */
+function ruleEntry(rule: ExclusionRule): { describe(rule: ExclusionRule): string; params(rule: ExclusionRule): Params | undefined } {
+  return RULES[rule.code] as { describe(rule: ExclusionRule): string; params(rule: ExclusionRule): Params | undefined };
+}
+
 /** The rule as technical text for Logs and rationale debugging. */
 export function describeExclusion(rule: ExclusionRule): string {
-  switch (rule.code) {
-    case "not-in-rotation":
-      return "not in rotation";
-    case "same-as-lunch":
-      return `same dish as lunch "${rule.lunch}"`;
-    case "lunch-category":
-      return `same Main Category (${rule.category}) as lunch "${rule.lunch}"`;
-    case "weekend-only":
-      return `Weekend Dish, and ${rule.date} is a ${rule.weekday}`;
-    case "quick-day":
-      return rule.minutes === null
-        ? `Quick Day (limit ${rule.limit} min) and prep time is unknown`
-        : `Quick Day (limit ${rule.limit} min) and prep time is ${rule.minutes} min`;
-  }
+  return ruleEntry(rule).describe(rule);
+}
+
+/** The parameters a household message about the rule needs, or `undefined` when it needs none. */
+export function exclusionParams(rule: ExclusionRule): Params | undefined {
+  return ruleEntry(rule).params(rule);
 }
 
 function exclusionReason(dish: Dish, day: DayInput, options: FilterOptions): string | null {
