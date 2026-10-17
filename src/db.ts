@@ -9,6 +9,7 @@ import { SCHEMA_PANTRY } from "./pantry/schema.js";
 import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
 import { SCHEMA_SHOPPING } from "./shopping/schema.js";
 import { SCHEMA_SINKS } from "./sinks/schema.js";
+import { SCHEMA_IDEMPOTENCY } from "./offline/idempotency.js";
 
 export const DB_FILENAME = "meal-planner.db";
 
@@ -32,6 +33,7 @@ const SCHEMA: string[] = [
   SCHEMA_INGREDIENTS,
   SCHEMA_SHOPPING,
   SCHEMA_SINKS,
+  SCHEMA_IDEMPOTENCY,
 ];
 
 /**
