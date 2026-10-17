@@ -46,6 +46,59 @@ function planWith(app: Awaited<ReturnType<typeof buildApp>>, dishIds: number[]) 
   );
 }
 
+describe("Har alltid hemma over HTMX", () => {
+  const hx = { "hx-request": "true" };
+
+  async function withPasta() {
+    const app = await start();
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "tomat", quantity: 2, unit: null }] });
+    planWith(app, [pasta]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    return app;
+  }
+
+  it("returns the Buy and Check pantry sections with the line moved and an Undo control", async () => {
+    const app = await withPasta();
+
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry", headers: hx, payload: { weekStart: WEEK, name: "pasta" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("<html");
+    expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*400 g pasta[\s\S]*action="\/shopping\/pantry\/undo"/);
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*tomat/);
+    expect(res.body).not.toMatch(/<section id="buy">[\s\S]*pasta[\s\S]*<section id="check-pantry">/);
+    expect(res.body).toContain("Undo");
+  });
+
+  it("Undo deletes the Pantry Item just created and the line returns to Buy", async () => {
+    const app = await withPasta();
+    const made = await app.inject({ method: "POST", url: "/shopping/pantry", headers: hx, payload: { weekStart: WEEK, name: "pasta" } });
+    const id = /name="id" value="(\d+)"/.exec(made.body)![1];
+
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry/undo", headers: hx, payload: { weekStart: WEEK, id } });
+
+    expect(res.statusCode).toBe(200);
+    expect(listPantryItems(app.ctx.db)).toEqual([]);
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*400 g pasta[\s\S]*<section id="check-pantry">/);
+    expect(res.body).not.toContain("Undo");
+  });
+
+  it("Undo without the header redirects", async () => {
+    const app = await withPasta();
+    const item = createPantryItem(app.ctx.db, { name: "pasta", aliases: [] });
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry/undo", payload: { weekStart: WEEK, id: String(item.id) } });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}`);
+    expect(listPantryItems(app.ctx.db)).toEqual([]);
+  });
+
+  it("the Buy button posts through HTMX into the sections wrapper", async () => {
+    const app = await withPasta();
+    const page = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(page.body).toMatch(/<div id="shopping-lists">[\s\S]*hx-post="\/shopping\/pantry"[\s\S]*hx-target="#shopping-lists"/);
+  });
+});
+
 describe("POST /shopping/pantry", () => {
   it("creates a Pantry Item from a Buy line and moves it to Check pantry", async () => {
     const app = await start();

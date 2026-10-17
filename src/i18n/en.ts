@@ -97,6 +97,7 @@ export const en = {
 
   "shopping.title": "Shopping List",
   "shopping.alwaysHome": "Always at home",
+  "shopping.undo": "Undo",
   "shopping.alwaysHomeFor": "Always at home: {name}",
   "shopping.buy": "Buy",
   "shopping.checkPantry": "Check pantry",
