@@ -198,7 +198,13 @@ describe("Byt on Plan and Today", () => {
     app.ctx.planRuns.start(WEEK, { runId: "r1", startedAt: NOW });
 
     const plan = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    const today = await app.inject({ method: "GET", url: "/" });
     expect(plan.body).not.toContain("Swap dish");
+    expect(row(today.body, "2026-10-21")).toContain("Burgers");
+    expect(today.body).not.toContain("Swap dish");
+    const list = await app.inject({ method: "GET", url: `/plan/swap?date=${MONDAY}`, headers: { "hx-request": "true" } });
+    expect(list.statusCode).toBe(409);
+    expect(list.body).toContain("can't be swapped");
     const post = await app.inject({ method: "POST", url: "/plan/swap", payload: { date: MONDAY, dishId: String(pizza) } });
     expect(post.statusCode).toBe(409);
   });
