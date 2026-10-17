@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/index.js";
 import { MAIN_CATEGORY_KEYS } from "./categories.js";
+import { savePlan } from "../planner/repo.js";
 import { createDish, getDish, listDishes } from "./repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -261,6 +262,23 @@ describe("deleting a Dish", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe("/dishes");
     expect((await app.inject({ method: "GET", url: "/dishes" })).body).toContain("No dishes yet");
+  });
+
+  it("names the dates the Dish is planned for, in any week, before asking", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Pizza" });
+    const other = createDish(app.ctx.db, { name: "Soup" });
+    const dinner = (date: string, dishId: number) => ({ date, dishId, isQuickDay: false, lunchThatDay: null, rationale: "" });
+    savePlan(app.ctx.db, { weekStart: "2026-10-19", dinners: [dinner("2026-10-20", id), dinner("2026-10-21", other)], degradedReasons: [] }, "2026-10-18T00:00:00Z");
+    savePlan(app.ctx.db, { weekStart: "2026-10-26", dinners: [dinner("2026-10-30", id)], degradedReasons: [] }, "2026-10-18T00:00:00Z");
+
+    const ask = await app.inject({ method: "GET", url: `/dishes/${id}/delete` });
+    expect(ask.body).toContain("2026-10-20");
+    expect(ask.body).toContain("2026-10-30");
+    expect(ask.body).not.toContain("2026-10-21");
+
+    const unplanned = await app.inject({ method: "GET", url: `/dishes/${createDish(app.ctx.db, { name: "Lone" })}/delete` });
+    expect(unplanned.body).not.toContain("Planned for");
   });
 
   it("returns 404 when confirming an unknown Dish", async () => {

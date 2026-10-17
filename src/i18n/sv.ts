@@ -156,6 +156,7 @@ export const sv: Dictionary = {
   "dishes.deleteDish": "Ta bort rätt",
   "dishes.deleteConfirm": "Ta bort {name}?",
   "dishes.deleteWarning": "Rätten och dess ingredienser tas bort för gott.",
+  "dishes.plannedOn": "Planerad för: {dates}",
   "dishes.deleteYes": "Ja, ta bort",
   "dishes.addToFavorites": "Lägg till i favoriter",
 
@@ -263,6 +264,7 @@ export const sv: Dictionary = {
   "day.noSchoolLunch": "Ingen skollunch",
   "day.quickDayMax": "Snabbdag max {n} min",
   "day.swap": "Byt rätt",
+  "day.pick": "Välj rätt",
   "day.recipe": "Recept",
   "swap.pick": "Välj en rätt för dagen",
   "swap.none": "Ingen annan rätt passar den här dagen.",

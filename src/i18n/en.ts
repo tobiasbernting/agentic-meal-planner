@@ -154,6 +154,7 @@ export const en = {
   "dishes.deleteDish": "Delete dish",
   "dishes.deleteConfirm": "Delete {name}?",
   "dishes.deleteWarning": "The dish and its ingredients are removed for good.",
+  "dishes.plannedOn": "Planned for: {dates}",
   "dishes.deleteYes": "Yes, delete",
   "dishes.addToFavorites": "Add to favorites",
 
@@ -261,6 +262,7 @@ export const en = {
   "day.noSchoolLunch": "No school lunch",
   "day.quickDayMax": "Quick Day, max {n} min",
   "day.swap": "Swap dish",
+  "day.pick": "Pick dish",
   "day.recipe": "Recipe",
   "swap.pick": "Pick a dish for the day",
   "swap.none": "No other dish fits this day.",
