@@ -47,8 +47,25 @@ export interface SeedDish {
   prepTimeMinutes: number;
 }
 
+/** A Dish that already exists, listed so a suggestion reuses it instead of inventing a twin. */
+export interface ExistingDish {
+  id: string | number;
+  name: string;
+  kind: "favorite" | "suggested";
+  mainCategory?: string;
+  prepTimeMinutes?: number;
+  /** Weekend Dish: only Saturday or Sunday. */
+  weekendOnly?: boolean;
+}
+
 export interface SelectDishesInput {
-  days: { date: string; isQuickDay: boolean; lunch: LunchEntry[] }[];
+  days: {
+    date: string;
+    isQuickDay: boolean;
+    /** The Quick Day prep-time limit; absent or null when the date is not a Quick Day. */
+    quickDayLimitMinutes?: number | null;
+    lunch: LunchEntry[];
+  }[];
   /** Per day, pre-filtered by the deterministic engine; same index as `days`. */
   candidates: Dish[][];
   /** Soft variety preference. */
@@ -57,12 +74,14 @@ export interface SelectDishesInput {
   suggestionStyle: string;
   /** Inspiration only: the built-in seed list. */
   seedDishes: SeedDish[];
+  /** Every Favorite and Suggested Dish: a day with no candidates may take one of these by id. */
+  existingDishes?: ExistingDish[];
   /** The household's UI language: rationales come back in it (spec #71). Default: Swedish. */
   language?: "sv" | "en";
 }
 
 export type SelectedDish =
-  /** `dishId` is `String(dish.id)` of the chosen candidate. */
+  /** `dishId` is `String(dish.id)` of the chosen candidate, or of an existing Dish on a day with no candidates. */
   | { date: string; dishId: string; rationale: string }
   | { date: string; suggestion: DishSuggestion; rationale: string };
 

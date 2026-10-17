@@ -519,6 +519,38 @@ describe("CliAgent.selectDishes", () => {
     expect(prompt).toContain("Köttbullar");
   });
 
+  it("states the hard rules a suggestion must pass", async () => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    await new CliAgent("copilot -p", { run }).selectDishes(input);
+
+    const prompt = calls[0]!.args.at(-1)!;
+    expect(prompt).toMatch(/not the same Main Category or name as that day's lunch/);
+    expect(prompt).toMatch(/quickDayLimitMinutes/);
+    expect(prompt).toMatch(/Weekend Dish only on Saturday or Sunday/);
+    expect(prompt).toMatch(/Once a Week/);
+  });
+
+  it("lists the existing Dishes by id and name and asks for an existing Dish's id instead of a twin", async () => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    const existingDishes = [
+      { id: "d1", name: "Tacos", kind: "favorite" as const },
+      { id: "d9", name: "Ärtsoppa med pannkakor", kind: "suggested" as const },
+    ];
+    await new CliAgent("copilot -p", { run }).selectDishes({ ...input, existingDishes });
+
+    const prompt = calls[0]!.args.at(-1)!;
+    expect(prompt).toContain('"id": "d9"');
+    expect(prompt).toContain('"name": "Ärtsoppa med pannkakor"');
+    expect(prompt).toMatch(/same meal as one of existingDishes, return that Dish's id/);
+  });
+
+  it("asks to avoid the same Main Category on consecutive dinners, with a rationale when it can't", async () => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    await new CliAgent("copilot -p", { run }).selectDishes(input);
+
+    expect(calls[0]!.args.at(-1)).toMatch(/Avoid the same Main Category on consecutive dinners; when you don't, say why in the rationale/);
+  });
+
   describe("with an empty-candidate day", () => {
     const emptyDay = {
       days: [
@@ -530,6 +562,36 @@ describe("CliAgent.selectDishes", () => {
       suggestionStyle: "Swedish home cooking",
       seedDishes: [],
     };
+
+    it("accepts an existing Dish's id on a day with no candidates", async () => {
+      const reply = [
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", dishId: "9", rationale: "the soup we already have" },
+      ];
+      const { run } = scriptedRunner([JSON.stringify(reply)]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes({
+        ...emptyDay,
+        existingDishes: [{ id: 9, name: "Ärtsoppa", kind: "suggested" }],
+      });
+
+      expect(result).toEqual({ ok: true, value: reply });
+    });
+
+    it("rejects an unknown Dish id on a day with no candidates", async () => {
+      const bad = JSON.stringify([
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", dishId: "42", rationale: "made up" },
+      ]);
+      const { run } = scriptedRunner([bad, bad]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes({
+        ...emptyDay,
+        existingDishes: [{ id: 9, name: "Ärtsoppa", kind: "suggested" }],
+      });
+
+      expect(result).toMatchObject({ ok: false });
+    });
 
     it("accepts a reply mixing a pick and a suggestion", async () => {
       const reply = [
