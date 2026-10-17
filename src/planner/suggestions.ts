@@ -42,6 +42,7 @@ function asRotationDish(s: DishSuggestion): Dish {
     prepTimeMinutes: s.prepTimeMinutes ?? null,
     mainCategory: isMainCategory(s.mainCategory) ? s.mainCategory : null,
     inRotation: true,
+    suggested: true,
     preferredDays: [],
     weekendOnly: false,
     ingredients: [],
