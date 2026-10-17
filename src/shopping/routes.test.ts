@@ -6,7 +6,7 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult } from "../llm/index.js";
-import { createPantryItem } from "../pantry/repo.js";
+import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { planRunSettled, postPlanRun } from "../plan-run/test-helpers.js";
 
@@ -45,6 +45,28 @@ function planWith(app: Awaited<ReturnType<typeof buildApp>>, dishIds: number[]) 
   );
 }
 
+describe("POST /shopping/pantry", () => {
+  it("creates a Pantry Item from a Buy line and moves it to Check pantry", async () => {
+    const app = await start();
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "tomat", quantity: 2, unit: null }] });
+    planWith(app, [pasta]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    const before = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(before.body).toMatch(/<section id="buy">[\s\S]*action="\/shopping\/pantry"[\s\S]*name="name" value="pasta"/);
+    expect(before.body).not.toMatch(/<section id="check-pantry">[\s\S]*pasta/);
+
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry", payload: { weekStart: WEEK, name: "pasta" } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}`);
+    expect(listPantryItems(app.ctx.db).map((p) => p.name)).toEqual(["pasta"]);
+    const after = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(after.body).toMatch(/<section id="check-pantry">[\s\S]*400 g pasta/);
+    expect(after.body).not.toMatch(/<section id="buy">[\s\S]*pasta[\s\S]*<section id="check-pantry">/);
+    expect(after.body).toMatch(/<section id="buy">[\s\S]*tomat/);
+  });
+});
+
 describe("GET /shopping", () => {
   it("says there is no plan for the week and links to the Plan view", async () => {
     const app = await start();
@@ -68,11 +90,11 @@ describe("GET /shopping", () => {
     expect(build.headers.location).toBe(`/shopping?week=${WEEK}`);
     const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>400 g pasta<\/li>/);
-    expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*<li>2 dl mjölk<\/li>/);
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*400 g pasta[\s\S]*<\/section>/);
+    expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*2 dl mjölk/);
     expect(res.body.match(/mjölk/g)).toHaveLength(1);
     expect(res.body).toMatch(/<form method="post" action="\/shopping\/build">[\s\S]*name="weekStart" value="2026-10-19"/);
-    expect(res.body).toContain('<a href="/shopping" aria-current="page">Shopping</a>');
+    expect(res.body).toContain('aria-current="page"');
   });
 
   it("is built automatically when a plan is generated", async () => {
@@ -82,7 +104,7 @@ describe("GET /shopping", () => {
     await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
-    expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>bröd<\/li>/);
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*bröd/);
   });
 
   it("merges one Ingredient from two Dishes into one Buy line and keeps the Preparation Note off the list", async () => {
@@ -99,8 +121,8 @@ describe("GET /shopping", () => {
     await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
 
     const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
-    expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>5 dl mjölk<\/li>/);
-    expect(res.body.match(/mjölk/g)).toHaveLength(1);
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*5 dl mjölk/);
+    expect(res.body.match(/5 dl mjölk/g)).toHaveLength(1);
     expect(res.body).not.toContain("till mos");
   });
 
@@ -112,6 +134,73 @@ describe("GET /shopping", () => {
 
     expect(res.body).toContain("No Shopping List yet");
     expect(res.body).toContain('action="/shopping/build"');
+  });
+});
+
+describe("Shopping List as the almanac notes page", () => {
+  async function builtList(options: Partial<AppOptions> = {}) {
+    const app = await start(options);
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "mjölk", quantity: 2, unit: "dl" }] });
+    const gratin = createDish(app.ctx.db, { name: "Gratäng", ingredients: [{ name: "pasta", quantity: 100, unit: "g" }, { name: "ost", quantity: null, unit: null }] });
+    createPantryItem(app.ctx.db, { name: "mjölk", aliases: [] });
+    const planId = planWith(app, [pasta, gratin]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    return { app, planId };
+  }
+
+  it("opens on the week landmark with navigation by ISO week number", async () => {
+    const { app } = await builtList();
+
+    const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+    const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(sv.body).toContain('<h1 class="week-num" aria-label="Vecka 43"><small>v.</small>43</h1>');
+    expect(sv.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-12"[^>]*>[^<]*v\. 42/);
+    expect(sv.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-26"[^>]*>[^<]*v\. 44/);
+    expect(en.body).toContain('aria-label="Week 43"');
+    expect(en.body).toMatch(/<a [^>]*href="\/shopping\?week=2026-10-26"[^>]*>[^<]*wk 44/);
+  });
+
+  it("shows each Buy line as a ruled row with its source Dishes, in sv and en", async () => {
+    const { app } = await builtList();
+
+    const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+    const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(sv.body).toMatch(/<section id="buy"><h2[^>]*>Köp<\/h2>\s*<ul class="rows">/);
+    expect(sv.body).toMatch(/500 g pasta<\/span>\s*<span class="row-status">till: Pasta, Gratäng</);
+    expect(sv.body).toMatch(/<span class="row-label">ost<\/span>\s*<span class="row-status">till: Gratäng</);
+    expect(en.body).toMatch(/<span class="row-status">for: Pasta, Gratäng</);
+    expect(sv.body.indexOf('id="buy"')).toBeLessThan(sv.body.indexOf('id="check-pantry"'));
+    expect(sv.body).toMatch(/<section id="check-pantry"><h2[^>]*>Kolla skafferiet<\/h2>/);
+    expect(sv.body).toMatch(/2 dl mjölk/);
+  });
+
+  describe("sink status line", () => {
+    it("says where and when the Buy list was sent, with Skicka igen", async () => {
+      const { app, planId } = await builtList();
+      app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 1, NULL, NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());
+
+      const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+      const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+      expect(sv.body).toContain("Skickad till Trello lör 18:02");
+      expect(sv.body).toMatch(/action="\/shopping\/push"[\s\S]*Skicka igen/);
+      expect(en.body).toContain("Sent to Trello sat 18:02");
+      expect(en.body).toMatch(/action="\/shopping\/push"[\s\S]*Send again/);
+      expect(sv.body).not.toContain('role="alert"');
+    });
+
+    it("shows an inverted failure block with the reason and Skicka igen", async () => {
+      const { app, planId } = await builtList();
+      app.ctx.db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, 'trello', ?, 0, 'Trello HTTP 401', NULL)").run(planId, new Date(2026, 9, 24, 18, 2).toISOString());
+
+      const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+      const en = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+      expect(sv.body).toMatch(/<div class="notice" role="alert">[\s\S]*Trello[\s\S]*Trello HTTP 401[\s\S]*action="\/shopping\/push"[\s\S]*Skicka igen/);
+      expect(en.body).toMatch(/<div class="notice" role="alert">[\s\S]*Trello HTTP 401[\s\S]*Send again/);
+    });
   });
 });
 
