@@ -8,6 +8,10 @@ const PASSTHROUGH_PATHS = ["/plan-run/banner", "/logs/stream", "/health", "/sw.j
 
 const MANIFEST_PATH = "/manifest.webmanifest";
 
+/** The worker's own pages, served from config.frames; an offline htmx write redirects to the first. */
+const SAVED_PATH = "/offline/saved";
+const REQUIRES_CONNECTION_PATH = "/offline/requires-connection";
+
 /** The empty element page() in src/ui/layout.ts puts once on every page. */
 const BANNER_MARKER = '<div id="offline-banner"></div>';
 
@@ -51,7 +55,7 @@ function findRoute(patterns, path) {
  * What the worker should do with a request.
  * @param {Request} request
  * @param {{ queueable: string[], onlineOnly: string[], pages: string[] }} config
- * @returns {{ kind: "asset" } | { kind: "page", cacheable: boolean } | { kind: "queueable-write" | "online-only-write", route: string } | { kind: "passthrough" }}
+ * @returns {{ kind: "asset" } | { kind: "page", cacheable: boolean } | { kind: "offline-page", page: "saved" | "requiresConnection" } | { kind: "queueable-write" | "online-only-write", route: string } | { kind: "passthrough" }}
  */
 export function classify(request, config) {
   const path = new URL(request.url).pathname;
@@ -64,6 +68,8 @@ export function classify(request, config) {
   }
   if (request.method !== "GET") return { kind: "passthrough" };
   if (path.startsWith("/assets/") || path === MANIFEST_PATH) return { kind: "asset" };
+  if (path === SAVED_PATH) return { kind: "offline-page", page: "saved" };
+  if (path === REQUIRES_CONNECTION_PATH) return { kind: "offline-page", page: "requiresConnection" };
   if (request.headers.has("HX-Request") || PASSTHROUGH_PATHS.includes(path)) return { kind: "passthrough" };
   return { kind: "page", cacheable: findRoute(config.pages, path) !== undefined };
 }
@@ -152,9 +158,6 @@ function htmlResponse(body, status) {
   return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-/** The worker's own saved page, served from config.frames, which htmx writes redirect to. */
-const SAVED_PATH = "/offline/saved";
-
 /**
  * Where a back link may point: the path and query of a same-origin URL or path, else home.
  * Used for a write's referrer and for the `?back=` of the worker's own pages.
@@ -200,6 +203,8 @@ export function offlineResponseFor(classification, context) {
     case "queueable-write":
       if (htmx) return new Response(null, { status: 204, headers: { "HX-Redirect": `${SAVED_PATH}?back=${encodeURIComponent(back)}` } });
       return htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+    case "offline-page":
+      return classification.page === "saved" ? htmlResponse(fillFrame(frames.saved, texts.saved, back), 200) : requiresConnection();
     case "asset":
       return new Response(null, { status: 404 });
     default:

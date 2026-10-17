@@ -71,6 +71,12 @@ describe("classify", () => {
     for (const path of [...config.assets, "/assets/app.css?v=2"]) expect(classify(get(path), config), path).toEqual({ kind: "asset" });
   });
 
+  it("classifies the worker's own saved and requires-connection pages as offline pages, whatever the query", () => {
+    expect(classify(get("/offline/saved?back=%2Fdishes"), config)).toEqual({ kind: "offline-page", page: "saved" });
+    expect(classify(get("/offline/saved"), config)).toEqual({ kind: "offline-page", page: "saved" });
+    expect(classify(get("/offline/requires-connection?back=%2F"), config)).toEqual({ kind: "offline-page", page: "requiresConnection" });
+  });
+
   it("passes through htmx GETs, the Plan Run banner, the log stream, the health check and the worker itself", () => {
     for (const request of [get("/shopping", { "HX-Request": "true" }), get("/plan-run/banner"), get("/logs/stream"), get("/health"), get("/sw.js")]) {
       expect(classify(request, config), request.url).toEqual({ kind: "passthrough" });
@@ -200,6 +206,29 @@ describe("offlineResponseFor", () => {
     const body = await res.text();
     expect(body).toContain("<p>Saved, will sync when the app next reaches home</p>");
     expect(body).toContain('<a href="/shopping">Back</a>');
+  });
+
+  it("renders the worker's own saved page with its back link", async () => {
+    const back = backPath(new URL(`${ORIGIN}/offline/saved?back=%2Fdishes%3Fq%3Da`).searchParams.get("back"), ORIGIN);
+
+    const res = offlineResponseFor({ kind: "offline-page", page: "saved" }, { config, lang: "en", back });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const body = await res.text();
+    expect(body).toContain("<p>Saved, will sync when the app next reaches home</p>");
+    expect(body).toContain('<a href="/dishes?q=a">Back</a>');
+  });
+
+  it("renders the worker's own requires-connection page, linking home when the back query is foreign", async () => {
+    const back = backPath(new URL(`${ORIGIN}/offline/requires-connection?back=https%3A%2F%2Fevil.example%2F`).searchParams.get("back"), ORIGIN);
+
+    const res = offlineResponseFor({ kind: "offline-page", page: "requiresConnection" }, { config, lang: "sv", back });
+
+    expect(res.status).toBe(503);
+    const body = await res.text();
+    expect(body).toContain("<p>Kräver uppkoppling</p>");
+    expect(body).toContain('<a href="/">Tillbaka</a>');
   });
 
   it("answers passthrough requests with an empty 204 and assets with a 404", async () => {
