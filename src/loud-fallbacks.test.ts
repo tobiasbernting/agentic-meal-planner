@@ -9,6 +9,7 @@ import { createCapturingLogger, type LogRecord } from "./logging/logger.js";
 import { savePlan } from "./planner/repo.js";
 import { createSchool } from "./schools/repo.js";
 import { weekDates } from "./week.js";
+import { postPlanRun } from "./plan-run/test-helpers.js";
 
 // Wednesday 2026-10-21; the week starts Monday 2026-10-19.
 const NOW = new Date(2026, 9, 21, 18, 30);
@@ -44,7 +45,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     });
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     expect(runRecords(records, "/plan/generate")).toContainEqual(
       expect.objectContaining({ level: "warn", component: "planner", degradedReasons: ["agent exited with code 1"] }),
@@ -58,7 +59,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     });
     const school = createSchool(app.ctx.db, { name: "South", url: LLM_URL });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     const run = runRecords(records, "/plan/generate");
     expect(run).toContainEqual(expect.objectContaining({ level: "info", component: "lunch-ingest", msg: "using LLM fallback", schoolId: school.id }));
@@ -77,7 +78,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     });
     createSchool(app.ctx.db, { name: "South", url: LLM_URL });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     expect(runRecords(records, "/plan/generate")).toContainEqual(
       expect.objectContaining({ level: "warn", component: "lunch-ingest", msg: "menu fetch failed", reason: `HTTP 503 fetching ${LLM_URL}` }),
@@ -92,7 +93,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     });
     createSchool(app.ctx.db, { name: "North", url: PLUGIN_URL });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     expect(runRecords(records, "/plan/generate")).toContainEqual(
       expect.objectContaining({ level: "warn", component: "lunch-ingest", msg: "school plugin failed", pluginId: "example-json", reason: "offline" }),
@@ -103,7 +104,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     const { app, records } = await start({ fetchPage: async () => "<html>not json</html>" });
     createSchool(app.ctx.db, { name: "North", url: PLUGIN_URL });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     const run = runRecords(records, "/plan/generate");
     expect(run).toContainEqual(expect.objectContaining({ level: "warn", component: "school-plugin", pluginId: "example-json" }));
@@ -114,7 +115,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     const { app, records } = await start({ llm: new ScriptedLlmAgent({ selectDishes: { ok: false, reason: "boom" } }) });
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: form });
+    await postPlanRun(app, "/plan/generate", form);
 
     expect(runRecords(records, "/plan/generate")).toContainEqual(
       expect.objectContaining({ level: "info", component: "plan", msg: "plan summary", dinners: 7, degraded: true, sinksPushed: 0 }),

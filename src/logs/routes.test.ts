@@ -9,6 +9,7 @@ import { writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { createCapturingLogger } from "../logging/logger.js";
 import { SETTING_AGENT_COMMAND } from "../planner/settings.js";
+import { postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -204,7 +205,7 @@ describe("debug level and the agent's prompts", () => {
     writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
     await app.inject({ method: "POST", url: "/logs/level", payload: { level } });
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+    await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-19" });
     return sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
   }
 
@@ -224,7 +225,7 @@ describe("debug level and the agent's prompts", () => {
     writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+    await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-19" });
 
     const runId = stdout.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
     const finished = stdout.filter((r) => r.component === "llm" && r.msg === "agent call finished");
@@ -239,7 +240,7 @@ describe("debug level and the agent's prompts", () => {
     writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+    await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-19" });
 
     const runId = records.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
     expect(records.find((r) => r.msg === "agent call finished")?.runId).toBe(runId);

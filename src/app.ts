@@ -21,6 +21,8 @@ import { pantryRoutes } from "./pantry/routes.js";
 import { settingsRoutes } from "./settings/routes.js";
 import { langRoutes } from "./i18n/routes.js";
 import { logsRoutes } from "./logs/routes.js";
+import { createPlanRunRegistry, type PlanRunRegistry } from "./plan-run/registry.js";
+import { planRunRoutes } from "./plan-run/routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -80,6 +82,8 @@ export interface AppContext {
   readonly agentCommand: string | undefined;
   /** The Logs page's buffer (last 2000 records, as on stdout) and the live level (#47). */
   logs: LogControl;
+  /** In-flight Plan Runs and each week's last outcome (spec #61); in memory, forgotten on restart. */
+  planRuns: PlanRunRegistry;
 }
 
 declare module "fastify" {
@@ -96,7 +100,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, langRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);
@@ -171,6 +175,7 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
     db,
     log,
     logs,
+    planRuns: createPlanRunRegistry(),
     get agentCommand() {
       return readAgentCommand();
     },
