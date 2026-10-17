@@ -211,3 +211,29 @@ export function offlineResponseFor(classification, context) {
       return new Response(null, { status: 204 });
   }
 }
+
+/**
+ * A Pending Change as the worker stores it in IndexedDB (ADR-0007).
+ * @typedef {{
+ *   id: string,
+ *   method: "POST",
+ *   url: string,
+ *   body: string,
+ *   contentType: string,
+ *   key: string,
+ *   createdAt: string,
+ *   state: "pending" | "failed",
+ *   reason?: string,
+ * }} PendingChange
+ */
+
+/**
+ * The order to replay Pending Changes in: oldest first, the given order for equal timestamps.
+ * Returns a new array.
+ * @template {{ createdAt: string }} T
+ * @param {readonly T[]} queue
+ * @returns {T[]}
+ */
+export function replayOrder(queue) {
+  return queue.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}

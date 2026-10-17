@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
@@ -292,5 +292,32 @@ describe("injectBanner", () => {
   it("escapes the text and returns a page without the marker unchanged", () => {
     expect(injectBanner(`<main>${MARKER}</main>`, "a < b")).toBe('<main><div id="offline-banner" class="notice" role="status">a &lt; b</div></main>');
     expect(injectBanner("<main></main>", "x")).toBe("<main></main>");
+  });
+});
+
+/** A stored Pending Change, as newPendingChange builds it. */
+function entry(id: string, createdAt: string) {
+  return { id, method: "POST", url: "/pantry", body: "name=salt", contentType: "application/x-www-form-urlencoded", key: `key-${id}`, createdAt, state: "pending" };
+}
+
+describe("replayOrder", () => {
+  it("replays the oldest Pending Change first", () => {
+    const queue = [entry("c", "2026-10-17T09:00:00.000Z"), entry("a", "2026-10-17T07:00:00.000Z"), entry("b", "2026-10-17T08:00:00.000Z")];
+
+    expect(replayOrder(queue).map((e: { id: string }) => e.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps stored order for Pending Changes made in the same millisecond", () => {
+    const queue = [entry("x", "2026-10-17T08:00:00.000Z"), entry("early", "2026-10-17T07:00:00.000Z"), entry("y", "2026-10-17T08:00:00.000Z"), entry("z", "2026-10-17T08:00:00.000Z")];
+
+    expect(replayOrder(queue).map((e: { id: string }) => e.id)).toEqual(["early", "x", "y", "z"]);
+  });
+
+  it("leaves the queue it was given alone", () => {
+    const queue = [entry("b", "2026-10-17T08:00:00.000Z"), entry("a", "2026-10-17T07:00:00.000Z")];
+
+    replayOrder(queue);
+
+    expect(queue.map((e) => e.id)).toEqual(["b", "a"]);
   });
 });
