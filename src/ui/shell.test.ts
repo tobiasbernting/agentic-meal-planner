@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createDish } from "../dishes/repo.js";
 import { createPantryItem } from "../pantry/repo.js";
-import { createSchool } from "../schools/repo.js";
+import { createSchool, setSchoolActive } from "../schools/repo.js";
 import { recordIngestOutcome } from "../lunch/outcome.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -127,6 +127,19 @@ describe("Mer", () => {
       ["/settings", "Inställningar", "Ingen agent, enklare planer"],
       ["/logs", "Loggar", "Nivå: info"],
     ]);
+  });
+
+  it("reports the Schools status from active Schools only: a paused School's newer failure does not count", async () => {
+    const app = await makeApp();
+    const active = createSchool(app.ctx.db, { name: "Lunnaskolan", url: "https://example.test/menu" });
+    const paused = createSchool(app.ctx.db, { name: "Bergaskolan", url: "https://example.test/berga" });
+    setSchoolActive(app.ctx.db, paused.id, false);
+    recordIngestOutcome(app.ctx.db, { schoolId: active.id, weekStart: "2026-10-19", status: "fetched", reason: null, recordedAt: new Date(2026, 9, 17, 10, 20).toISOString() });
+    recordIngestOutcome(app.ctx.db, { schoolId: paused.id, weekStart: "2026-10-19", status: "no-data", reason: "boom", recordedAt: new Date(2026, 9, 18, 9, 0).toISOString() });
+
+    const res = await app.inject({ method: "GET", url: "/more" });
+
+    expect(moreRows(res.body)[1]).toEqual(["/schools", "Skolor", "2 skolor, hämtad lör 10:20"]);
   });
 
   it("speaks English with the lang=en cookie and says when nothing is set up", async () => {

@@ -19,7 +19,7 @@ function count(lang: Lang, noun: Countable, n: number): string {
   return t(lang, `count.${noun}.${n === 1 ? "one" : "other"}` as MessageKey, { n });
 }
 
-/** The most recent Ingest Outcome across Schools, as a status phrase. */
+/** The most recent Ingest Outcome across the given (active) Schools' outcomes, as a status phrase. */
 function schoolStatus(lang: Lang, outcomes: IngestOutcome[], timeZone: string | undefined): string {
   const latest = outcomes.reduce<IngestOutcome | undefined>((a, b) => (!a || b.recordedAt > a.recordedAt ? b : a), undefined);
   if (!latest) return t(lang, "more.schools.never");
@@ -41,8 +41,11 @@ interface Row {
 function rows(lang: Lang, ctx: AppContext): Row[] {
   const dishes = listDishes(ctx.db);
   const schools = listSchools(ctx.db);
+  // Paused Schools are not ingested, so only active Schools' outcomes say how lunch data is doing.
+  const active = new Set(schools.filter((s) => s.active).map((s) => s.id));
+  const outcomes = listIngestOutcomes(ctx.db).filter((o) => active.has(o.schoolId));
   const schoolLine = schools.length
-    ? `${count(lang, "school", schools.length)}, ${schoolStatus(lang, listIngestOutcomes(ctx.db), readTimezone(ctx.db))}`
+    ? `${count(lang, "school", schools.length)}, ${schoolStatus(lang, outcomes, readTimezone(ctx.db))}`
     : count(lang, "school", 0);
   return [
     {
