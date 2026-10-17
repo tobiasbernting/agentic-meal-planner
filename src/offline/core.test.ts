@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cacheKeysFor, classify, injectBanner, prewarmUrls } from "../../public/offline/core.js";
+import { cacheKeysFor, classify, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
@@ -107,6 +107,81 @@ describe("cacheKeysFor", () => {
     expect(cacheKeysFor(`${ORIGIN}/`, "2026-10-17")).toEqual([`${ORIGIN}/`]);
     expect(cacheKeysFor(`${ORIGIN}/dishes/3/edit`, "2026-10-17")).toEqual([`${ORIGIN}/dishes/3/edit`]);
     expect(cacheKeysFor(`${ORIGIN}/shopping?week=2026-10-19`, "2026-10-17")).toEqual([`${ORIGIN}/shopping?week=2026-10-19`]);
+  });
+});
+
+describe("offlineResponseFor", () => {
+  const cacheablePage = { kind: "page", cacheable: true } as const;
+
+  it("answers a cacheable page that has a copy with the copy, bannered with its fetched-at time", async () => {
+    const html = await renderedPage("/shopping");
+
+    const res = offlineResponseFor(cacheablePage, { config, lang: "sv", copy: { html, fetchedAt: "2026-10-17T05:45:00.000Z" }, formatTime: () => "07:45" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await res.text()).toBe(html.replace(MARKER, '<div id="offline-banner" class="notice" role="status">Visas från kopia, uppdaterad 07:45</div>'));
+  });
+
+  it("formats the fetched-at time as the device's local HH:MM by default, in the copy's language", async () => {
+    const fetchedAt = new Date(2026, 9, 17, 7, 5).toISOString();
+
+    const res = offlineResponseFor(cacheablePage, { config, lang: "en", copy: { html: `<main>${MARKER}</main>`, fetchedAt } });
+
+    expect(await res.text()).toContain(">Shown from copy, updated 07:05</div>");
+  });
+
+  it("answers a cacheable page without a copy with the requires-connection page and a back link", async () => {
+    const res = offlineResponseFor(cacheablePage, { config, lang: "sv", back: "/plan" });
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const body = await res.text();
+    expect(body).toMatch(/^<!doctype html>/);
+    expect(body).toContain("<p>Kräver uppkoppling</p>");
+    expect(body).toContain('<a href="/plan">Tillbaka</a>');
+    expect(body).not.toContain("{{");
+  });
+
+  it("answers Logs, Settings and Schools with the requires-connection page even when a copy exists, linking back home", async () => {
+    const res = offlineResponseFor({ kind: "page", cacheable: false }, { config, lang: "en", copy: { html: "<p>stale</p>", fetchedAt: "2026-10-17T05:45:00.000Z" } });
+
+    expect(res.status).toBe(503);
+    const body = await res.text();
+    expect(body).toContain("<p>Requires connection</p>");
+    expect(body).toContain('<a href="/">Back</a>');
+    expect(body).not.toContain("stale");
+  });
+
+  it("answers an online-only form post with the requires-connection page", async () => {
+    const res = offlineResponseFor({ kind: "online-only-write", route: "/plan/generate" }, { config, lang: "sv", back: "/plan" });
+
+    expect(res.status).toBe(503);
+    expect(await res.text()).toContain("<p>Kräver uppkoppling</p>");
+  });
+
+  it("answers a write sent by htmx with an empty 204, so no page lands in a fragment target", async () => {
+    for (const classification of [{ kind: "online-only-write", route: "/shopping/pantry" }, { kind: "queueable-write", route: "/dishes/:id/promote" }] as const) {
+      const res = offlineResponseFor(classification, { config, lang: "sv", htmx: true });
+      expect(res.status, classification.route).toBe(204);
+      expect(await res.text()).toBe("");
+    }
+  });
+
+  it("answers a queueable form post with the saved page", async () => {
+    const res = offlineResponseFor({ kind: "queueable-write", route: "/shopping/check" }, { config, lang: "en", back: "/shopping" });
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("<p>Saved, will sync when the app next reaches home</p>");
+    expect(body).toContain('<a href="/shopping">Back</a>');
+  });
+
+  it("answers passthrough requests with an empty 204 and assets with a 404", async () => {
+    const passthrough = offlineResponseFor({ kind: "passthrough" }, { config, lang: "sv" });
+    expect(passthrough.status).toBe(204);
+    expect(await passthrough.text()).toBe("");
+    expect(offlineResponseFor({ kind: "asset" }, { config, lang: "sv" }).status).toBe(404);
   });
 });
 

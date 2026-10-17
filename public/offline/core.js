@@ -126,3 +126,54 @@ export function cacheKeysFor(url, today) {
 export function injectBanner(html, text) {
   return html.replace(BANNER_MARKER, () => `<div id="offline-banner" class="notice" role="status">${escapeHtml(text)}</div>`);
 }
+
+/**
+ * `HH:MM` (24-hour) of an ISO timestamp on the device's clock.
+ * @param {string} iso
+ */
+function localTime(iso) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * @param {string} body
+ * @param {number} status
+ */
+function htmlResponse(body, status) {
+  return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+/**
+ * The response the worker gives when the network failed.
+ * @param {ReturnType<typeof classify>} classification
+ * @param {{
+ *   config: { texts: Record<string, Record<string, string>>, frames: Record<string, Record<string, string>> },
+ *   lang: string,
+ *   copy?: { html: string, fetchedAt: string },
+ *   back?: string,
+ *   htmx?: boolean,
+ *   formatTime?: (iso: string) => string,
+ * }} context `htmx`: the request carried the HX-Request header.
+ * @returns {Response}
+ */
+export function offlineResponseFor(classification, context) {
+  const { config, copy, back = "/", htmx = false, formatTime = localTime } = context;
+  const lang = context.lang in config.frames ? context.lang : "sv";
+  const texts = config.texts[lang];
+  const frames = config.frames[lang];
+  const requiresConnection = () => htmlResponse(fillFrame(frames.requiresConnection, texts.requiresConnection, back), 503);
+  switch (classification.kind) {
+    case "page":
+      if (classification.cacheable && copy) return htmlResponse(injectBanner(copy.html, texts.banner.replaceAll("{time}", formatTime(copy.fetchedAt))), 200);
+      return requiresConnection();
+    case "online-only-write":
+      return htmx ? new Response(null, { status: 204 }) : requiresConnection();
+    case "queueable-write":
+      return htmx ? new Response(null, { status: 204 }) : htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+    case "asset":
+      return new Response(null, { status: 404 });
+    default:
+      return new Response(null, { status: 204 });
+  }
+}
