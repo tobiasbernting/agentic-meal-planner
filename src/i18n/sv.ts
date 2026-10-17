@@ -117,6 +117,7 @@ export const sv: Dictionary = {
   "shopping.sendFailed": "Kunde inte skicka till {sink}: {error}",
   "shopping.failedLabel": "Misslyckades",
   "shopping.pushAgain": "Skicka igen",
+  "shopping.noSink": "Ingen mottagare inställd",
   "shopping.notPushed": "Inte skickad någonstans",
   "shopping.unknownError": "okänt fel",
   "shopping.notice.run-in-progress": "En planering pågår för den här veckan. Inköpslistan ändrades inte.",

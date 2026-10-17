@@ -113,6 +113,7 @@ function renderDays(ctx: AppContext, lang: Lang, weekStart: string, today: strin
         today: date === today,
         swapHtml: swapControl(ctx, lang, date, next),
         extraHtml: degradedNotices(lang, reasons, date),
+        hideGenericRationale: reasons.some((r) => r.date === date),
       }),
     )
     .join("\n");
