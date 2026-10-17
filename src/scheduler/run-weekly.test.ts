@@ -10,6 +10,7 @@ import { listLunchEntries } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
+import { createPlanRunRegistry } from "../plan-run/registry.js";
 import { runWeeklyPlanning } from "./run-weekly.js";
 
 // Sunday 2026-10-11 18:00 local (week of Monday 10-05): the run plans the coming week, Monday 2026-10-12.
@@ -156,5 +157,32 @@ describe("runWeeklyPlanning", () => {
     const dishes = listDishes(db);
     expect(dishes).toEqual([expect.objectContaining({ name: "Kalops", inRotation: false, suggested: true })]);
     expect(getPlanForWeek(db, NEXT_MONDAY)?.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(dishes[0]!.id));
+  });
+
+  it("skips a week whose Plan Run is in flight, with one log record and no agent call", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    createSchool(db, { name: "Skolan", url: "https://example.test/menu" });
+    const planRuns = createPlanRunRegistry();
+    planRuns.start(NEXT_MONDAY, { runId: "req-1", startedAt: SUNDAY });
+    const llm = new ScriptedLlmAgent({});
+    const fetched: string[] = [];
+    const { logger, records } = createCapturingLogger();
+    const runId = "cron-2026-10-11T16:00:00.000Z";
+
+    const result = await runWeeklyPlanning({
+      db,
+      llm,
+      fetchPage: async (url) => (fetched.push(url), ""),
+      now: () => SUNDAY,
+      log: logger.child({ runId }),
+      planRuns,
+    });
+
+    expect(result.plan).toEqual({ skipped: "in-flight" });
+    expect(llm.calls).toEqual([]);
+    expect(fetched).toEqual([]);
+    expect(getPlanForWeek(db, NEXT_MONDAY)).toBeUndefined();
+    expect(records).toEqual([expect.objectContaining({ level: "info", runId, weekStart: NEXT_MONDAY, reason: "in-flight" })]);
   });
 });
