@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS dish (
   main_category     TEXT,
   in_rotation       INTEGER NOT NULL DEFAULT 1,
   preferred_days    TEXT    NOT NULL DEFAULT '[]',
-  weekend_only      INTEGER NOT NULL DEFAULT 0
+  weekend_only      INTEGER NOT NULL DEFAULT 0,
+  suggested         INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS dish_ingredient (
   id       INTEGER PRIMARY KEY AUTOINCREMENT,

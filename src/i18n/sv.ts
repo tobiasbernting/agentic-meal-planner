@@ -108,6 +108,8 @@ export const sv: Dictionary = {
   "dishes.prepMinutes": "{n} min",
   "dishes.tagNotInRotation": "inte i rotation",
   "dishes.tagWeekend": "helg",
+  "dishes.tagSuggested": "Föreslagen",
+  "dishes.addToFavorites": "Lägg till i favoriter",
 
   "schools.title": "Skolor",
   "schools.invalid": "En skola behöver ett namn och exakt en menylänk.",

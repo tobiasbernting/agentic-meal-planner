@@ -24,7 +24,7 @@ export const SETTING_DEFAULT_PREP_LIMIT_MINUTES = "default_prep_limit_minutes";
 export const SETTING_CRON_EXPRESSION = "cron_expression";
 /** The agent CLI used for all LLM work (ADR-0005); blank/unset = NoAgent, FR-16. */
 /** FR-15 default agent command; applied by src/server.ts when neither a setting nor AGENT_COMMAND is set. */
-export const DEFAULT_AGENT_COMMAND = "copilot -p";
+export const DEFAULT_AGENT_COMMAND = "copilot -p --model gpt-5-mini --reasoning-effort low";
 export const SETTING_AGENT_COMMAND = "agent_command";
 /** JSON array of Shopping List Sink configs (secrets stay in env vars, never here). */
 export const SETTING_SHOPPING_LIST_SINKS = "shopping_list_sinks";

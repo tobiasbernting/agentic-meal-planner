@@ -79,7 +79,11 @@ function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner |
   if (!dinner) return `<p class="notice">${t(lang, "plan.noDinner")}</p>`;
   const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
   const name = dish ? `<strong>${escapeHtml(dish.name)}</strong>` : `<span class="notice">${t(lang, "common.noEligibleDish")}</span>`;
-  return `<p class="dinner">${name}</p>
+  const suggested = dish?.suggested
+    ? ` <span class="tag-suggested">${t(lang, "dishes.tagSuggested")}</span>
+<form method="post" action="/dishes/${dish.id}/promote"><button type="submit">${t(lang, "dishes.addToFavorites")}</button></form>`
+    : "";
+  return `<p class="dinner">${name}${suggested}</p>
 <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 
