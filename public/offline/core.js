@@ -8,6 +8,24 @@ const PASSTHROUGH_PATHS = ["/plan-run/banner", "/logs/stream", "/health", "/sw.j
 
 const MANIFEST_PATH = "/manifest.webmanifest";
 
+/** The empty element page() in src/ui/layout.ts puts once on every page. */
+const BANNER_MARKER = '<div id="offline-banner"></div>';
+
+/** @param {string} text */
+function escapeHtml(text) {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+/**
+ * Fills a frame from config.frames: `{{back}}` is the back link's href, `{{text}}` the message.
+ * @param {string} frame
+ * @param {string} text
+ * @param {string} back
+ */
+function fillFrame(frame, text, back) {
+  return frame.replaceAll("{{back}}", escapeHtml(back)).replaceAll("{{text}}", escapeHtml(text));
+}
+
 /**
  * Whether a path matches a Fastify route pattern: same segment count, `:param` matches any one
  * segment, everything else exactly.
@@ -97,4 +115,14 @@ export function cacheKeysFor(url, today) {
     keys.push(parsed.href);
   }
   return keys;
+}
+
+/**
+ * The page with the Offline Copy banner in place of the shell's marker; unchanged without one.
+ * String replacement, not HTML parsing: user content is escaped, so it never contains the marker.
+ * @param {string} html
+ * @param {string} text
+ */
+export function injectBanner(html, text) {
+  return html.replace(BANNER_MARKER, () => `<div id="offline-banner" class="notice" role="status">${escapeHtml(text)}</div>`);
 }

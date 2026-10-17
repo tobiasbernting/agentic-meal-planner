@@ -1,9 +1,27 @@
-import { describe, expect, it } from "vitest";
-import { cacheKeysFor, classify, prewarmUrls } from "../../public/offline/core.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { cacheKeysFor, classify, injectBanner, prewarmUrls } from "../../public/offline/core.js";
+import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
 const config = workerConfig();
 const ORIGIN = "http://meals.lan:8080";
+const MARKER = '<div id="offline-banner"></div>';
+
+const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
+
+afterEach(async () => {
+  while (apps.length) await apps.pop()?.close();
+});
+
+/** A real page as the server renders it, in the household's language. */
+async function renderedPage(url: string, lang: "sv" | "en" = "sv"): Promise<string> {
+  const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-offline-core-")), now: () => new Date(2026, 9, 17, 7, 45), logLevel: "info", logDestination: { write: () => true } });
+  apps.push(app);
+  return (await app.inject({ method: "GET", url, headers: { cookie: `lang=${lang}` } })).body;
+}
 
 /** A route pattern with every `:param` filled in, as a browser would request it. */
 function concrete(pattern: string): string {
@@ -89,5 +107,32 @@ describe("cacheKeysFor", () => {
     expect(cacheKeysFor(`${ORIGIN}/`, "2026-10-17")).toEqual([`${ORIGIN}/`]);
     expect(cacheKeysFor(`${ORIGIN}/dishes/3/edit`, "2026-10-17")).toEqual([`${ORIGIN}/dishes/3/edit`]);
     expect(cacheKeysFor(`${ORIGIN}/shopping?week=2026-10-19`, "2026-10-17")).toEqual([`${ORIGIN}/shopping?week=2026-10-19`]);
+  });
+});
+
+describe("injectBanner", () => {
+  it("puts exactly one Swedish banner at the marker of a rendered Shopping page and leaves the rest alone", async () => {
+    const html = await renderedPage("/shopping");
+    const [before, after] = html.split(MARKER);
+
+    const out = injectBanner(html, "Visas från kopia, uppdaterad 07:45");
+
+    const banner = '<div id="offline-banner" class="notice" role="status">Visas från kopia, uppdaterad 07:45</div>';
+    expect(out.split(banner)).toEqual([before, after]);
+    expect(out).not.toContain(MARKER);
+  });
+
+  it("puts the English banner on an English page", async () => {
+    const html = await renderedPage("/shopping", "en");
+    const text = config.texts.en.banner.replace("{time}", "21:05");
+
+    const out = injectBanner(html, text);
+
+    expect(out.split('<div id="offline-banner" class="notice" role="status">Shown from copy, updated 21:05</div>')).toEqual(html.split(MARKER));
+  });
+
+  it("escapes the text and returns a page without the marker unchanged", () => {
+    expect(injectBanner(`<main>${MARKER}</main>`, "a < b")).toBe('<main><div id="offline-banner" class="notice" role="status">a &lt; b</div></main>');
+    expect(injectBanner("<main></main>", "x")).toBe("<main></main>");
   });
 });
