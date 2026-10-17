@@ -501,6 +501,41 @@ describe("Dishes without Ingredients on the Shopping List", () => {
     expect(view.body).toMatch(/500 g nötfärs/);
   });
 
+  it("Försök igen asks again for a Dish whose recipe came back with no Ingredients", async () => {
+    let soppaIngredients: FoundRecipe["ingredients"] = [];
+    const llm = new ScriptedLlmAgent({
+      findRecipe: (name) => ({ ok: true, value: { url: `https://recipes.example/${name}`, ingredients: name === "Soppa" ? soppaIngredients : [{ name: "nötfärs", quantity: 500, unit: "g" }] } }),
+    });
+    const app = await planned(llm);
+    soppaIngredients = [{ name: "ärtor", quantity: 500, unit: "g" }];
+    const callsBefore = llm.calls.filter((c) => c.method === "findRecipe").length;
+
+    await app.inject({ method: "POST", url: "/shopping/retry", payload: { weekStart: WEEK } });
+    const view = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(llm.calls.filter((c) => c.method === "findRecipe").slice(callsBefore).map((c) => c.args[0])).toEqual(["Soppa"]);
+    expect(view.body).not.toContain("Ingredients missing for");
+    expect(view.body).toMatch(/500 g ärtor/);
+  });
+
+  it("Försök igen does not send the list to the sinks", async () => {
+    const pushed: string[] = [];
+    const fetch = async (url: string) => {
+      pushed.push(url);
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    const { llm, state } = flakyAgent();
+    const app = await start({ llm, fetch });
+    planWith(app, [createDish(app.ctx.db, { name: "Burgers" }), createDish(app.ctx.db, { name: "Soppa" })]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    writeSetting(app.ctx.db, "shopping_list_sinks", '[{"type":"webhook","url":"https://hook.example/list"}]');
+    state.soppaWorks = true;
+
+    await app.inject({ method: "POST", url: "/shopping/retry", payload: { weekStart: WEEK } });
+
+    expect(pushed).toEqual([]);
+  });
+
   it("hides Försök igen and refuses it while a Plan Run is in flight", async () => {
     let release!: (value: LlmResult<SelectedDish[]>) => void;
     const held = new Promise<LlmResult<SelectedDish[]>>((r) => (release = r));

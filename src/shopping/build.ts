@@ -30,9 +30,13 @@ interface ItemRow {
   source_dish_ids: string;
 }
 
-export async function buildShoppingList(deps: ShoppingListDeps, planId: number): Promise<ShoppingList> {
+/**
+ * `freshDishIds`: Dishes re-resolved past their caches, for Försök igen on the Dishes the
+ * last build recorded as missing; every other Dish resolves as usual (cached when it can).
+ */
+export async function buildShoppingList(deps: ShoppingListDeps, planId: number, freshDishIds?: ReadonlySet<number>): Promise<ShoppingList> {
   // #30: also writes LLM-found recipe source links to planned_dinner.source_url.
-  const entries = await resolvePlanIngredients(deps, planId);
+  const entries = await resolvePlanIngredients(deps, planId, freshDishIds);
 
   const perDish: DishIngredients[] = [];
   const degradedReasons: string[] = [];

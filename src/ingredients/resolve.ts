@@ -25,6 +25,11 @@ export interface ResolveDeps {
   onProgress?: OnProgress;
 }
 
+export interface ResolveOptions {
+  /** Skip the extraction and found-recipe caches and ask the agent again (Försök igen on a Dish with no Ingredients). */
+  fresh?: boolean;
+}
+
 export type IngredientSource = "manual" | "url" | "llm" | "none";
 
 export interface ResolvedIngredients {
@@ -52,8 +57,8 @@ export interface ResolvedIngredients {
  *
  * Never throws for fetch or agent failure: the result degrades with `degradedReason`.
  */
-export async function resolveIngredients(deps: ResolveDeps, dish: Dish): Promise<ResolvedIngredients> {
-  const resolved = await resolveByPrecedence(deps, dish);
+export async function resolveIngredients(deps: ResolveDeps, dish: Dish, options: ResolveOptions = {}): Promise<ResolvedIngredients> {
+  const resolved = await resolveByPrecedence(deps, dish, options.fresh ?? false);
   if (resolved.degradedReason) {
     (deps.log ?? silentLogger)
       .child({ component: "ingredients" })
@@ -62,15 +67,15 @@ export async function resolveIngredients(deps: ResolveDeps, dish: Dish): Promise
   return resolved;
 }
 
-async function resolveByPrecedence(deps: ResolveDeps, dish: Dish): Promise<ResolvedIngredients> {
+async function resolveByPrecedence(deps: ResolveDeps, dish: Dish, fresh: boolean): Promise<ResolvedIngredients> {
   if (dish.ingredients.length > 0) return { ingredients: dish.ingredients, source: "manual" };
-  if (dish.recipeUrl) return resolveFromUrl(deps, dish.recipeUrl, dish.adaptationNotes ?? "");
-  return resolveFromLlm(deps, dish.name, dish.adaptationNotes ?? "");
+  if (dish.recipeUrl) return resolveFromUrl(deps, dish.recipeUrl, dish.adaptationNotes ?? "", fresh);
+  return resolveFromLlm(deps, dish.name, dish.adaptationNotes ?? "", fresh);
 }
 
-async function resolveFromLlm(deps: ResolveDeps, dishName: string, adaptationNotes: string): Promise<ResolvedIngredients> {
+async function resolveFromLlm(deps: ResolveDeps, dishName: string, adaptationNotes: string, fresh: boolean): Promise<ResolvedIngredients> {
   const language = languageOf(deps);
-  const cached = readFoundRecipe(deps.db, dishName, adaptationNotes, language);
+  const cached = fresh ? undefined : readFoundRecipe(deps.db, dishName, adaptationNotes, language);
   if (cached) return { ingredients: cached.ingredients, source: "llm", sourceUrl: cached.url };
 
   const result = await deps.llm.findRecipe(dishName, extractOptions(deps, adaptationNotes));
@@ -127,8 +132,9 @@ export interface PlanDinnerIngredients {
  * Resolves the Ingredients of every Planned Dinner of a Weekly Plan that has a Dish (date
  * order; dinners without a Dish are omitted) and stores the LLM-found recipe link on the
  * dinner (`planned_dinner.source_url`, ADR-0003). The Shopping List (#31) builds on this.
+ * Dishes in `freshDishIds` bypass the caches (see `ResolveOptions.fresh`).
  */
-export async function resolvePlanIngredients(deps: ResolveDeps, planId: number): Promise<PlanDinnerIngredients[]> {
+export async function resolvePlanIngredients(deps: ResolveDeps, planId: number, freshDishIds: ReadonlySet<number> = new Set()): Promise<PlanDinnerIngredients[]> {
   const toResolve = listPlannedDinners(deps.db, planId).flatMap((dinner) => {
     const dish = dinner.dishId === null ? undefined : getDish(deps.db, dinner.dishId);
     return dish ? [{ dinner, dish }] : [];
@@ -137,7 +143,7 @@ export async function resolvePlanIngredients(deps: ResolveDeps, planId: number):
   const results: PlanDinnerIngredients[] = [];
   for (const [done, { dinner, dish }] of toResolve.entries()) {
     deps.onProgress?.({ phase: "ingredient-resolution", progress: { done, total: toResolve.length, dish: dish.name } });
-    const resolved = await resolveIngredients(deps, dish);
+    const resolved = await resolveIngredients(deps, dish, { fresh: freshDishIds.has(dish.id) });
     if (resolved.source === "llm" && resolved.sourceUrl) {
       setPlannedDinnerSource(deps.db, planId, dinner.date, resolved.sourceUrl);
       dinner.sourceUrl = resolved.sourceUrl;
@@ -147,7 +153,7 @@ export async function resolvePlanIngredients(deps: ResolveDeps, planId: number):
   return results;
 }
 
-async function resolveFromUrl(deps: ResolveDeps, url: string, adaptationNotes: string): Promise<ResolvedIngredients> {
+async function resolveFromUrl(deps: ResolveDeps, url: string, adaptationNotes: string, fresh: boolean): Promise<ResolvedIngredients> {
   let page: string;
   try {
     page = await deps.fetchPage(url);
@@ -156,7 +162,7 @@ async function resolveFromUrl(deps: ResolveDeps, url: string, adaptationNotes: s
   }
   const contentHash = sha256(page);
   const language = languageOf(deps);
-  const cached = readCache(deps.db, url, contentHash, adaptationNotes, language);
+  const cached = fresh ? undefined : readCache(deps.db, url, contentHash, adaptationNotes, language);
   if (cached) return { ingredients: cached, source: "url", sourceUrl: url };
 
   const result = await deps.llm.extractIngredients(page, extractOptions(deps, adaptationNotes));

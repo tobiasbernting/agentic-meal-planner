@@ -170,6 +170,8 @@ function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: st
 }
 
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
+  const rebuildDeps = (req: FastifyRequest) => ({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) });
+
   app.get<{ Querystring: ShoppingQuery }>("/shopping", async (req, reply) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
@@ -202,21 +204,28 @@ ${content}`;
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
-  // Build and Har alltid hemma rewrite the list the week's Plan Run is also writing, so both are refused in flight.
-  // Försök igen: a rebuild. Dishes that resolved are cached, so only the ones without Ingredients reach the agent again.
-  const rebuild = async (req: FastifyRequest<{ Body: BuildForm }>, reply: FastifyReply) => {
+  // Build, Försök igen and Har alltid hemma rewrite the list the week's Plan Run is also writing, so all are refused in flight.
+  app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
     const plan = getPlanForWeek(ctx.db, weekStart);
     if (plan) {
-      const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) };
+      const deps = rebuildDeps(req);
       await buildShoppingList(deps, plan.id);
       await pushShoppingList(deps, plan.id);
     }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
-  };
-  app.post<{ Body: BuildForm }>("/shopping/build", rebuild);
-  app.post<{ Body: BuildForm }>("/shopping/retry", rebuild);
+  });
+
+  // Försök igen: re-resolves only the Dishes the last build recorded as missing, past their caches
+  // (a cached empty list included). It does not push: the household sends with Skicka igen.
+  app.post<{ Body: BuildForm }>("/shopping/retry", async (req, reply) => {
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
+    const plan = getPlanForWeek(ctx.db, weekStart);
+    if (plan) await buildShoppingList(rebuildDeps(req), plan.id, new Set(getMissingDishIds(ctx.db, plan.id)));
+    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  });
 
   const isHtmx = (req: FastifyRequest) => req.headers["hx-request"] === "true";
   /** A refused change: HTMX navigates to the notice page, a plain form redirects there. */
@@ -230,7 +239,6 @@ ${content}`;
     reply.type("text/html; charset=utf-8");
     return reply.send(renderLists(langOf(req), ctx, plan.id, weekStart, { alwaysHome: true, undo }));
   };
-  const rebuildDeps = (req: FastifyRequest) => ({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) });
 
   app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
