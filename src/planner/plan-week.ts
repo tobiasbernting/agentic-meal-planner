@@ -182,7 +182,6 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     const landed = (outcome: Exclude<SuggestionOutcome, { kind: "dropped" }>, rationale: string) =>
       outcome.kind === "reuse" ? dinner(rationale, outcome.dishId) : dinner(rationale, null, outcome.suggestion);
     const pick = pickByDate.get(day.date);
-    let dropped = false;
 
     /** The seed fallback for the day; `dropped` when another reason already explains the day. */
     const seedFallback = (dropped: boolean): PlannedDinnerDraft => {
@@ -195,23 +194,13 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     };
 
     if (eligible.length === 0) {
-      if (pick !== undefined && !fromNoAgent) {
-        // The agent may return an existing Dish's id instead of suggesting its twin.
-        const existing = "dishId" in pick ? input.dishes.find((d) => String(d.id) === pick.dishId) : undefined;
-        const outcome: SuggestionOutcome =
-          "suggestion" in pick
-            ? resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions)
-            : existing !== undefined
-              ? resolveExistingDish(existing, day, filterOptions)
-              : ({ kind: "dropped", why: `agent picked unknown dish ${pick.dishId}` } as const);
-        if (outcome.kind !== "dropped") return landed(outcome, pick.rationale);
-        const name = "suggestion" in pick ? String((pick.suggestion as { name?: unknown } | null)?.name ?? "") : (existing?.name ?? "");
-        const detail = "suggestion" in pick ? `${day.date}: suggestion "${name}" dropped: ${outcome.why}` : `${day.date}: dish ${pick.dishId} dropped: ${outcome.why}`;
-        const { code, params } = droppedCode("suggestion" in pick, outcome.rule);
-        degradedReasons.push({ code, date: day.date, params: { name, ...params }, detail });
-        dropped = true;
-      }
-      return seedFallback(dropped);
+      if (pick === undefined || fromNoAgent) return seedFallback(false);
+      const tried = tryPick(pick, day);
+      if (tried.outcome.kind !== "dropped") return landed(tried.outcome, pick.rationale);
+      const { code, params } = droppedCode(tried.wasSuggestion, tried.outcome.rule);
+      const detail = `${day.date}: ${tried.what} dropped: ${tried.outcome.why}`;
+      degradedReasons.push({ code, date: day.date, params: { name: tried.name, ...params }, detail });
+      return seedFallback(true);
     }
 
     if (pick === undefined) return dinner(noEligibleRationale);
@@ -222,14 +211,28 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
       degradedReasons.push({ code: "pick-not-eligible", date: day.date, detail: reason });
       return dinner(t(lang, "rationale.pickDropped"));
     }
-    const repeat = exclusionRule(chosen, day, filterOptions);
-    if (repeat?.code === "once-a-week") {
-      const detail = `${day.date}: dish ${chosen.id} is already planned on ${repeat.date}; dropped (Once a Week)`;
+    const broken = exclusionRule(chosen, day, filterOptions);
+    if (broken?.code === "once-a-week") {
+      const detail = `${day.date}: dish ${chosen.id} is already planned on ${broken.date}; dropped (Once a Week)`;
       // An agent's pick or NoAgent's round-robin alike: the household sees why the Dish is not on the day.
       degradedReasons.push({ code: "once-a-week", date: day.date, params: { name: chosen.name }, detail });
       return seedFallback(true);
     }
     return dinner(rationaleOf(pick) || noEligibleRationale, chosen.id);
+  }
+
+  /**
+   * The agent's pick for a day with no candidates: a suggestion, or an existing Dish it named by id
+   * instead of suggesting its twin. `name` and `what` describe the pick for the household and Logs.
+   */
+  function tryPick(pick: SelectedDish, day: DayInput): { outcome: SuggestionOutcome; wasSuggestion: boolean; name: string; what: string } {
+    if ("suggestion" in pick) {
+      const name = String((pick.suggestion as { name?: unknown } | null)?.name ?? "");
+      return { outcome: resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions), wasSuggestion: true, name, what: `suggestion "${name}"` };
+    }
+    const existing = input.dishes.find((d) => String(d.id) === pick.dishId);
+    const outcome: SuggestionOutcome = existing ? resolveExistingDish(existing, day, filterOptions) : { kind: "dropped", why: `agent picked unknown dish ${pick.dishId}` };
+    return { outcome, wasSuggestion: false, name: existing?.name ?? "", what: `dish ${pick.dishId}` };
   }
 
   return { weekStart: input.weekStart, dinners, degradedReasons };
