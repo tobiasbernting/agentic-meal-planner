@@ -7,6 +7,7 @@ import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/fake.js";
 import { createSchool } from "../schools/repo.js";
 import { getIngestOutcome, recordIngestOutcome } from "./outcome.js";
+import { postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -71,7 +72,7 @@ describe("Ingest Outcome recording", () => {
     await app.inject({ method: "POST", url: "/lunch/refresh" });
     expect(getIngestOutcome(app.ctx.db, school.id)).toMatchObject({ status: "fetched", reason: null });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
     expect(getIngestOutcome(app.ctx.db, school.id)).toMatchObject({ status: "cached", reason: null });
   });
 });
@@ -129,7 +130,7 @@ describe("no lunch data notice", () => {
   it("Plan names each School without lunch and why, after generate", async () => {
     const app = await start({ fetchPage: failingFetch, llm: failingAgent() });
     createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 

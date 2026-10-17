@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { silentLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getDish, type Dish, type Ingredient } from "../dishes/repo.js";
 import type { Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
@@ -14,6 +15,11 @@ export interface ResolveDeps {
   now?: () => Date;
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
   log?: Logger;
+  /**
+   * Plan Run progress reports; omitted outside a Plan Run. `resolvePlanIngredients` reports the
+   * Ingredient resolution Phase, then done/total and the Dish name as each Dish starts.
+   */
+  onProgress?: OnProgress;
 }
 
 export type IngredientSource = "manual" | "url" | "llm" | "none";
@@ -117,10 +123,14 @@ export interface PlanDinnerIngredients {
  * dinner (`planned_dinner.source_url`, ADR-0003). The Shopping List (#31) builds on this.
  */
 export async function resolvePlanIngredients(deps: ResolveDeps, planId: number): Promise<PlanDinnerIngredients[]> {
-  const results: PlanDinnerIngredients[] = [];
-  for (const dinner of listPlannedDinners(deps.db, planId)) {
+  const toResolve = listPlannedDinners(deps.db, planId).flatMap((dinner) => {
     const dish = dinner.dishId === null ? undefined : getDish(deps.db, dinner.dishId);
-    if (!dish) continue;
+    return dish ? [{ dinner, dish }] : [];
+  });
+  deps.onProgress?.({ phase: "ingredient-resolution" });
+  const results: PlanDinnerIngredients[] = [];
+  for (const [done, { dinner, dish }] of toResolve.entries()) {
+    deps.onProgress?.({ phase: "ingredient-resolution", progress: { done, total: toResolve.length, dish: dish.name } });
     const resolved = await resolveIngredients(deps, dish);
     if (resolved.source === "llm" && resolved.sourceUrl) {
       setPlannedDinnerSource(deps.db, planId, dinner.date, resolved.sourceUrl);
