@@ -29,6 +29,17 @@ function form(fields: Record<string, string | string[]>): string {
   return params.toString();
 }
 
+/** The [name, quantity, unit, note] values of the Ingredient rows on a Dish form. */
+function ingredientRows(html: string): string[][] {
+  const value = (row: string, field: string) => row.match(new RegExp(`name="${field}"[^>]*value="([^"]*)"`))?.[1] ?? "";
+  return [...html.matchAll(/<li class="ingredient-row">([\s\S]*?)<\/li>/g)].map((m) => [
+    value(m[1]!, "ingredient_name"),
+    value(m[1]!, "ingredient_quantity"),
+    value(m[1]!, "ingredient_unit"),
+    value(m[1]!, "ingredient_note"),
+  ]);
+}
+
 const urlencoded = { "content-type": "application/x-www-form-urlencoded" };
 
 describe("GET /dishes/new", () => {
@@ -61,7 +72,10 @@ const fullTacosForm = {
   in_rotation: "1",
   preferred_days: ["fri", "sat"],
   weekend_only: "1",
-  ingredients: "minced beef | 500 | g\ntortillas | 8\nsalsa",
+  ingredient_name: ["minced beef", "tortillas", "salsa"],
+  ingredient_quantity: ["500", "8", ""],
+  ingredient_unit: ["g", "", ""],
+  ingredient_note: ["browned", "", ""],
 };
 
 async function createViaForm(app: Awaited<ReturnType<typeof buildApp>>, fields: Record<string, string | string[]>) {
@@ -87,7 +101,12 @@ describe("POST /dishes then GET /dishes/:id/edit", () => {
     expect(res.body).toContain('value="25"');
     expect(res.body).toContain('<option value="tacos" selected>');
     expect(res.body).toContain('name="adaptation_notes" rows="2">no chili - the kids</textarea>');
-    expect(res.body).toContain("minced beef | 500 | g\ntortillas | 8\nsalsa</textarea>");
+    expect(ingredientRows(res.body)).toEqual([
+      ["minced beef", "500", "g", "browned"],
+      ["tortillas", "8", "", ""],
+      ["salsa", "", "", ""],
+    ]);
+    expect(getDish(app.ctx.db, id)?.ingredients[0]).toEqual({ name: "minced beef", quantity: 500, unit: "g", preparationNote: "browned" });
     expect(res.body).toMatch(/name="in_rotation" value="1" checked/);
     expect(res.body).toMatch(/name="weekend_only" value="1" checked/);
     const checkedDays = [...res.body.matchAll(/name="preferred_days" value="(\w+)" checked/g)].map((m) => m[1]);
@@ -138,7 +157,7 @@ describe("POST /dishes/:id", () => {
       method: "POST",
       url: `/dishes/${id}`,
       headers: urlencoded,
-      payload: form({ name: "Tacos", main_category: "", ingredients: "" }),
+      payload: form({ name: "Tacos", main_category: "" }),
     });
 
     expect(res.statusCode).toBe(303);
@@ -148,7 +167,7 @@ describe("POST /dishes/:id", () => {
     expect(edit.body).not.toMatch(/name="weekend_only" value="1" checked/);
     expect(edit.body).not.toMatch(/name="preferred_days" value="\w+" checked/);
     expect(edit.body).toContain('<option value="" selected>');
-    expect(edit.body).toContain('name="ingredients" rows="6"></textarea>');
+    expect(ingredientRows(edit.body)).toEqual([]);
   });
 
   it("returns 404 for an unknown dish", async () => {
@@ -212,15 +231,120 @@ describe("LLM Main Category proposal on save (FR-1)", () => {
   });
 });
 
-describe("POST /dishes/:id/delete", () => {
-  it("removes the dish from the list", async () => {
+describe("deleting a Dish", () => {
+  it("offers delete only at the bottom of the edit page, never on the list", async () => {
     const app = await start();
     const id = await createViaForm(app, fullTacosForm);
 
-    const res = await app.inject({ method: "POST", url: `/dishes/${id}/delete` });
+    const list = (await app.inject({ method: "GET", url: "/dishes" })).body;
+    const edit = (await app.inject({ method: "GET", url: `/dishes/${id}/edit` })).body;
 
+    expect(list).not.toContain("/delete");
+    expect(edit).toContain(`href="/dishes/${id}/delete"`);
+  });
+
+  it("asks for confirmation on GET and deletes only on the confirming POST", async () => {
+    const app = await start();
+    const id = await createViaForm(app, fullTacosForm);
+
+    const ask = await app.inject({ method: "GET", url: `/dishes/${id}/delete` });
+    expect(ask.statusCode).toBe(200);
+    expect(ask.body).toContain("Delete Tacos &lt;fredag&gt;?");
+    expect(getDish(app.ctx.db, id)).toBeDefined();
+
+    const unconfirmed = await app.inject({ method: "POST", url: `/dishes/${id}/delete` });
+    expect(unconfirmed.statusCode).toBe(303);
+    expect(unconfirmed.headers.location).toBe(`/dishes/${id}/delete`);
+    expect(getDish(app.ctx.db, id)).toBeDefined();
+
+    const res = await app.inject({ method: "POST", url: `/dishes/${id}/delete`, headers: urlencoded, payload: form({ confirm: "1" }) });
     expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("/dishes");
     expect((await app.inject({ method: "GET", url: "/dishes" })).body).toContain("No dishes yet");
+  });
+
+  it("returns 404 when confirming an unknown Dish", async () => {
+    const app = await start();
+    expect((await app.inject({ method: "GET", url: "/dishes/999/delete" })).statusCode).toBe(404);
+  });
+});
+
+describe("the Dishes list sections", () => {
+  it("splits Favoriter from Förslag and offers promote only in Förslag", async () => {
+    const app = await start();
+    createDish(app.ctx.db, { name: "Tacos", mainCategory: "tacos", prepTimeMinutes: 25 });
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    const html = (await app.inject({ method: "GET", url: "/dishes" })).body;
+    const [favorites, suggestions] = html.split('id="suggestions"') as [string, string];
+
+    expect(favorites).toContain("Favorites");
+    expect(favorites).toContain("Tacos");
+    expect(favorites).toContain("25 min");
+    expect(favorites).not.toContain("Köttbullar");
+    expect(favorites).not.toContain("/promote");
+    expect(suggestions).toContain("Köttbullar");
+    expect(suggestions).toContain(`/dishes/${id}/promote`);
+    expect(suggestions).not.toContain("Tacos");
+  });
+
+  it("renders in Swedish", async () => {
+    const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-dishes-sv-")) });
+    apps.push(app);
+    createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    const html = (await app.inject({ method: "GET", url: "/dishes", headers: { cookie: "lang=sv" } })).body;
+
+    expect(html).toContain("Favoriter");
+    expect(html).toContain("Förslag");
+    expect(html).toContain("Lägg till i favoriter");
+  });
+});
+
+describe("Ingredient rows (HTMX)", () => {
+  it("serves a blank row fragment for add row", async () => {
+    const app = await start();
+
+    const res = await app.inject({ method: "GET", url: "/dishes/ingredient-row" });
+
+    expect(res.statusCode).toBe(200);
+    expect(ingredientRows(res.body)).toEqual([["", "", "", ""]]);
+    expect(res.body).not.toContain("<html");
+  });
+
+  it("wires add row on the form and renders Preferred Days as chips", async () => {
+    const app = await start();
+
+    const res = await app.inject({ method: "GET", url: "/dishes/new" });
+
+    expect(res.body).toContain('hx-get="/dishes/ingredient-row"');
+    expect(res.body).toContain('class="chip"');
+    expect(res.body).not.toContain('name="ingredients"');
+  });
+
+  it("drops rows without a name and accepts a Swedish decimal comma", async () => {
+    const app = await start();
+    const id = await createViaForm(app, {
+      name: "Pasta",
+      ingredient_name: ["cream", ""],
+      ingredient_quantity: ["2,5", "3"],
+      ingredient_unit: ["dl", ""],
+      ingredient_note: ["", ""],
+    });
+
+    expect(getDish(app.ctx.db, id)?.ingredients).toEqual([{ name: "cream", quantity: 2.5, unit: "dl" }]);
+  });
+
+  it("rejects a quantity that is not a number", async () => {
+    const app = await start();
+    const res = await app.inject({
+      method: "POST",
+      url: "/dishes",
+      headers: urlencoded,
+      payload: form({ name: "X", ingredient_name: "salt", ingredient_quantity: "a pinch", ingredient_unit: "", ingredient_note: "" }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Quantity");
   });
 });
 
@@ -232,7 +356,6 @@ describe("Suggested Dishes", () => {
 
     const html = (await app.inject({ method: "GET", url: "/dishes" })).body;
 
-    expect(html.match(/Suggested/g)).toHaveLength(1);
     expect(html.match(/Add to favorites/g)).toHaveLength(1);
     expect(html).toContain(`/dishes/${id}/promote`);
   });

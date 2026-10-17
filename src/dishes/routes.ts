@@ -33,38 +33,35 @@ interface DishFormBody {
   in_rotation?: string;
   preferred_days?: string | string[];
   weekend_only?: string;
-  ingredients?: string;
+  ingredient_name?: string | string[];
+  ingredient_quantity?: string | string[];
+  ingredient_unit?: string | string[];
+  ingredient_note?: string | string[];
 }
 
 /**
- * Manual Ingredients are edited as one line per Ingredient: `name | quantity | unit`.
- * Quantity and unit are optional; a quantity that is not a number is kept as part of the unit
- * rather than silently dropped (e.g. "salt | a pinch" -> unit "a pinch").
+ * Ingredient rows arrive as four parallel fields (every row submits all four, so the arrays
+ * line up). Rows without a name are dropped; a quantity takes a Swedish decimal comma.
  */
-export function parseIngredientLines(text: string): Ingredient[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== "")
-    .map((line) => {
-      const [name = "", qty = "", unit = ""] = line.split("|").map((part) => part.trim());
-      const quantity = qty === "" ? null : Number(qty.replace(",", "."));
-      if (quantity !== null && !Number.isFinite(quantity)) {
-        return { name, quantity: null, unit: [qty, unit].filter(Boolean).join(" ") || null };
-      }
-      return { name, quantity, unit: unit || null };
-    })
-    .filter((ing) => ing.name !== "");
-}
-
-export function formatIngredientLines(ingredients: Ingredient[]): string {
-  return ingredients
-    .map((ing) => {
-      const parts = [ing.name, ing.quantity ?? "", ing.unit ?? ""];
-      while (parts.length > 1 && parts[parts.length - 1] === "") parts.pop();
-      return parts.join(" | ");
-    })
-    .join("\n");
+export function parseIngredientRows(body: DishFormBody): Ingredient[] | "quantity" {
+  const column = (value: string | string[] | undefined) => (value === undefined ? [] : [value].flat());
+  const names = column(body.ingredient_name);
+  const quantities = column(body.ingredient_quantity);
+  const units = column(body.ingredient_unit);
+  const notes = column(body.ingredient_note);
+  const out: Ingredient[] = [];
+  for (const [i, raw] of names.entries()) {
+    const name = raw.trim();
+    if (name === "") continue;
+    const qty = (quantities[i] ?? "").trim();
+    const quantity = qty === "" ? null : Number(qty.replace(",", "."));
+    if (quantity !== null && !Number.isFinite(quantity)) return "quantity";
+    const ingredient: Ingredient = { name, quantity, unit: blank(units[i]) };
+    const note = blank(notes[i]);
+    if (note) ingredient.preparationNote = note;
+    out.push(ingredient);
+  }
+  return out;
 }
 
 function blank(value: string | undefined): string | null {
@@ -94,6 +91,9 @@ function toDishInput(lang: Lang, body: DishFormBody): { input: DishInput; propos
   const preferredDays = WEEKDAYS.filter((d) => daysRaw.includes(d));
   if (daysRaw.some((d) => !isWeekday(d))) return { error: t(lang, "dishes.error.days") };
 
+  const ingredients = parseIngredientRows(body);
+  if (ingredients === "quantity") return { error: t(lang, "dishes.error.quantity") };
+
   return {
     // FR-1: only an undecided (blank, untouched) category is handed to the agent, see DishFormBody.
     proposeCategory: mainCategory === null && body.main_category_touched !== "1",
@@ -106,9 +106,13 @@ function toDishInput(lang: Lang, body: DishFormBody): { input: DishInput; propos
       inRotation: body.in_rotation === "1",
       preferredDays,
       weekendOnly: body.weekend_only === "1",
-      ingredients: parseIngredientLines(body.ingredients ?? ""),
+      ingredients,
     },
   };
+}
+
+function chip(name: string, value: string, label: string, checked: boolean): string {
+  return `<label class="chip"><input type="checkbox" name="${name}" value="${escapeHtml(value)}"${checked ? " checked" : ""} /> ${escapeHtml(label)}</label>`;
 }
 
 function checkbox(name: string, value: string, label: string, checked: boolean): string {
@@ -129,7 +133,19 @@ const NEW_DISH: Omit<Dish, "id"> = {
   ingredients: [],
 };
 
-function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: string, editing = false): string {
+function ingredientRow(lang: Lang, ing: Ingredient | undefined): string {
+  const field = (name: string, labelKey: Parameters<typeof t>[1], value: string, attrs = "") =>
+    `<label>${t(lang, labelKey)} <input name="${name}"${attrs} value="${escapeHtml(value)}" /></label>`;
+  return `<li class="ingredient-row">
+        ${field("ingredient_name", "dishes.ingredientName", ing?.name ?? "")}
+        ${field("ingredient_quantity", "dishes.ingredientQuantity", ing?.quantity ?? "", ' inputmode="decimal"')}
+        ${field("ingredient_unit", "dishes.ingredientUnit", ing?.unit ?? "")}
+        ${field("ingredient_note", "dishes.ingredientNote", ing?.preparationNote ?? "")}
+        <button type="button" class="quiet" hx-on:click="this.closest('li').remove()">${t(lang, "dishes.removeIngredient")}</button>
+      </li>`;
+}
+
+function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: string, deleteId?: number): string {
   const categoryOptions = [
     `<option value=""${dish.mainCategory === null ? " selected" : ""}>${t(lang, "dishes.categoryNone")}</option>`,
     ...MAIN_CATEGORY_KEYS.map(
@@ -138,11 +154,11 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
     ),
   ].join("\n        ");
   const dayBoxes = WEEKDAYS.map((d) =>
-    checkbox("preferred_days", d, weekdayName(lang, d, "short"), dish.preferredDays.includes(d)),
+    chip("preferred_days", d, weekdayName(lang, d, "short"), dish.preferredDays.includes(d)),
   ).join("\n        ");
   return `${error ? notice({ text: error }) : ""}
     <form method="post" action="${escapeHtml(action)}">
-      ${editing ? '<input type="hidden" name="main_category_touched" value="1" />' : ""}
+      ${deleteId !== undefined ? '<input type="hidden" name="main_category_touched" value="1" />' : ""}
       <label>${t(lang, "common.name")} <input name="name" required value="${escapeHtml(dish.name)}" /></label>
       <label>${t(lang, "dishes.recipeUrl")} <input name="recipe_url" type="url" value="${escapeHtml(dish.recipeUrl ?? "")}" /></label>
       <label>${t(lang, "dishes.prepTime")} <input name="prep_time_minutes" type="number" min="0" step="1" value="${escapeHtml(dish.prepTimeMinutes ?? "")}" /></label>
@@ -152,32 +168,32 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
         </select>
       </label>
       <label>${t(lang, "dishes.adaptation")} <textarea name="adaptation_notes" rows="2">${escapeHtml(dish.adaptationNotes ?? "")}</textarea></label>
-      <label>${t(lang, "dishes.ingredients")}
-        <textarea name="ingredients" rows="6">${escapeHtml(formatIngredientLines(dish.ingredients))}</textarea>
-      </label>
+      <fieldset>
+        <legend>${t(lang, "dishes.ingredients")}</legend>
+        <ul class="ingredient-rows" id="ingredient-rows">
+        ${dish.ingredients.map((ing) => ingredientRow(lang, ing)).join("\n")}
+        </ul>
+        <button type="button" hx-get="/dishes/ingredient-row" hx-target="#ingredient-rows" hx-swap="beforeend">${t(lang, "dishes.addIngredient")}</button>
+      </fieldset>
       ${checkbox("in_rotation", "1", t(lang, "dishes.inRotation"), dish.inRotation)}
       <fieldset>
         <legend>${t(lang, "dishes.preferredDays")}</legend>
         ${dayBoxes}
       </fieldset>
       ${checkbox("weekend_only", "1", t(lang, "dishes.weekendOnly"), dish.weekendOnly)}
-      <p><button type="submit">${t(lang, "common.save")}</button> <a href="/dishes">${t(lang, "common.cancel")}</a></p>
-    </form>`;
+      <p class="actions"><button type="submit" class="primary">${t(lang, "common.save")}</button> <a class="button quiet" href="/dishes">${t(lang, "common.cancel")}</a></p>
+    </form>
+    ${deleteId === undefined ? "" : `<p class="actions"><a class="button quiet" href="/dishes/${deleteId}/delete">${t(lang, "dishes.deleteDish")}</a></p>`}`;
 }
 
-function dishListItem(lang: Lang, dish: Dish): string {
-  const tags = [
+function dishListItem(lang: Lang, dish: Dish, promote: boolean): string {
+  const meta = [
     dish.mainCategory ? categoryLabel(dish.mainCategory, lang) : null,
     dish.prepTimeMinutes !== null ? t(lang, "dishes.prepMinutes", { n: dish.prepTimeMinutes }) : null,
-    dish.suggested ? t(lang, "dishes.tagSuggested") : null,
-    dish.inRotation ? null : t(lang, "dishes.tagNotInRotation"),
-    dish.weekendOnly ? t(lang, "dishes.tagWeekend") : null,
-    dish.preferredDays.length ? dish.preferredDays.map((d) => weekdayName(lang, d, "short")).join("/") : null,
-  ].filter((t): t is string => t !== null);
+  ].filter((m): m is string => m !== null);
   return `<li>
-        <a href="/dishes/${dish.id}/edit">${escapeHtml(dish.name)}</a>${tags.length ? ` <small>(${escapeHtml(tags.join(", "))})</small>` : ""}
-        ${dish.suggested ? promoteForm(lang, dish.id, true) : ""}
-        <form method="post" action="/dishes/${dish.id}/delete" style="display:inline"><button type="submit">${t(lang, "common.delete")}</button></form>
+        <a class="row-link" href="/dishes/${dish.id}/edit"><span class="row-label">${escapeHtml(dish.name)}</span>${meta.length ? `<span class="row-status">${escapeHtml(meta.join(" · "))}</span>` : ""}</a>
+        ${promote ? promoteForm(lang, dish.id) : ""}
       </li>`;
 }
 
@@ -210,10 +226,25 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     html(reply);
     const dishes = listDishes(db);
-    const body = `<h1>${t(lang, "dishes.title")}</h1>
-    <p><a href="/dishes/new">${t(lang, "dishes.add")}</a></p>
-    ${dishes.length ? `<ul>${dishes.map((d) => dishListItem(lang, d)).join("\n")}</ul>` : `<p>${t(lang, "dishes.none")}</p>`}`;
+    const favorites = dishes.filter((d) => d.inRotation);
+    // Förslag holds every Dish outside the rotation: Suggested ones and any a user took out.
+    const suggestions = dishes.filter((d) => !d.inRotation);
+    const section = (id: string, titleKey: "dishes.favorites" | "dishes.suggestions", emptyKey: "dishes.noFavorites" | "dishes.noSuggestions", list: Dish[], promote: boolean) =>
+      `<section id="${id}">
+      <h2>${t(lang, titleKey)}</h2>
+      ${list.length ? `<ul class="rows">${list.map((d) => dishListItem(lang, d, promote)).join("\n")}</ul>` : `<p>${t(lang, emptyKey)}</p>`}
+    </section>`;
+    const body = `<div class="page-head"><h1>${t(lang, "dishes.title")}</h1></div>
+    <p class="actions"><a class="button primary" href="/dishes/new">${t(lang, "dishes.add")}</a></p>
+    ${dishes.length ? "" : `<p>${t(lang, "dishes.none")}</p>`}
+    ${section("favorites", "dishes.favorites", "dishes.noFavorites", favorites, false)}
+    ${section("suggestions", "dishes.suggestions", "dishes.noSuggestions", suggestions, true)}`;
     return page({ title: t(lang, "dishes.title"), body, lang, tab: "more" });
+  });
+
+  app.get("/dishes/ingredient-row", async (req, reply) => {
+    html(reply);
+    return ingredientRow(langOf(req), undefined);
   });
 
   app.get("/dishes/new", async (req, reply) => {
@@ -240,7 +271,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     const dish = getDish(db, Number(req.params.id));
     if (!dish) return reply.code(404).send(t(lang, "dishes.notFound"));
     html(reply);
-    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish, undefined, true)}`, lang, tab: "more" });
+    return page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${dish.id}`, dish, undefined, dish.id)}`, lang, tab: "more" });
   });
 
   app.post<{ Params: { id: string }; Body: DishFormBody }>("/dishes/:id", async (req, reply) => {
@@ -253,7 +284,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
       html(reply);
       return reply
         .code(400)
-        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error, true)}`, lang, tab: "more" }));
+        .send(page({ title: t(lang, "dishes.editTitle", { name: dish.name }), body: `<h1>${t(lang, "dishes.edit")}</h1>${dishForm(lang, `/dishes/${id}`, dish, parsed.error, id)}`, lang, tab: "more" }));
     }
     if (!updateDish(db, id, await withProposedCategory(parsed))) return reply.code(404).send(t(lang, "dishes.notFound"));
     return reply.redirect("/dishes", 303);
@@ -264,8 +295,26 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     return reply.redirect(sameSitePath(req.headers.referer, req.headers.host) ?? "/dishes", 303);
   });
 
-  app.post<{ Params: { id: string } }>("/dishes/:id/delete", async (req, reply) => {
-    deleteDish(db, Number(req.params.id));
+  app.get<{ Params: { id: string } }>("/dishes/:id/delete", async (req, reply) => {
+    const lang = langOf(req);
+    const dish = getDish(db, Number(req.params.id));
+    if (!dish) return reply.code(404).send(t(lang, "dishes.notFound"));
+    html(reply);
+    const body = `<div class="page-head"><h1>${t(lang, "dishes.deleteConfirm", { name: dish.name })}</h1></div>
+    <p>${t(lang, "dishes.deleteWarning")}</p>
+    <form method="post" action="/dishes/${dish.id}/delete" class="actions">
+      <input type="hidden" name="confirm" value="1" />
+      <button type="submit" class="primary">${t(lang, "dishes.deleteYes")}</button>
+      <a class="button quiet" href="/dishes/${dish.id}/edit">${t(lang, "common.cancel")}</a>
+    </form>`;
+    return page({ title: t(lang, "dishes.deleteConfirm", { name: dish.name }), body, lang, tab: "more" });
+  });
+
+  // Delete needs the confirm field the confirmation page sends; a bare POST goes back to ask.
+  app.post<{ Params: { id: string }; Body: { confirm?: string } | undefined }>("/dishes/:id/delete", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (req.body?.confirm !== "1") return reply.redirect(`/dishes/${id}/delete`, 303);
+    deleteDish(db, id);
     return reply.redirect("/dishes", 303);
   });
 };
