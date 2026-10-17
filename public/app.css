@@ -248,7 +248,7 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 #sinks { padding-bottom: 16px; }
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
 /* Dense Buy lines: name and quantity lead, the quiet "till" line under, the action quiet at the end. */
-.rows > li.line { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: center; padding-block: 2px; }
+.rows > li.line { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: center; min-height: var(--tap); padding-block: 4px; }
 .line > .row-label, .line > .row-status { grid-column: 1; }
 .line > .line-end { grid-column: 2; grid-row: 1 / span 2; justify-self: end; }
 .line-end form { margin: 0; }
