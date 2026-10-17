@@ -3,7 +3,7 @@
  * no network. Filters Favorite Dishes per dinner date by the hard rules; the LLM selection
  * step (FR-7) picks among what is left.
  */
-import type { MainCategory } from "../dishes/categories.js";
+import { isMainCategory, type MainCategory } from "../dishes/categories.js";
 import type { Dish, Weekday } from "../dishes/repo.js";
 import { normaliseName } from "../text.js";
 import type { LunchEntry } from "../types.js";
@@ -29,6 +29,22 @@ export interface PlannedElsewhere {
   name: string;
   /** The dinner's Main Category, when known; the seed fallback avoids repeating it. */
   mainCategory?: MainCategory | null;
+}
+
+/**
+ * A planned dinner as Once a Week sees it: its Dish from `dishes`, or a new Suggested Dish by
+ * name. `undefined` for an empty dinner or a Dish id not in `dishes`.
+ */
+export function plannedElsewhereOf(
+  dinner: { date: string; dishId: number | null; suggestion?: { name: string; mainCategory: string } | null },
+  dishes: Dish[],
+): PlannedElsewhere | undefined {
+  if (dinner.suggestion) {
+    const { name, mainCategory } = dinner.suggestion;
+    return { date: dinner.date, dishId: null, name, mainCategory: isMainCategory(mainCategory) ? mainCategory : null };
+  }
+  const dish = dinner.dishId === null ? undefined : dishes.find((d) => d.id === dinner.dishId);
+  return dish && { date: dinner.date, dishId: dish.id, name: dish.name, mainCategory: dish.mainCategory };
 }
 
 export interface FilterOptions {

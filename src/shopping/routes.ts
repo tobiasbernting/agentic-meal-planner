@@ -21,7 +21,8 @@ import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { configuredSinks } from "../sinks/registry.js";
 import { buildShoppingList, buyFingerprint, getMissingDishIds, getShoppingList } from "./build.js";
-import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
+import { createPantryItem, deletePantryItem, listPantryItems, type PantryItem } from "../pantry/repo.js";
+import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
 interface ShoppingQuery {
@@ -53,10 +54,7 @@ interface UndoForm extends BuildForm {
 }
 
 /** The Pantry Item Har alltid hemma just created: its line under Check pantry offers Ångra. */
-interface Undo {
-  id: number;
-  name: string;
-}
+type Undo = PantryItem;
 
 /** "pasta" / "400 g pasta" as the row's main text. */
 function itemLabel(item: AggregatedItem): string {
@@ -109,7 +107,8 @@ function renderLists(lang: Lang, ctx: AppContext, planId: number, weekStart: str
   const dishName = (id: number) => getDish(ctx.db, id)?.name;
   const { undo } = opts;
   const buyAction = opts.alwaysHome ? (item: AggregatedItem) => alwaysHomeForm(lang, weekStart, item) : undefined;
-  const pantryAction = undo ? (item: AggregatedItem) => (item.name.toLowerCase() === undo.name.toLowerCase() ? undoForm(lang, weekStart, undo) : undefined) : undefined;
+  const isUndoLine = undo ? pantryLookup([undo]) : undefined;
+  const pantryAction = undo && isUndoLine ? (item: AggregatedItem) => (isUndoLine(item.name) ? undoForm(lang, weekStart, undo) : undefined) : undefined;
   const expire = undo ? `\n<div hidden hx-get="/shopping/sections?week=${weekStart}" hx-trigger="load delay:6s" hx-target="#shopping-lists" hx-swap="outerHTML"></div>` : "";
   return `<div id="shopping-lists">
 ${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, buyAction)}
@@ -246,9 +245,9 @@ ${content}`;
     const name = req.body.name?.trim();
     let undo: Undo | undefined;
     if (name) {
-      const existing = listPantryItems(ctx.db).some((p) => p.name.toLowerCase() === name.toLowerCase());
+      const existing = pantryLookup(listPantryItems(ctx.db))(name);
       // Ångra only removes an item this tap created.
-      if (!existing) undo = { id: createPantryItem(ctx.db, { name, aliases: [] }).id, name };
+      if (!existing) undo = createPantryItem(ctx.db, { name, aliases: [] });
       const plan = getPlanForWeek(ctx.db, weekStart);
       if (plan) await buildShoppingList(rebuildDeps(req), plan.id);
     }

@@ -5,9 +5,8 @@
  * selects through `LlmAgent.selectDishes` (FR-7) and every Planned Dinner carries a
  * rationale (FR-8). With no agent, selection degrades to round-robin (FR-16).
  */
-import { isMainCategory } from "../dishes/categories.js";
 import type { Dish, Weekday } from "../dishes/repo.js";
-import { buildCandidateSets, exclusionParams, exclusionRule, type DayInput, type ExclusionRule, type PlannedElsewhere } from "../engine/filter.js";
+import { buildCandidateSets, exclusionParams, exclusionRule, plannedElsewhereOf, type DayInput, type ExclusionRule, type PlannedElsewhere } from "../engine/filter.js";
 import {
   NO_AGENT_REASON,
   NoAgent,
@@ -159,14 +158,10 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
 
   // Once a Week: the dinners planned so far, so a later date never repeats one.
   const planned: PlannedElsewhere[] = [];
-  const asPlanned = (draft: PlannedDinnerDraft): PlannedElsewhere => {
-    if (draft.suggestion !== null) return { date: draft.date, dishId: null, name: draft.suggestion.name, mainCategory: isMainCategory(draft.suggestion.mainCategory) ? draft.suggestion.mainCategory : null };
-    const reused = input.dishes.find((d) => d.id === draft.dishId);
-    return { date: draft.date, dishId: draft.dishId, name: reused?.name ?? "", mainCategory: reused?.mainCategory ?? null };
-  };
   const dinners = days.map((weekDay, i): PlannedDinnerDraft => {
     const draft = planDay({ ...weekDay, plannedElsewhere: [...planned] }, i);
-    if (draft.dishId !== null || draft.suggestion !== null) planned.push(asPlanned(draft));
+    const asPlanned = plannedElsewhereOf(draft, input.dishes);
+    if (asPlanned) planned.push(asPlanned);
     return draft;
   });
 

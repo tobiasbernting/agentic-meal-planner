@@ -5,7 +5,7 @@
  */
 import type Database from "better-sqlite3";
 import { listDishes, type Dish } from "../dishes/repo.js";
-import { filterEligibleDishes, type PlannedElsewhere } from "../engine/filter.js";
+import { filterEligibleDishes, plannedElsewhereOf } from "../engine/filter.js";
 import { mondayOf, weekdayOf } from "../week.js";
 import { loadStoredLunch } from "./generate.js";
 import { getPlanForWeek } from "./repo.js";
@@ -17,10 +17,7 @@ export function eligibleDishesOn(db: Database.Database, date: string): Dish[] {
   const weekStart = mondayOf(date);
   const weekday = weekdayOf(date);
   const dishes = listDishes(db);
-  const plannedElsewhere = (getPlanForWeek(db, weekStart)?.dinners ?? []).flatMap((d): PlannedElsewhere[] => {
-    const dish = d.date === date || d.dishId === null ? undefined : dishes.find((x) => x.id === d.dishId);
-    return dish ? [{ date: d.date, dishId: dish.id, name: dish.name }] : [];
-  });
+  const plannedElsewhere = (getPlanForWeek(db, weekStart)?.dinners ?? []).flatMap((d) => (d.date === date ? [] : (plannedElsewhereOf(d, dishes) ?? [])));
   const day = {
     date,
     weekday,
