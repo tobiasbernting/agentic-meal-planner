@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type Database from "better-sqlite3";
 import { openDatabase } from "../db.js";
-import { createDish, deleteDish, getDish, listDishes, updateDish, type DishInput } from "./repo.js";
+import Database from "better-sqlite3";
+import { createDish, deleteDish, getDish, listDishes, promoteDishToFavorite, updateDish, type DishInput } from "./repo.js";
 
 const dbs: Database.Database[] = [];
 
@@ -106,5 +107,59 @@ describe("dish repository", () => {
 
     expect(listDishes(db).map((d) => d.name)).toEqual(["burgers", "Pancakes"]);
     expect(getDish(db, tacos)).toBeUndefined();
+  });
+});
+
+describe("suggested flag", () => {
+  it("round-trips a Suggested Dish through getDish and listDishes, defaulting to false", () => {
+    const db = openTempDb();
+    const id = createDish(db, { name: "Köttbullar", inRotation: false, suggested: true });
+    const plain = createDish(db, { name: "Pasta" });
+
+    expect(getDish(db, id)?.suggested).toBe(true);
+    expect(getDish(db, plain)?.suggested).toBe(false);
+    expect(listDishes(db).find((d) => d.id === id)?.suggested).toBe(true);
+  });
+
+  it("keeps the flag on update unless the input says otherwise", () => {
+    const db = openTempDb();
+    const id = createDish(db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    updateDish(db, id, { name: "Köttbullar med potatis", inRotation: false });
+    expect(getDish(db, id)?.suggested).toBe(true);
+
+    updateDish(db, id, { name: "Köttbullar", suggested: false });
+    expect(getDish(db, id)?.suggested).toBe(false);
+  });
+
+  it("promoteDishToFavorite puts the Dish in rotation and clears the flag", () => {
+    const db = openTempDb();
+    const id = createDish(db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    expect(promoteDishToFavorite(db, id)).toBe(true);
+
+    const dish = getDish(db, id)!;
+    expect(dish.inRotation).toBe(true);
+    expect(dish.suggested).toBe(false);
+  });
+
+  it("promoteDishToFavorite returns false for an unknown id", () => {
+    expect(promoteDishToFavorite(openTempDb(), 999)).toBe(false);
+  });
+
+  it("adds the column to a database created before the flag existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mp-dishes-old-"));
+    const old = new Database(join(dir, "meal-planner.db"));
+    old.exec(`CREATE TABLE dish (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, recipe_url TEXT, adaptation_notes TEXT,
+      prep_time_minutes INTEGER, main_category TEXT, in_rotation INTEGER NOT NULL DEFAULT 1,
+      preferred_days TEXT NOT NULL DEFAULT '[]', weekend_only INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO dish (name) VALUES ('Old');`);
+    old.close();
+
+    const db = openDatabase(dir);
+    dbs.push(db);
+    expect(listDishes(db)[0]).toMatchObject({ name: "Old", suggested: false });
+    expect(openDatabase(dir).close()).toBeUndefined();
   });
 });

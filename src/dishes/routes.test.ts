@@ -6,7 +6,7 @@ import { buildApp } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/index.js";
 import { MAIN_CATEGORY_KEYS } from "./categories.js";
-import { listDishes } from "./repo.js";
+import { createDish, getDish, listDishes } from "./repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -222,5 +222,51 @@ describe("POST /dishes/:id/delete", () => {
 
     expect(res.statusCode).toBe(303);
     expect((await app.inject({ method: "GET", url: "/dishes" })).body).toContain("No dishes yet");
+  });
+});
+
+describe("Suggested Dishes", () => {
+  it("marks only Suggested Dishes on the Dishes page and offers promote for them", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+    createDish(app.ctx.db, { name: "Tacos" });
+
+    const html = (await app.inject({ method: "GET", url: "/dishes" })).body;
+
+    expect(html.match(/Suggested/g)).toHaveLength(1);
+    expect(html.match(/Add to favorites/g)).toHaveLength(1);
+    expect(html).toContain(`/dishes/${id}/promote`);
+  });
+
+  it("promotes a Dish into rotation and redirects back to the Referer", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    const res = await app.inject({ method: "POST", url: `/dishes/${id}/promote`, headers: { referer: "/plan" } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("/plan");
+    expect(getDish(app.ctx.db, id)).toMatchObject({ inRotation: true, suggested: false });
+  });
+
+  it("redirects to /dishes without a Referer", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "X", inRotation: false, suggested: true });
+    const res = await app.inject({ method: "POST", url: `/dishes/${id}/promote` });
+    expect(res.headers.location).toBe("/dishes");
+  });
+
+  it("keeps the flag when the edit form saves a Suggested Dish", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    await app.inject({
+      method: "POST",
+      url: `/dishes/${id}`,
+      headers: urlencoded,
+      payload: form({ name: "Köttbullar", main_category_touched: "1" }),
+    });
+
+    expect(getDish(app.ctx.db, id)?.suggested).toBe(true);
   });
 });
