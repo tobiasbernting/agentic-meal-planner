@@ -1,4 +1,5 @@
 import { silentLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getPlanById } from "../planner/repo.js";
 import { getShoppingList } from "../shopping/build.js";
@@ -13,6 +14,8 @@ export interface PushDeps {
   now?: () => Date;
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
   log?: Logger;
+  /** Plan Run progress reports (Phase transitions); omitted outside a Plan Run. */
+  onProgress?: OnProgress;
 }
 
 /**
@@ -21,6 +24,7 @@ export interface PushDeps {
  * also logged at warn. Returns how many sinks accepted the list.
  */
 export async function pushShoppingList(deps: PushDeps, planId: number): Promise<number> {
+  deps.onProgress?.({ phase: "shopping-list-push" });
   const log = (deps.log ?? silentLogger).child({ component: "sinks" });
   let pushed = 0;
   try {

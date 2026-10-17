@@ -1,4 +1,5 @@
 import { silentLogger, type Logger } from "../logging/logger.js";
+import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { isMainCategory } from "../dishes/categories.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -18,6 +19,8 @@ export interface IngestDeps {
   plugins?: SchoolPlugin[];
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
   log?: Logger;
+  /** Plan Run progress reports (Phase transitions); omitted outside a Plan Run. */
+  onProgress?: OnProgress;
 }
 
 export interface IngestOptions {
@@ -55,6 +58,7 @@ export interface IngestResult {
  * keep their stored entry.
  */
 export async function ingestWeek(deps: IngestDeps, weekStart: string, options: IngestOptions = {}): Promise<IngestResult> {
+  deps.onProgress?.({ phase: "lunch-ingest" });
   const runLog = deps.log ?? silentLogger;
   const log = runLog.child({ component: "lunch-ingest" });
   const plugins = deps.plugins ?? createSchoolPlugins(deps.fetchPage, runLog.child({ component: "school-plugin" }));

@@ -42,6 +42,7 @@ export async function buildShoppingList(deps: ShoppingListDeps, planId: number):
   }
 
   const items = aggregateIngredients(perDish);
+  deps.onProgress?.({ phase: "pantry-matching" });
   const matches = await matchPantry(
     items.map((item) => item.name),
     listPantryItems(deps.db),

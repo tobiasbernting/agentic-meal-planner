@@ -410,4 +410,44 @@ describe("run logging", () => {
     expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run started", component: "plan", weekStart: WEEK }));
     expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run finished", component: "plan", weekStart: WEEK }));
   });
+
+  it.each(["/plan/generate", "/plan/regenerate"])("%s logs each Phase of the Plan Run in order, with per-Dish progress during Ingredient resolution", async (url) => {
+    const { logger, records } = createCapturingLogger();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({
+        ok: true,
+        value: input.days.map((d, i) => ({ date: d.date, dishId: String(i % 2 === 0 ? burgers : kalops), rationale: "r" })),
+      }),
+      findRecipe: { ok: true, value: { url: "https://recipes.example/x", ingredients: [{ name: "Beef" }] } },
+    });
+    const app = await start({ logger, llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    const kalops = createDish(app.ctx.db, { name: "Kalops", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url, payload: { weekStart: WEEK } });
+
+    const planRun = runRecords(records, url).filter((r) => r.component === "plan-run");
+    expect(planRun.every((r) => r.level === "info" && r.weekStart === WEEK)).toBe(true);
+    expect(planRun.filter((r) => r.msg === "phase").map((r) => r.phase)).toEqual([
+      "lunch-ingest",
+      "dish-selection",
+      "ingredient-resolution",
+      "pantry-matching",
+      "shopping-list-push",
+    ]);
+    const progress = planRun.filter((r) => r.msg === "phase progress");
+    expect(progress.map((r) => [r.phase, r.done, r.total, r.dish])).toEqual([
+      ["ingredient-resolution", 0, 7, "Burgers"],
+      ["ingredient-resolution", 1, 7, "Kalops"],
+      ["ingredient-resolution", 2, 7, "Burgers"],
+      ["ingredient-resolution", 3, 7, "Kalops"],
+      ["ingredient-resolution", 4, 7, "Burgers"],
+      ["ingredient-resolution", 5, 7, "Kalops"],
+      ["ingredient-resolution", 6, 7, "Burgers"],
+    ]);
+    // Progress belongs between its Phase record and the next one.
+    const order = planRun.map((r) => (r.msg === "phase" ? r.phase : "progress"));
+    expect(order.indexOf("ingredient-resolution")).toBeLessThan(order.indexOf("progress"));
+    expect(order.lastIndexOf("progress")).toBeLessThan(order.indexOf("pantry-matching"));
+  });
 });
