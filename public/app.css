@@ -194,6 +194,16 @@ section + section { margin-top: 24px; }
 .notice button, .notice .button { border-color: var(--notice-fg); color: var(--notice-fg); margin-top: 8px; }
 .notice :focus-visible { outline-color: var(--notice-fg); }
 
+/* Plan Run banner (Plan and Shopping List). In flight and failed use the inverted notice;
+   finished is a quiet ruled status line. Swap (Byt) is hidden while a run is in flight. */
+.plan-run p { margin: 0; }
+.plan-run-active .plan-run-phase, .plan-run-active .plan-run-progress { margin-top: 4px; }
+.plan-run-progress { font-variant-numeric: tabular-nums; }
+.plan-run-done { padding: 8px 0; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-small); }
+.plan-run-done .notice { margin: 8px 0 0; padding: 8px 10px; color: var(--notice-fg); }
+.plan-run:empty { display: none; }
+.plan-run-active ~ .day .actions > :not(a) { display: none; } /* Byt: every action but the Recept link */
+
 /* Bottom tab bar: 2px ink top rule, fixed to the safe area; active tab bold and underlined. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;

@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,6 +67,7 @@ describe("Plan Run started from the Plan page", () => {
 
     const finished = await banner(app, WEEK);
     expect(finished.body).toContain("Plan Run finished 18:30");
+    expect(finished.body).toContain('class="plan-run plan-run-done"');
     expect(finished.body).not.toMatch(/hx-(get|trigger|swap)/);
   });
 
@@ -86,6 +87,32 @@ describe("Plan Run started from the Plan page", () => {
     expect(view.body).toContain("Ingredient resolution");
     expect(view.body).toContain("Ingredients 0 of 7: Köttbullar");
     expect(view.body.match(/<div class="day-dinner">Köttbullar<\/div>/g)).toHaveLength(7);
+    held.resolve({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+  });
+
+  it("places the almanac-style banner between the status block and the days, with Byt and Regenerate hidden hooks", async () => {
+    const held = deferred<LlmResult<FoundRecipe>>();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({ ok: true, value: input.days.map((d) => ({ date: d.date, dishId: String(kottbullar), rationale: "r" })) }),
+      findRecipe: () => held.promise,
+    });
+    const app = await start({ llm });
+    const kottbullar = createDish(app.ctx.db, { name: "Köttbullar", prepTimeMinutes: 20 });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await until(async () => (await banner(app, WEEK)).body.includes("Ingredients"));
+
+    const body = (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body;
+
+    const at = body.indexOf('id="plan-run-banner"');
+    expect(at).toBeGreaterThan(body.indexOf("plan-status"));
+    expect(at).toBeLessThan(body.indexOf('id="day-'));
+    expect(body).toMatch(/<div id="plan-run-banner" class="plan-run plan-run-active notice" role="status"/);
+    expect(body).toContain('<strong class="notice-label">Phase</strong> Ingredient resolution');
+    expect(body).not.toContain('action="/plan/generate"');
+    expect(body).not.toContain('action="/plan/regenerate"');
+    // Byt hides through the stylesheet: every action but the Recept link, after an active banner.
+    expect(readFileSync("public/app.css", "utf8")).toContain(".plan-run-active ~ .day .actions > :not(a) { display: none; }");
     held.resolve({ ok: false, reason: "released" });
     await planRunSettled(app, WEEK);
   });
@@ -240,6 +267,7 @@ describe("a Plan Run that throws", () => {
 
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body).toContain("Plan Run failed 18:30: agent exploded");
+    expect(view.body).toMatch(/<div id="plan-run-banner" class="plan-run plan-run-failed notice" role="alert">/);
     expect((await banner(app, WEEK)).body).not.toMatch(/hx-(get|trigger|swap)/);
     const sv = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: { cookie: "lang=sv" } });
     expect(sv.body).toContain("Planeringen misslyckades 18:30: agent exploded");
