@@ -1,14 +1,16 @@
 /**
  * The installable shell (ADR-0007): the web app manifest and the service worker script. The
- * worker gets everything it must not hardcode (the allowlist, assets, texts, synthetic pages)
- * from `workerConfig()`, embedded as `self.OFFLINE_CONFIG` ahead of public/offline/worker.js.
+ * worker gets everything it must not hardcode (the allowlist, assets, texts, synthetic pages,
+ * the banner marker, its own paths, the cache version) from `workerConfig()`, embedded as
+ * `self.OFFLINE_CONFIG` ahead of public/offline/worker.js.
  */
 import { readFileSync } from "node:fs";
 import type { FeaturePlugin } from "../app.js";
 import { LANGS, t, type Lang, type MessageKey } from "../i18n/index.js";
-import { ALL_ASSET_PATHS, ASSET_PATHS } from "../ui/assets.js";
-import { escapeHtml, MANIFEST_PATH, page, THEME_COLOR } from "../ui/layout.js";
+import { ALL_ASSET_PATHS, ASSET_PATHS, assetsDigest, WORKER_FILE } from "../ui/assets.js";
+import { escapeHtml, MANIFEST_PATH, OFFLINE_BANNER_MARKER, page, THEME_COLOR } from "../ui/layout.js";
 import { OFFLINE_PAGES, ONLINE_ONLY_ROUTES, PREWARM_PAGES, QUEUEABLE_LABELS, QUEUEABLE_ROUTES } from "./allowlist.js";
+import { workerTexts, type WorkerTexts } from "./texts.js";
 
 const MANIFEST = {
   name: "Måltidsplaneraren",
@@ -24,32 +26,26 @@ const MANIFEST = {
   ],
 };
 
-/** Texts the worker shows itself, per language. Sibling tickets add their keys here. */
-const TEXT_KEYS = {
-  banner: "offline.banner",
-  requiresConnection: "offline.requiresConnection",
-  saved: "offline.saved",
-  back: "offline.back",
-  unknownChange: "offline.unknownChange",
-  replayNextOpen: "offline.replayNextOpen",
-  replayBackground: "offline.replayBackground",
-  pending: "offline.pending",
-  pendingOne: "offline.pendingOne",
-  failed: "offline.failed",
-  pendingState: "offline.pendingState",
-  discard: "offline.discard",
-} as const satisfies Record<string, MessageKey>;
+/** GETs that are neither pages nor assets: streams, polls and probes the worker never answers itself. */
+const PASSTHROUGH_PATHS = ["/plan-run/banner", "/logs/stream", "/health", "/sw.js"] as const;
 
-type Texts =Record<keyof typeof TEXT_KEYS, string>;
+/** The worker's own pages, served from `frames`; an offline htmx write redirects to one of them. */
+const OFFLINE_PATHS = { saved: "/offline/saved", requiresConnection: "/offline/requires-connection" } as const;
 
 export interface WorkerConfig {
+  /** Names the worker's caches; changes whenever an asset or the worker does. */
+  version: string;
+  /** The empty element page() puts once on every page, which the worker swaps for the banner. */
+  marker: string;
+  passthrough: readonly string[];
+  offlinePaths: { saved: string; requiresConnection: string };
   queueable: readonly string[];
   onlineOnly: readonly string[];
   pages: readonly string[];
   prewarm: readonly string[];
   assets: readonly string[];
   labels: Record<Lang, Record<string, string>>;
-  texts: Record<Lang, Texts>;
+  texts: Record<Lang, WorkerTexts>;
   frames: Record<Lang, { requiresConnection: string; saved: string }>;
 }
 
@@ -67,18 +63,20 @@ function frame(lang: Lang, titleKey: MessageKey): string {
 /** The JSON the worker runs on. Language-independent: every language's texts are included. */
 export function workerConfig(): WorkerConfig {
   return {
+    version: assetsDigest(),
+    marker: OFFLINE_BANNER_MARKER,
+    passthrough: PASSTHROUGH_PATHS,
+    offlinePaths: OFFLINE_PATHS,
     queueable: QUEUEABLE_ROUTES,
     onlineOnly: ONLINE_ONLY_ROUTES,
     pages: OFFLINE_PAGES,
     prewarm: PREWARM_PAGES,
     assets: [...ALL_ASSET_PATHS, MANIFEST_PATH],
     labels: perLang((lang) => Object.fromEntries(Object.entries(QUEUEABLE_LABELS).map(([route, key]) => [route, t(lang, key)]))),
-    texts: perLang((lang) => Object.fromEntries(Object.entries(TEXT_KEYS).map(([name, key]) => [name, t(lang, key)])) as Texts),
+    texts: perLang(workerTexts),
     frames: perLang((lang) => ({ requiresConnection: frame(lang, "offline.requiresConnection"), saved: frame(lang, "offline.saved") })),
   };
 }
-
-const WORKER_FILE = new URL("../../public/offline/worker.js", import.meta.url);
 
 export const offlineRoutes: FeaturePlugin = async (app) => {
   const worker = `self.OFFLINE_CONFIG = ${JSON.stringify(workerConfig())};\n${readFileSync(WORKER_FILE, "utf8")}`;

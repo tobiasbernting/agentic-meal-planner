@@ -53,15 +53,27 @@ interface UndoForm extends BuildForm {
   id?: string;
 }
 
-/** Check, uncheck, remove and restore post the week and the line's name. */
-type LineForm = PantryForm;
+/** Every week edit posts at least the week. */
+interface WeekForm {
+  weekStart?: string;
+}
 
+/** Check, uncheck, remove and restore post the week and the line's name. */
+interface LineForm {
+  weekStart?: string;
+  name?: string;
+}
+
+/** Extra Item add posts the week, the item's name and an optional free-text quantity. */
 interface ExtraForm extends LineForm {
   quantity?: string;
 }
 
 /** Extra Item delete posts the week and the item's id. */
-type ExtraDeleteForm = UndoForm;
+interface ExtraDeleteForm {
+  weekStart?: string;
+  id?: string;
+}
 
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
   const rebuildDeps = (req: FastifyRequest) => ({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) });
@@ -163,31 +175,32 @@ ${content}`;
   });
 
   // The week's own edits (ADR-0007): plain POST forms, each back to the week's page.
-  const lineEdit = (action: string, edit: (weekStart: string, name: string) => void) => {
-    app.post<{ Body: LineForm }>(action, async (req, reply) => {
+  /** Resolves the posted week, applies the edit to it, and redirects back to the week's list. */
+  const weekEdit = <Form extends WeekForm>(action: string, edit: (weekStart: string, form: Form) => void) => {
+    app.post<{ Body: WeekForm }>(action, async (req, reply) => {
       const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-      const name = req.body.name?.trim();
-      if (name) edit(weekStart, name);
+      edit(weekStart, req.body as Form);
       return reply.redirect(`/shopping?week=${weekStart}`, 303);
     });
   };
+  const lineEdit = (action: string, edit: (weekStart: string, name: string) => void) =>
+    weekEdit<LineForm>(action, (weekStart, form) => {
+      const name = form.name?.trim();
+      if (name) edit(weekStart, name);
+    });
   lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
   lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
   lineEdit("/shopping/remove", (weekStart, name) => removeLine(ctx.db, weekStart, name));
   lineEdit("/shopping/restore", (weekStart, name) => restoreLine(ctx.db, weekStart, name));
 
-  app.post<{ Body: ExtraForm }>("/shopping/extra", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    const name = req.body.name?.trim();
-    if (name) addExtraItem(ctx.db, weekStart, { name, quantity: req.body.quantity });
-    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  weekEdit<ExtraForm>("/shopping/extra", (weekStart, form) => {
+    const name = form.name?.trim();
+    if (name) addExtraItem(ctx.db, weekStart, { name, quantity: form.quantity });
   });
 
-  app.post<{ Body: ExtraDeleteForm }>("/shopping/extra/delete", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    const id = Number(req.body.id);
+  weekEdit<ExtraDeleteForm>("/shopping/extra/delete", (weekStart, form) => {
+    const id = Number(form.id);
     if (Number.isInteger(id)) deleteExtraItem(ctx.db, weekStart, id);
-    return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });
 
   app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {

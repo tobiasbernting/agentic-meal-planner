@@ -71,6 +71,11 @@ function loadedUrls(text: string): string[] {
   return [...src, ...links, ...css, ...imports];
 }
 
+/** The bodies of the page's inline executable scripts (no src, not a JSON data block). */
+function inlineScripts(html: string): string[] {
+  return [...html.matchAll(/<script(?![^>]*\ssrc=)(?![^>]*type="application\/json")[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+}
+
 describe("assets (NFR-2)", () => {
   it("serves HTMX, the stylesheet and the fonts from the app, and no page loads anything from another host", async () => {
     const app = await makeApp();
@@ -119,12 +124,23 @@ describe("assets (NFR-2)", () => {
       expect(sv.body, url).toContain(badge.replace("LANG", "sv"));
       expect(sv.body, url).toContain('<script type="application/json" id="offline-texts">');
       expect(sv.body, url).toContain("{n} ändringar väntar");
-      expect(sv.body, url).toContain("pending-changes-toggle");
+      expect(sv.body, url).toContain('<script src="/assets/offline-page.js" defer></script>');
+      for (const script of inlineScripts(sv.body)) expect(script, url).not.toMatch(/pending-changes|htmx:beforeRequest|connectivity/);
       expect(sv.body.indexOf('id="offline-banner"'), url).toBeLessThan(sv.body.indexOf('id="pending-changes"'));
       const en = await app.inject({ method: "GET", url, headers: { cookie: "lang=en" } });
       expect(en.body, url).toContain(badge.replace("LANG", "en"));
       expect(en.body, url).toContain("{n} changes pending");
     }
+  });
+
+  it("serves the offline page script as JavaScript, with the Pending Changes badge's glue", async () => {
+    const app = await makeApp();
+    const script = await app.inject({ method: "GET", url: "/assets/offline-page.js" });
+
+    expect(script.statusCode).toBe(200);
+    expect(script.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+    expect(script.body).toContain("pending-changes-toggle");
+    expect(script.body).toContain('type: "queue"');
   });
 
   it("carries the default working label in the page's language", async () => {

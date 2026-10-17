@@ -81,6 +81,22 @@ describe("the service worker script", () => {
     expect(config.prewarm).toContain("/shopping?week={nextWeek}");
   });
 
+  it("carries the banner marker the shell renders, the passthrough paths and the worker's own page paths", async () => {
+    const { config } = await workerScript();
+
+    expect(config.marker).toBe('<div id="offline-banner"></div>');
+    expect(config.passthrough).toEqual(["/plan-run/banner", "/logs/stream", "/health", "/sw.js"]);
+    expect(config.offlinePaths).toEqual({ saved: "/offline/saved", requiresConnection: "/offline/requires-connection" });
+  });
+
+  it("names a version: 12 hex digits of the assets and the worker, the same for every build of the same files", async () => {
+    const first = await workerScript();
+    const second = await workerScript();
+
+    expect(first.config.version).toMatch(/^[0-9a-f]{12}$/);
+    expect(second.config.version).toBe(first.config.version);
+  });
+
   it("lists every served asset and the manifest, all of which the app serves", async () => {
     const { app, config } = await workerScript();
 

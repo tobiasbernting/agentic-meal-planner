@@ -247,6 +247,22 @@ describe("Checked Off lines", () => {
     expect(lines(unchecked, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
   });
 
+  it("a tick does not mark the sent list as changed, but an Extra Item does", async () => {
+    const trello = trelloRecorder();
+    const { app } = await builtList({ env: ENV, fetch: trello.fetch });
+    const changed = "The list has changed since it was sent.";
+    expect(await shoppingPage(app)).toContain("Sent to Trello");
+
+    await post(app, "/shopping/check", { weekStart: WEEK, name: "pasta" });
+    const ticked = await shoppingPage(app);
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "batteries" });
+    const extended = await shoppingPage(app);
+
+    expect(lines(ticked, "buy")).toEqual([["ost", false], ["500 g pasta", true]]);
+    expect(ticked).not.toContain(changed);
+    expect(extended).toContain(changed);
+  });
+
   it("Check pantry lines are tickable too", async () => {
     const { app } = await builtList();
 
