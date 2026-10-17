@@ -78,121 +78,6 @@ function pendingChangesBadge(lang: Lang): string {
 <script type="application/json" id="offline-texts">${scriptJson(workerTexts(lang))}</script>`;
 }
 
-/**
- * The badge's glue: asks the worker for the queue (with the page language, so each entry comes
- * back labelled) on load and whenever the worker says it changed, and renders it with
- * textContent only. Discard tells the worker, which broadcasts the change.
- */
-function pendingChangesScript(): string {
-  return `<script>(function () {
-  if (!("serviceWorker" in navigator)) return;
-  var box = document.getElementById("pending-changes");
-  var toggle = document.getElementById("pending-changes-toggle");
-  var list = document.getElementById("pending-changes-list");
-  var note = document.getElementById("pending-changes-note");
-  var texts = JSON.parse(document.getElementById("offline-texts").textContent);
-  var lang = box.dataset.lang;
-  function fill(template, values) {
-    return template.replace(/\\{(\\w+)\\}/g, function (whole, name) { return name in values ? String(values[name]) : whole; });
-  }
-  function time(iso) {
-    return new Date(iso).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
-  }
-  function row(entry, worker) {
-    var li = document.createElement("li");
-    li.className = "row with-actions";
-    var label = document.createElement("p");
-    label.textContent = entry.label + " " + time(entry.createdAt);
-    var state = document.createElement("p");
-    if (entry.state === "failed") {
-      state.className = "notice";
-      state.textContent = fill(texts.failed, { reason: entry.reason || "" });
-    } else {
-      state.className = "muted";
-      state.textContent = texts.pendingState;
-    }
-    var discard = document.createElement("button");
-    discard.type = "button";
-    discard.className = "quiet";
-    discard.textContent = texts.discard;
-    discard.addEventListener("click", function () { worker.postMessage({ type: "discard", id: entry.id }); });
-    li.append(label, state, discard);
-    return li;
-  }
-  function render(entries, worker, background) {
-    box.hidden = entries.length === 0;
-    if (entries.length === 0) list.hidden = true;
-    toggle.textContent = entries.length === 1 ? texts.pendingOne : fill(texts.pending, { n: entries.length });
-    toggle.setAttribute("aria-expanded", String(!list.hidden));
-    list.replaceChildren.apply(list, entries.map(function (entry) { return row(entry, worker); }));
-    note.textContent = background ? texts.replayBackground : texts.replayNextOpen;
-  }
-  function refresh() {
-    navigator.serviceWorker.ready.then(function (registration) {
-      var worker = navigator.serviceWorker.controller || registration.active;
-      if (!worker) return;
-      var channel = new MessageChannel();
-      channel.port1.onmessage = function (event) { render(event.data.entries, worker, "sync" in registration); };
-      worker.postMessage({ type: "queue", lang: lang }, [channel.port2]);
-    });
-  }
-  toggle.addEventListener("click", function () {
-    list.hidden = !list.hidden;
-    toggle.setAttribute("aria-expanded", String(!list.hidden));
-  });
-  navigator.serviceWorker.addEventListener("message", function (event) {
-    if (event.data && event.data.type === "pending-changed") refresh();
-  });
-  refresh();
-})();</script>`;
-}
-
-/**
- * The online signal (ADR-0007): the app is online when a request succeeds, not by the browser's
- * flag. Starts online unless the worker already put a banner in; the worker's connectivity
- * messages flip it; offline it pings /health every 10 s. Offline, online-only buttons are
- * disabled and htmx requests (the Plan Run banner polling) are cancelled. Back online, it asks
- * the worker to replay Pending Changes. Rendered at the end of body so the banner exists.
- */
-function onlineSignalScript(): string {
-  return `<script>(function () {
-  var root = document.documentElement;
-  var banner = document.getElementById("offline-banner");
-  var online = !(banner && banner.children.length > 0);
-  var timer = null;
-  function apply() {
-    root.dataset.online = online ? "1" : "0";
-    var controls = document.querySelectorAll("form[data-online-only] button, form[data-online-only] input[type=submit]");
-    for (var i = 0; i < controls.length; i++) controls[i].disabled = !online;
-  }
-  function ping() {
-    fetch("/health", { cache: "no-store" }).then(function (res) { if (res.ok) set(true); }, function () {});
-  }
-  function set(next) {
-    if (next === online) return;
-    var wasOffline = !online;
-    online = next;
-    apply();
-    if (online) {
-      clearInterval(timer);
-      timer = null;
-      var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
-      if (wasOffline && controller) controller.postMessage({ type: "replay" });
-    } else if (!timer) {
-      timer = setInterval(ping, 10000);
-    }
-  }
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.addEventListener("message", function (event) {
-      if (event.data && event.data.type === "connectivity") set(Boolean(event.data.online));
-    });
-  }
-  document.addEventListener("htmx:beforeRequest", function (event) { if (!online) event.preventDefault(); });
-  apply();
-  if (!online) timer = setInterval(ping, 10000);
-})();</script>`;
-}
-
 export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): string {
   return `<!doctype html>
 <html lang="${escapeHtml(lang)}" data-online="1">
@@ -205,6 +90,7 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
     <link rel="stylesheet" href="${ASSET_PATHS.stylesheet}" />
     <script src="${ASSET_PATHS.htmx}" defer></script>
     <script src="${ASSET_PATHS.pending}" defer></script>
+    <script src="${ASSET_PATHS.offlinePage}" defer></script>
     ${installLinks()}
     ${workerRegistration()}
   </head>
@@ -215,8 +101,6 @@ ${pendingChangesBadge(lang)}
 ${markOnlineOnlyForms(body, lang)}
     </main>
     ${tabBar(lang, tab)}
-    ${pendingChangesScript()}
-    ${onlineSignalScript()}
   </body>
 </html>
 `;

@@ -39,15 +39,24 @@ async function plannedShopping(build: boolean) {
 }
 
 describe("online signal", () => {
-  it("starts every page online and ships the signal script", async () => {
+  it("starts every page online and loads the signal script from the app", async () => {
     const app = await start();
     for (const url of ["/", "/plan", "/shopping", "/more", "/dishes", "/dishes/new", "/schools", "/pantry", "/settings", "/logs"]) {
       const body = (await app.inject({ method: "GET", url })).body;
       expect(body, url).toMatch(/<html lang="en" data-online="1">/);
-      expect(body, url).toContain("data-online-only");
-      expect(body, url).toContain('type: "replay"');
-      expect(body, url).toContain("htmx:beforeRequest");
+      expect(body, url).toContain('<script src="/assets/offline-page.js" defer></script>');
     }
+  });
+
+  it("serves the signal script as JavaScript: it starts from the html tag's state, replays when back online and holds htmx while offline", async () => {
+    const app = await start();
+    const res = await app.inject({ method: "GET", url: "/assets/offline-page.js" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+    expect(res.body).toContain("document.documentElement.dataset.online");
+    expect(res.body).toContain('type: "replay"');
+    expect(res.body).toContain("htmx:beforeRequest");
   });
 
   it("shows the hint in the UI language on an online-only form", async () => {
