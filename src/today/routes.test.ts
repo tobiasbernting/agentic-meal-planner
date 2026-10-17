@@ -129,6 +129,36 @@ describe("GET / (Today view)", () => {
       expect(res.body).toMatch(/<section id="dinner">[\s\S]*No plan yet[\s\S]*<a href="\/plan">/);
     });
 
+    it("marks a Suggested Dish and promotes it from Today, returning to Today with the badge gone", async () => {
+      const app = await start();
+      const dishId = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+      savePlan(app.ctx.db, { weekStart: WEEK_START, dinners: [dinner({ dishId, rationale: "suggested" })], degradedReasons: [] }, NOW.toISOString());
+
+      const before = await app.inject({ method: "GET", url: "/" });
+      expect(before.body).toContain("Suggested");
+      expect(before.body).toMatch(new RegExp(`<form method="post" action="/dishes/${dishId}/promote"[\\s\\S]*Add to favorites`));
+
+      const post = await app.inject({ method: "POST", url: `/dishes/${dishId}/promote`, headers: { referer: "/" } });
+      expect(post.statusCode).toBe(303);
+      expect(post.headers.location).toBe("/");
+
+      const after = await app.inject({ method: "GET", url: "/" });
+      expect(after.body).toContain("Köttbullar");
+      expect(after.body).not.toContain("Suggested");
+      expect(after.body).not.toContain("Add to favorites");
+    });
+
+    it("renders the badge and button in Swedish", async () => {
+      const app = await start();
+      const dishId = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+      savePlan(app.ctx.db, { weekStart: WEEK_START, dinners: [dinner({ dishId })], degradedReasons: [] }, NOW.toISOString());
+
+      const res = await app.inject({ method: "GET", url: "/", headers: { cookie: "lang=sv" } });
+
+      expect(res.body).toContain("Föreslagen");
+      expect(res.body).toContain("Lägg till i favoriter");
+    });
+
     it("tells the household to pick a dish when today's dinner has no eligible Dish", async () => {
       const app = await start();
       savePlan(

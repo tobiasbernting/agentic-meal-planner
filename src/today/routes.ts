@@ -33,7 +33,11 @@ function renderDinner(ctx: AppContext, lang: Lang, today: string): string {
   if (!dish) return `<p class="notice">${t(lang, "common.noEligibleDish")}</p>`;
   const name = escapeHtml(dish.name);
   const title = dish.recipeUrl ? `<a href="${escapeHtml(dish.recipeUrl)}">${name}</a>` : name;
-  return `<p class="dish">${title}</p>
+  const suggested = dish.suggested
+    ? ` <span class="tag-suggested">${t(lang, "dishes.tagSuggested")}</span>
+<form method="post" action="/dishes/${dish.id}/promote"><button type="submit">${t(lang, "dishes.addToFavorites")}</button></form>`
+    : "";
+  return `<p class="dish">${title}${suggested}</p>
   <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 

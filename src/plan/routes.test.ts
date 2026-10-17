@@ -70,6 +70,45 @@ describe("GET /plan", () => {
     expect(res.body).not.toContain("No plan for this week");
   });
 
+  it("marks only Suggested Dishes and promotes from Plan, returning to Plan with the badge gone", async () => {
+    const app = await start();
+    const burgers = createDish(app.ctx.db, { name: "Burgers" });
+    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({
+      date,
+      dishId: date === "2026-10-21" ? stew : burgers,
+      isQuickDay: false,
+      lunchThatDay: null,
+      rationale: "r",
+    }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(before.body.match(/Suggested/g)).toHaveLength(1);
+    expect(before.body.match(/Add to favorites/g)).toHaveLength(1);
+    expect(before.body).toContain(`action="/dishes/${stew}/promote"`);
+
+    const post = await app.inject({ method: "POST", url: `/dishes/${stew}/promote`, headers: { referer: `/plan?week=${WEEK}` } });
+    expect(post.headers.location).toBe(`/plan?week=${WEEK}`);
+
+    const after = await app.inject({ method: "GET", url: post.headers.location as string });
+    expect(after.body).toContain("Stew");
+    expect(after.body).not.toContain("Suggested");
+    expect(after.body).not.toContain("Add to favorites");
+  });
+
+  it("renders the badge and button in Swedish", async () => {
+    const app = await start();
+    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: stew, isQuickDay: false, lunchThatDay: null, rationale: "r" }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+
+    expect(res.body).toContain("Föreslagen");
+    expect(res.body).toContain("Lägg till i favoriter");
+  });
+
   it("shows each School's Lunch Entry for the day, or the no-lunch-data notice (FR-5)", async () => {
     const app = await start();
     const north = createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
