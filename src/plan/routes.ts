@@ -218,6 +218,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
   /**
    * Starts the week's Plan Run without awaiting it and redirects to the Plan page at once; the
    * page's banner follows the run. A week with a run in flight gets a notice and nothing new.
+   * A throw leaves the rows written before it: one after Dish selection keeps the new plan.
    */
   const startRun = (req: FastifyRequest, reply: FastifyReply, weekStart: string, trigger: "generate" | "regenerate") => {
     const log = runLogger(ctx.log, req, "plan");
