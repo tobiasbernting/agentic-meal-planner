@@ -27,6 +27,7 @@ const fullTacos: DishInput = {
   inRotation: true,
   preferredDays: ["fri", "sat"],
   weekendOnly: true,
+  suggested: true,
   ingredients: [
     { name: "minced beef", quantity: 500, unit: "g" },
     { name: "tortillas", quantity: 8, unit: null },
@@ -59,6 +60,7 @@ describe("dish repository", () => {
       inRotation: true,
       preferredDays: [],
       weekendOnly: false,
+      suggested: false,
       ingredients: [],
     });
   });
@@ -85,6 +87,7 @@ describe("dish repository", () => {
       inRotation: false,
       preferredDays: [],
       weekendOnly: false,
+      suggested: false,
       ingredients: [{ name: "cod", quantity: 400, unit: "g" }],
     });
   });
@@ -159,6 +162,6 @@ describe("suggested flag", () => {
     const db = openDatabase(dir);
     dbs.push(db);
     expect(listDishes(db)[0]).toMatchObject({ name: "Old", suggested: false });
-    expect(openDatabase(dir).close()).toBeUndefined();
+    openDatabase(dir).close();
   });
 });
