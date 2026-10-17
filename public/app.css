@@ -284,3 +284,13 @@ main > #removed { margin-inline: 0; }
 /* Online signal (#105): online-only forms are dimmed offline and say why, quietly (no red). */
 html[data-online="0"] form[data-online-only] button { opacity: .55; pointer-events: none; }
 html[data-online="0"] form[data-online-only]::after { content: attr(data-online-only); display: block; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
+
+/* Pending Changes (#108): a quiet ruled block under the banner. Muted small text, no red;
+   a failed change states its reason as a .notice. */
+#pending-changes { margin-inline: 0; padding: 4px var(--gutter) 8px; border-bottom: 1px solid var(--rule); font-size: var(--fs-small); color: var(--muted); }
+#pending-changes[hidden], #pending-changes [hidden] { display: none; }
+#pending-changes-toggle { padding-inline: 0; min-height: var(--tap); color: var(--muted); font-size: var(--fs-small); }
+#pending-changes .rows { border-top: 1px solid var(--rule); }
+#pending-changes .rows > li.with-actions { padding-inline: 0; }
+#pending-changes .rows .notice { margin: 4px 0 0; padding: 8px 10px; font-size: var(--fs-small); }
+#pending-changes-note { margin: 0; }
