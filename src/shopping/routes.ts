@@ -2,7 +2,8 @@
  * Shopping List view (FR-11, FR-17): the stored list for one week's Weekly Plan in two
  * sections, "Buy" and "Check pantry", with a rebuild action. Building also happens
  * automatically after plan generation (src/plan/routes.ts and src/server.ts). The week's
- * Plan Run banner explains a half-built list; Build/Rebuild is withheld while that run is in flight.
+ * Plan Run banner explains a half-built list; Build/Rebuild and Har alltid hemma are withheld
+ * (and refused over HTTP) while that run is in flight.
  */
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
@@ -23,6 +24,18 @@ import { planRunBanner } from "../plan-run/routes.js";
 
 interface ShoppingQuery {
   week?: string;
+  notice?: string;
+}
+
+const NOTICES = { "run-in-progress": "shopping.notice.run-in-progress" } as const;
+
+function queryNotice(lang: Lang, key: string | undefined): string {
+  return key !== undefined && Object.hasOwn(NOTICES, key) ? notice({ text: t(lang, NOTICES[key as keyof typeof NOTICES]), role: "status" }) : "";
+}
+
+/** Where a refused change returns: the week's list with the run-in-progress notice. */
+function runInProgress(weekStart: string): string {
+  return `/shopping?week=${weekStart}&notice=run-in-progress`;
 }
 
 interface BuildForm {
@@ -103,6 +116,8 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const dishName = (id: number) => getDish(ctx.db, id)?.name;
     /** The Build or Rebuild form, or nothing while the week's Plan Run is in flight. */
     const rebuild = (label: string) => (runInFlight ? "" : buildForm(weekStart, label));
+    /** Har alltid hemma rebuilds the list, so it is withheld in flight too. */
+    const alwaysHome = runInFlight ? undefined : (item: AggregatedItem) => alwaysHomeForm(lang, weekStart, item);
     let content: string;
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
@@ -112,21 +127,24 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, (item) => alwaysHomeForm(lang, weekStart, item))}
+          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, alwaysHome)}
 ${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
     }
     const body = `${weekHead(lang, weekStart)}
 ${weekNav(lang, weekStart, "/shopping")}
+${queryNotice(lang, req.query.notice)}
 ${planRunBanner(ctx, lang, weekStart)}
 ${content}`;
     reply.type("text/html; charset=utf-8");
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
+  // Build and Har alltid hemma rewrite the list the week's Plan Run is also writing, so both are refused in flight.
   app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
     const plan = getPlanForWeek(ctx.db, weekStart);
     if (plan) {
       const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) };
@@ -138,6 +156,7 @@ ${content}`;
 
   app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
     const name = req.body.name?.trim();
     if (name) {
       if (!listPantryItems(ctx.db).some((p) => p.name.toLowerCase() === name.toLowerCase())) createPantryItem(ctx.db, { name, aliases: [] });

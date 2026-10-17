@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
-import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult } from "../llm/index.js";
+import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult, type SelectedDish } from "../llm/index.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { planRunSettled, postPlanRun } from "../plan-run/test-helpers.js";
@@ -232,6 +232,52 @@ describe("Shopping List as the almanac notes page", () => {
       expect(sv.body).toMatch(/<div class="notice" role="alert">[\s\S]*Trello[\s\S]*Trello HTTP 401[\s\S]*action="\/shopping\/push"[\s\S]*Skicka igen/);
       expect(en.body).toMatch(/<div class="notice" role="alert">[\s\S]*Trello HTTP 401[\s\S]*Send again/);
     });
+  });
+});
+
+describe("Shopping List changes while a Plan Run is in flight", () => {
+  /** A built Shopping List (Buy: pasta) whose week has a new Plan Run held in Dish selection. */
+  async function builtListWithRunInFlight() {
+    let release!: (value: LlmResult<SelectedDish[]>) => void;
+    const held = new Promise<LlmResult<SelectedDish[]>>((r) => (release = r));
+    const app = await start({ llm: new ScriptedLlmAgent({ selectDishes: () => held }) });
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
+    planWith(app, [pasta]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const finish = async () => {
+      release({ ok: false, reason: "released" });
+      await planRunSettled(app, WEEK);
+    };
+    return { app, finish };
+  }
+
+  it("hides Har alltid hemma", async () => {
+    const { app, finish } = await builtListWithRunInFlight();
+
+    const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+
+    expect(res.body).toMatch(/<section id="buy">[\s\S]*400 g pasta/);
+    expect(res.body).not.toContain('action="/shopping/pantry"');
+    await finish();
+  });
+
+  it.each([
+    ["/shopping/build", { weekStart: WEEK }],
+    ["/shopping/pantry", { weekStart: WEEK, name: "pasta" }],
+  ])("refuses POST %s with a run-in-progress notice and changes nothing", async (url, payload) => {
+    const { app, finish } = await builtListWithRunInFlight();
+
+    const res = await app.inject({ method: "POST", url, payload });
+    const view = await app.inject({ method: "GET", url: res.headers.location as string });
+    const sv = await app.inject({ method: "GET", url: res.headers.location as string, headers: { cookie: "lang=sv" } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}&notice=run-in-progress`);
+    expect(listPantryItems(app.ctx.db)).toEqual([]);
+    expect(view.body).toContain("A Plan Run is in progress for this week. The Shopping List was not changed.");
+    expect(sv.body).toContain("En planering pågår för den här veckan. Inköpslistan ändrades inte.");
+    await finish();
   });
 });
 

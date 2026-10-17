@@ -111,6 +111,7 @@ export const en = {
   "shopping.pushAgain": "Send again",
   "shopping.notPushed": "Not pushed anywhere",
   "shopping.unknownError": "unknown error",
+  "shopping.notice.run-in-progress": "A Plan Run is in progress for this week. The Shopping List was not changed.",
 
   "dishes.title": "Dishes",
   "dishes.add": "Add dish",
