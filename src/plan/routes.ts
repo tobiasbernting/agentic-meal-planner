@@ -10,7 +10,7 @@ import { getDish } from "../dishes/repo.js";
 import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
-import { renderNoLunchNotice } from "../lunch/notice.js";
+import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
@@ -64,14 +64,14 @@ function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
-function renderLunch(db: Database.Database, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
+function renderLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : renderNoLunchNotice(db, lang, date, school);
+    : notice(lang, date, school);
   return `<article class="school-lunch"><h4>${escapeHtml(school.name)}</h4>${body}</article>`;
 }
 
@@ -83,14 +83,14 @@ function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner |
 <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 
-function renderDay(db: Database.Database, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
+function renderDay(db: Database.Database, notice: NoLunchNotice, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
   const weekday = weekdayName(lang, weekdayOf(date));
   const quick = dinner?.isQuickDay ? ` <span class="quick-day">${t(lang, "plan.quickDay")}</span>` : "";
   const lunches = listLunchForDate(db, date);
   const lunch =
     lunches.length === 0
-      ? renderNoLunchNotice(db, lang, date)
-      : lunches.map((l) => renderLunch(db, lang, date, l)).join("\n");
+      ? notice(lang, date)
+      : lunches.map((l) => renderLunch(notice, lang, date, l)).join("\n");
   return `<article class="plan-day">
   <h3>${weekday} <time datetime="${date}">${date}</time>${quick}</h3>
   <section class="lunch"><h4>${t(lang, "common.lunch")}</h4>${lunch}</section>
@@ -117,6 +117,7 @@ function datesWithChangedLunch(db: Database.Database, plan: WeeklyPlan): string[
 
 function renderPlan(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan): string {
   const byDate = new Map(plan.dinners.map((d) => [d.date, d]));
+  const notice = noLunchNotice(db);
   const degraded =
     plan.degradedReasons.length === 0
       ? ""
@@ -130,7 +131,7 @@ ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
 ${degraded}
 ${lunchChanged}
 ${weekDates(weekStart)
-  .map((date) => renderDay(db, lang, date, byDate.get(date)))
+  .map((date) => renderDay(db, notice, lang, date, byDate.get(date)))
   .join("\n")}`;
 }
 

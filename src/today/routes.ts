@@ -1,7 +1,7 @@
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { runLogger } from "../logging/logger.js";
-import { renderNoLunchNotice } from "../lunch/notice.js";
+import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
@@ -10,14 +10,14 @@ import { householdToday } from "../planner/settings.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
-function renderSchoolLunch(ctx: AppContext, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
+function renderSchoolLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : renderNoLunchNotice(ctx.db, lang, date, school);
+    : notice(lang, date, school);
   return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
 }
 
@@ -46,10 +46,11 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const today = householdToday(ctx.db, ctx.now());
     const lunches = listLunchForDate(ctx.db, today);
+    const notice = noLunchNotice(ctx.db);
     const schools =
       lunches.length === 0
         ? `<p>${t(lang, "today.noSchools")} <a href="/schools">${t(lang, "today.addSchool")}</a> ${t(lang, "today.toSeeLunch")}</p>`
-        : lunches.map((l) => renderSchoolLunch(ctx, lang, today, l)).join("\n");
+        : lunches.map((l) => renderSchoolLunch(notice, lang, today, l)).join("\n");
     const body = `<h1>${t(lang, "app.name")}</h1>
 <p><time datetime="${today}">${today}</time></p>
 <section id="lunch">
