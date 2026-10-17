@@ -58,56 +58,37 @@ async function tellClients(message) {
 }
 
 /**
- * After a failed attempt the worker treats the device as offline for a whole outing: pages answer
- * from the Offline Copy at once and writes become Pending Changes at once, so only the first tap
- * of a trip waits out a timeout. The state is kept in the meta cache because the browser stops an
- * idle worker (iOS does so within seconds) and a fresh one would otherwise wait again. The grace
- * never delays getting back: the page's health ping and a background probe end it on first success.
+ * Every page load and write first asks the server for /health with a short deadline. On the home
+ * LAN that answers in a few milliseconds, so the real request follows at once; away from home the
+ * deadline passes and the Offline Copy or the Pending Change answers instead, with no state to
+ * remember and nothing to expire. The deadline leaves room for a phone's wifi radio waking from
+ * power-save, which alone takes 100 to 200 ms.
  */
-const OFFLINE_GRACE_MS = 3 * 60 * 60 * 1000;
-const OFFLINE_KEY = "/__offline/until";
-let offlineUntil = loadOfflineUntil();
-let probing = false;
+const PROBE_MS = 250;
+/** One probe serves every request made within this window (a page and the assets it pulls). */
+const PROBE_MEMO_MS = 1000;
+let lastProbe = { at: 0, online: false };
 
-async function loadOfflineUntil() {
-  const stored = await (await caches.open(META_CACHE)).match(OFFLINE_KEY);
-  return stored ? Number(await stored.text()) || 0 : 0;
-}
-
-async function knownOffline() {
-  return Date.now() < (await offlineUntil);
-}
-
-function rememberOffline(until) {
-  offlineUntil = Promise.resolve(until);
-  void caches.open(META_CACHE).then((meta) => meta.put(OFFLINE_KEY, new Response(String(until))));
+async function serverReachable() {
+  if (Date.now() - lastProbe.at < PROBE_MEMO_MS) return lastProbe.online;
+  let online = false;
+  try {
+    online = (await fetchWithin(PROBE_MS, new URL("/health", self.location.origin).href, { cache: "no-store" })).ok;
+  } catch {
+    online = false;
+  }
+  lastProbe = { at: Date.now(), online };
+  return online;
 }
 
 function noteOnline() {
-  rememberOffline(0);
+  lastProbe = { at: Date.now(), online: true };
   void tellClients({ type: "connectivity", online: true });
 }
 
 function noteOffline() {
-  rememberOffline(Date.now() + OFFLINE_GRACE_MS);
+  lastProbe = { at: Date.now(), online: false };
   void tellClients({ type: "connectivity", online: false });
-}
-
-/** One cheap network probe at a time while known offline; success ends the grace period and syncs. */
-async function probe() {
-  if (probing) return;
-  probing = true;
-  try {
-    const response = await fetchWithin(TIMEOUT_MS.passthrough, new URL("/health", self.location.origin).href, { cache: "no-store" });
-    if (response.ok) {
-      noteOnline();
-      await replayThenPrewarm();
-    }
-  } catch {
-    // Still offline; the grace period stands.
-  } finally {
-    probing = false;
-  }
 }
 
 function tellPendingChanged() {
@@ -262,8 +243,8 @@ async function offlinePage(request, classification) {
 
 async function handlePage(event, classification) {
   const { request } = event;
-  if (await knownOffline()) {
-    event.waitUntil(probe());
+  if (!(await serverReachable())) {
+    noteOffline();
     return offlinePage(request, classification);
   }
   try {
@@ -301,8 +282,8 @@ async function handleWrite(event, request, classification) {
     const back = backPath(request.referrer, self.location.origin);
     return offlineResponseFor(classification, { config, lang: await lastLang(), back, htmx: request.headers.has("HX-Request") });
   };
-  if (await knownOffline()) {
-    event.waitUntil(probe());
+  if (!(await serverReachable())) {
+    noteOffline();
     return offline();
   }
   try {
@@ -317,13 +298,14 @@ async function handleWrite(event, request, classification) {
 }
 
 /**
- * Always tries the network, even while known offline: the page's /health ping is how the app
- * notices it is back. Offline, htmx polling gets a quiet 204; anything else a 503 that is not ok.
+ * Always tries the network: the page's /health ping is how the app notices it is back, and a
+ * success there means the next tap goes to the server. Offline, htmx polling gets a quiet 204;
+ * anything else a 503 that is not ok.
  */
 async function handlePassthrough(request) {
   try {
     const response = await fetchWithin(TIMEOUT_MS.passthrough, request);
-    if (response.ok && (await knownOffline())) noteOnline();
+    if (response.ok && !lastProbe.online) noteOnline();
     return response;
   } catch {
     noteOffline();
