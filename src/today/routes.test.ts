@@ -56,7 +56,7 @@ describe("GET / (Today view)", () => {
     expect(res.body).toContain(TODAY);
     expect(res.body).toContain("Northside");
     expect(res.body).toMatch(/<li>Pasta bolognese<\/li>\s*<li>Fiskgratäng<\/li>/);
-    expect(res.body).not.toContain("No lunch data");
+    expect(res.body).not.toContain("Northside: plugin example-json failed: offline");
   });
 
   it("shows the no-lunch-data notice for a School without an entry today (FR-5)", async () => {
@@ -176,7 +176,7 @@ describe("POST /lunch/refresh", () => {
     const res = await app.inject({ method: "POST", url: "/lunch/refresh" });
 
     expect(res.statusCode).toBe(303);
-    expect((await app.inject({ method: "GET", url: "/" })).body).toContain("No lunch data");
+    expect((await app.inject({ method: "GET", url: "/" })).body).toContain("Northside: plugin example-json failed: offline");
   });
 
 });
