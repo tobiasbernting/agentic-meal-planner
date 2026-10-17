@@ -178,7 +178,7 @@ describe("GET /shopping", () => {
     expect(res.body).toMatch(/<section id="buy">[\s\S]*400 g pasta[\s\S]*<\/section>/);
     expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*2 dl mjölk/);
     expect(res.body.match(/row-label">[^<]*mjölk/g)).toHaveLength(1);
-    expect(res.body).toMatch(/<form method="post" action="\/shopping\/build">[\s\S]*name="weekStart" value="2026-10-19"/);
+    expect(res.body).toMatch(/<form method="post" action="\/shopping\/build"[^>]*>[\s\S]*name="weekStart" value="2026-10-19"/);
     expect(res.body).toContain('aria-current="page"');
   });
 

@@ -38,6 +38,33 @@ async function plannedShopping(build: boolean) {
   return { app, pasta };
 }
 
+describe("online signal", () => {
+  it("starts every page online and ships the signal script", async () => {
+    const app = await start();
+    for (const url of ["/", "/plan", "/shopping", "/more", "/dishes", "/dishes/new", "/schools", "/pantry", "/settings", "/logs"]) {
+      const body = (await app.inject({ method: "GET", url })).body;
+      expect(body, url).toMatch(/<html lang="en" data-online="1">/);
+      expect(body, url).toContain("data-online-only");
+      expect(body, url).toContain('type: "replay"');
+      expect(body, url).toContain("htmx:beforeRequest");
+    }
+  });
+
+  it("shows the hint in the UI language on an online-only form", async () => {
+    const app = await start();
+    const sv = (await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=sv" } })).body;
+    const en = (await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=en" } })).body;
+    expect(formTags(sv, "/plan/generate")[0]).toContain('data-online-only="Kräver uppkoppling"');
+    expect(formTags(en, "/plan/generate")[0]).toContain('data-online-only="Requires connection"');
+  });
+
+  it("styles the offline state in the stylesheet", async () => {
+    const app = await start();
+    const css = (await app.inject({ method: "GET", url: "/assets/app.css" })).body;
+    expect(css).toContain('[data-online="0"]');
+  });
+});
+
 describe("online-only form marker", () => {
   it("marks Plan's generate form with the hint", async () => {
     const app = await start();

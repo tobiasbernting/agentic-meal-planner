@@ -317,7 +317,7 @@ describe("GET / (Today as almanac page)", () => {
 
     const res = await app.inject({ method: "GET", url: "/" });
 
-    expect(res.body).toMatch(/<\/article>\s*(?:<\/div>\s*)?<form method="post" action="\/lunch\/refresh"><button type="submit" class="quiet" data-working-label="Fetching menus…">Refresh lunch menus<\/button><\/form>/);
+    expect(res.body).toMatch(/<\/article>\s*(?:<\/div>\s*)?<form method="post" action="\/lunch\/refresh"[^>]*><button type="submit" class="quiet" data-working-label="Fetching menus…">Refresh lunch menus<\/button><\/form>/);
   });
 
   it("renders in Swedish", async () => {

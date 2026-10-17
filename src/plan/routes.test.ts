@@ -53,7 +53,7 @@ describe("GET /plan", () => {
 
     expect(res.statusCode).toBe(200);
     expect(top(res.body)).toContain("No plan for this week");
-    expect(top(res.body)).toMatch(/<form method="post" action="\/plan\/generate">[\s\S]*name="weekStart" value="2026-10-19"/);
+    expect(top(res.body)).toMatch(/<form method="post" action="\/plan\/generate"[^>]*>[\s\S]*name="weekStart" value="2026-10-19"/);
     for (const date of weekDates(WEEK)) expect(row(res.body, date)).toContain("No plan");
   });
 
@@ -407,7 +407,7 @@ describe("POST /plan/confirm (FR-9a)", () => {
     const app = await start();
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
     const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(before.body).toMatch(/<form method="post" action="\/plan\/confirm">[\s\S]*name="weekStart" value="2026-10-19"/);
+    expect(before.body).toMatch(/<form method="post" action="\/plan\/confirm"[^>]*>[\s\S]*name="weekStart" value="2026-10-19"/);
 
     const res = await app.inject({ method: "POST", url: "/plan/confirm", payload: { weekStart: WEEK } });
 
@@ -434,7 +434,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
     const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(before.body).toMatch(/<form method="post" action="\/plan\/regenerate">[\s\S]*name="weekStart" value="2026-10-19"/);
+    expect(before.body).toMatch(/<form method="post" action="\/plan\/regenerate"[^>]*>[\s\S]*name="weekStart" value="2026-10-19"/);
 
     const res = await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
@@ -470,7 +470,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
 
     expect(ask.statusCode).toBe(200);
     expect(ask.body).toContain("This plan is confirmed");
-    expect(ask.body).toMatch(/<form method="post" action="\/plan\/regenerate">[\s\S]*name="weekStart" value="2026-10-19"[\s\S]*name="confirmed_override" value="1"/);
+    expect(ask.body).toMatch(/<form method="post" action="\/plan\/regenerate"[^>]*>[\s\S]*name="weekStart" value="2026-10-19"[\s\S]*name="confirmed_override" value="1"/);
     const untouched = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(untouched.body).not.toContain("Burgers");
     expect(untouched.body).toContain("Status: confirmed");
