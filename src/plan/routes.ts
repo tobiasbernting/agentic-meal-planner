@@ -5,7 +5,7 @@
  * stored Lunch Entry changed, ask again before replacing a confirmed plan).
  */
 import type Database from "better-sqlite3";
-import type { FeaturePlugin } from "../app.js";
+import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
 import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
@@ -15,6 +15,7 @@ import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import { runLogger, type Logger } from "../logging/logger.js";
+import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { pushShoppingList } from "../sinks/push.js";
@@ -172,6 +173,13 @@ function logRunFinished(log: Logger, weekStart: string, result: GeneratePlanResu
   log.info({ weekStart, ...outcome, ...extra, durationMs: Date.now() - started }, "run finished");
 }
 
+async function finishPlan(ctx: AppContext, log: Logger, result: { planId: number; degradedReasons: string[] }): Promise<void> {
+  const deps = { ...ctx, log };
+  await buildShoppingList(deps, result.planId);
+  const sinksPushed = await pushShoppingList(deps, result.planId);
+  logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
+}
+
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
   // Read the ports at run time: `ctx.llm` follows the Settings agent command.
   const ingestDeps = () => ({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now });
@@ -216,7 +224,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
         : changed.length === 0
           ? ""
           : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
-    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
+    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 
@@ -235,7 +243,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
     const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart, { force: true });
     const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log }, weekStart, { replace: true });
     logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
-    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: fresh Shopping List, pushed
+    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
