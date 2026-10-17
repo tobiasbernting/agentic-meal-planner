@@ -232,6 +232,8 @@ describe("Plan Run banner on the Shopping List page", () => {
     expect(res.body).toContain("Ingredients 0 of 7: Köttbullar");
     expect(res.body).toContain(`hx-get="/plan-run/banner?week=${WEEK}&amp;shown=ingredient-resolution"`);
     expect(res.body).toContain('hx-trigger="every 2s"');
+    expect(res.body).toContain('class="plan-run plan-run-active notice" role="status"');
+    expect(res.body.indexOf('id="plan-run-banner"')).toBeGreaterThan(res.body.indexOf('class="week-nav"'));
     expect(res.body).not.toContain('action="/shopping/build"');
     const sv = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}`, headers: { cookie: "lang=sv" } });
     expect(sv.body).toContain("Ingredienser 0 av 7: Köttbullar");
