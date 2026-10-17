@@ -83,9 +83,13 @@
     li.append(label, state, discard);
     return li;
   }
+  // Offline, the copy itself shows each Pending Change on its line and the banner carries the
+  // count, so the badge only appears for a failed replay. Online it lists everything still queued.
   function render(entries, worker, background) {
-    box.hidden = entries.length === 0;
-    if (entries.length === 0) list.hidden = true;
+    var offline = document.documentElement.dataset.online === "0";
+    var failed = entries.some(function (entry) { return entry.state === "failed"; });
+    box.hidden = entries.length === 0 || (offline && !failed);
+    if (box.hidden) list.hidden = true;
     toggle.textContent = entries.length === 1 ? texts.pendingOne : fill(texts.pending, { n: entries.length });
     toggle.setAttribute("aria-expanded", String(!list.hidden));
     list.replaceChildren.apply(list, entries.map(function (entry) { return row(entry, worker); }));

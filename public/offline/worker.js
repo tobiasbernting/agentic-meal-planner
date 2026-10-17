@@ -255,11 +255,11 @@ async function handleAsset(request) {
   }
 }
 
-/** The Offline Copy with its banner, or the requires-connection page. */
+/** The Offline Copy with its banner and the device's Pending Changes shown on it, or the requires-connection page. */
 async function offlinePage(request, classification) {
   const copy = classification.cacheable ? await findCopy(request.url) : undefined;
   const lang = copy ? extractLang(copy.html) : await lastLang();
-  return offlineResponseFor(classification, { config, lang, copy });
+  return offlineResponseFor(classification, { config, lang, copy, pending: replayOrder(await pending.all()) });
 }
 
 async function handlePage(event, classification) {

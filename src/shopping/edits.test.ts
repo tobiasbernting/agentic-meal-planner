@@ -221,6 +221,20 @@ describe("Removed Lines", () => {
   });
 });
 
+describe("line keys for the Offline Copy overlay", () => {
+  it("keys every line by its normalised name and every Extra Item by its id too", async () => {
+    const { app } = await builtList();
+    await post(app, "/shopping/extra", { weekStart: WEEK, name: "Batteries", quantity: "2 pack" });
+    await post(app, "/shopping/remove", { weekStart: WEEK, name: "ost" });
+
+    const html = await shoppingPage(app);
+
+    expect([...html.matchAll(/<li class="row line[^"]*" data-line="([^"]*)"/g)].map((m) => m[1])).toEqual(["pasta", "batteries", "mjölk"]);
+    expect(html).toMatch(/<li class="row line" data-line="batteries" data-extra="\d+">/);
+    expect(html).toMatch(/<details id="removed">[\s\S]*<li class="row with-actions" data-line="ost">/);
+  });
+});
+
 describe("Checked Off lines", () => {
   it("shows a tick control on every Buy and Check pantry line", async () => {
     const { app } = await builtList();
@@ -243,7 +257,7 @@ describe("Checked Off lines", () => {
     const unchecked = await shoppingPage(app);
 
     expect(lines(checked, "buy")).toEqual([["ost", false], ["500 g pasta", true]]);
-    expect(checked).toMatch(/<li class="row line line-checked">[\s\S]*?action="\/shopping\/uncheck"[\s\S]*?<s class="row-label">500 g pasta<\/s>/);
+    expect(checked).toMatch(/<li class="row line line-checked"[^>]*>[\s\S]*?action="\/shopping\/uncheck"[\s\S]*?<s class="row-label">500 g pasta<\/s>/);
     expect(lines(unchecked, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
   });
 

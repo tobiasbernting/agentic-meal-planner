@@ -53,11 +53,17 @@ function perLang<T>(build: (lang: Lang) => T): Record<Lang, T> {
   return Object.fromEntries(LANGS.map((lang) => [lang, build(lang)])) as Record<Lang, T>;
 }
 
-/** A synthetic page in the normal shell; the worker fills in `{{text}}` and `{{back}}`. */
+/**
+ * A synthetic page in the normal shell, started offline; the worker fills in `{{text}}` and
+ * `{{back}}` and moves the tab bar's current tab to where `{{back}}` leads (activateTab in
+ * public/offline/core.js). The heading is the short title; the sentence sits under it.
+ */
 function frame(lang: Lang, titleKey: MessageKey): string {
-  const body = `<p>{{text}}</p>
-<p><a href="{{back}}">${escapeHtml(t(lang, "offline.back"))}</a></p>`;
-  return page({ title: t(lang, titleKey), body, tab: "today", lang });
+  const title = t(lang, titleKey);
+  const body = `<header class="page-head"><h1>${escapeHtml(title)}</h1></header>
+<p>{{text}}</p>
+<p class="actions"><a class="button" href="{{back}}">${escapeHtml(t(lang, "offline.back"))}</a></p>`;
+  return page({ title, body, tab: "today", lang }).replace('data-online="1"', 'data-online="0"');
 }
 
 /** The JSON the worker runs on. Language-independent: every language's texts are included. */
@@ -74,7 +80,7 @@ export function workerConfig(): WorkerConfig {
     assets: [...ALL_ASSET_PATHS, MANIFEST_PATH],
     labels: perLang((lang) => Object.fromEntries(Object.entries(QUEUEABLE_LABELS).map(([route, key]) => [route, t(lang, key)]))),
     texts: perLang(workerTexts),
-    frames: perLang((lang) => ({ requiresConnection: frame(lang, "offline.requiresConnection"), saved: frame(lang, "offline.saved") })),
+    frames: perLang((lang) => ({ requiresConnection: frame(lang, "offline.requiresConnection"), saved: frame(lang, "offline.savedTitle") })),
   };
 }
 

@@ -18,6 +18,7 @@ import { buyFingerprint, getShoppingList } from "./build.js";
 import type { ShoppingLine } from "./edits.js";
 import type { PantryItem } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
+import { normaliseName } from "../text.js";
 
 /** The Pantry Item Har alltid hemma just created: its line under Check pantry offers Ångra. */
 export type Undo = PantryItem;
@@ -92,7 +93,16 @@ function renderLine(lang: Lang, dishName: (id: number) => string | undefined, we
   const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
   const label = line.checked ? `<s class="row-label">${escapeHtml(itemLabel(line))}</s>` : `<span class="row-label">${escapeHtml(itemLabel(line))}</span>`;
   const end = actions.length ? `\n<div class="line-end">${actions.join("\n")}</div>` : "";
-  return `<li class="row line${line.checked ? " line-checked" : ""}">${tickForm(lang, weekStart, line)}<div class="line-body">${label}${till}</div>${end}</li>`;
+  return `<li class="row line${line.checked ? " line-checked" : ""}"${lineKeys(line)}>${tickForm(lang, weekStart, line)}<div class="line-body">${label}${till}</div>${end}</li>`;
+}
+
+/**
+ * How the Offline Copy overlay (public/offline/core.js) finds a line: the normalised name the
+ * edit routes key on, and an Extra Item's id for its delete.
+ */
+function lineKeys(line: ShoppingLine): string {
+  const extra = line.extraId === undefined ? "" : ` data-extra="${line.extraId}"`;
+  return ` data-line="${escapeHtml(normaliseName(line.name))}"${extra}`;
 }
 
 function renderSection(lang: Lang, dishName: (id: number) => string | undefined, weekStart: string, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[], tail = ""): string {
@@ -105,7 +115,7 @@ function renderRemoved(lang: Lang, weekStart: string, removed: ShoppingLine[]): 
   if (removed.length === 0) return "";
   const rows = removed.map((line) => {
     const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.restoreFor", { name: line.name }))}">${t(lang, "shopping.restore")}</button>`;
-    return `<li class="row with-actions"><span class="row-label">${escapeHtml(itemLabel(line))}</span><div class="row-actions">${lineForm("/shopping/restore", weekStart, line.name, button)}</div></li>`;
+    return `<li class="row with-actions"${lineKeys(line)}><span class="row-label">${escapeHtml(itemLabel(line))}</span><div class="row-actions">${lineForm("/shopping/restore", weekStart, line.name, button)}</div></li>`;
   });
   return `\n<details id="removed">
 <summary>${escapeHtml(t(lang, removed.length === 1 ? "count.removed.one" : "count.removed.other", { n: removed.length }))}</summary>

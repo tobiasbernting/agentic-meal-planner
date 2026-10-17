@@ -142,6 +142,135 @@ export function injectBanner(html, text, marker) {
     .replace(marker, () => `<div id="offline-banner" class="offline-banner" role="status">${escapeHtml(text)}</div>`);
 }
 
+/** The tab bar href a path belongs to, for the worker's own pages. */
+function tabFor(path) {
+  if (path.startsWith("/plan")) return "/plan";
+  if (path.startsWith("/shopping")) return "/shopping";
+  if (/^\/(dishes|pantry|settings|schools|logs|more)\b/.test(path)) return "/more";
+  return "/";
+}
+
+/**
+ * The page with `aria-current` on the tab that `backPath` belongs to instead of wherever the
+ * frame was rendered with it. Only the tab bar's links are touched.
+ * @param {string} html
+ * @param {string} backPath
+ */
+export function activateTab(html, backPath) {
+  const href = tabFor(backPath);
+  return html.replace(/<nav class="tabbar"[^>]*>[\s\S]*?<\/nav>/, (nav) =>
+    nav.replaceAll(' aria-current="page"', "").replace(`<a href="${href}">`, `<a href="${href}" aria-current="page">`),
+  );
+}
+
+/**
+ * The Shopping List edit a Pending Change is, read from its route and form body; undefined for
+ * any other change.
+ * @param {PendingChange} entry
+ * @returns {{ kind: "check" | "uncheck" | "remove" | "restore" | "extra" | "extra-delete", weekStart: string, name: string, quantity: string, id: string } | undefined}
+ */
+function shoppingEdit(entry) {
+  const path = new URL(entry.url, "http://x").pathname;
+  const kinds = { "/shopping/check": "check", "/shopping/uncheck": "uncheck", "/shopping/remove": "remove", "/shopping/restore": "restore", "/shopping/extra": "extra", "/shopping/extra/delete": "extra-delete" };
+  const kind = kinds[path];
+  if (!kind) return undefined;
+  const form = new URLSearchParams(entry.body);
+  const normalised = (form.get("name") ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return { kind, weekStart: form.get("weekStart") ?? "", name: normalised, quantity: (form.get("quantity") ?? "").trim(), id: form.get("id") ?? "" };
+}
+
+/** The quiet "väntar" mark after a line's label. @param {string} text */
+function pendingMark(text) {
+  return `<span class="row-status pending-mark">${escapeHtml(text)}</span>`;
+}
+
+/**
+ * One `<li ...>...</li>` of the list, rewritten. Lines never nest, so the first `</li>` after the
+ * opening tag closes it.
+ * @param {string} html
+ * @param {string} openTag the exact opening tag to find
+ * @param {(li: string) => string} rewrite
+ */
+function rewriteLine(html, openTag, rewrite) {
+  const start = html.indexOf(openTag);
+  if (start === -1) return html;
+  const end = html.indexOf("</li>", start) + "</li>".length;
+  return html.slice(0, start) + rewrite(html.slice(start, end)) + html.slice(end);
+}
+
+/** The line's label element followed by exactly one pending mark. @param {string} li @param {string} mark */
+function marked(li, mark) {
+  const bare = li.replace(mark, "");
+  return bare.replace(/(<(?:span|s) class="row-label">[^<]*<\/(?:span|s)>)/, `$1${mark}`);
+}
+
+/**
+ * The Offline Copy of a Shopping page with the week's Pending Changes shown on it, so a tick at
+ * the store looks like a tick at home: a pending check is struck through and its tick unchecks,
+ * a pending remove is muted and its control restores, a pending Extra Item is appended to Buy,
+ * a pending Extra Item delete hides its line. Every touched line carries a small pending mark.
+ * String replacement keyed on the `data-line` and `data-extra` attributes src/shopping/view.ts
+ * renders. Any other page, and any change for another week, comes back unchanged.
+ * @param {string} html
+ * @param {readonly PendingChange[]} pending
+ * @param {{ pendingMark: string, remove: string, restore: string }} texts
+ */
+export function overlayPendingChanges(html, pending, texts) {
+  const week = /name="weekStart" value="([^"]+)"/.exec(html)?.[1];
+  if (!week || !html.includes('action="/shopping/check"')) return html;
+  const mark = pendingMark(texts.pendingMark);
+  let out = html;
+  for (const entry of pending) {
+    const edit = shoppingEdit(entry);
+    if (!edit || edit.weekStart !== week) continue;
+    const byName = `data-line="${escapeHtml(edit.name)}"`;
+    switch (edit.kind) {
+      case "check":
+      case "uncheck": {
+        const checked = edit.kind === "check";
+        out = rewriteLine(out, `<li class="row line${checked ? "" : " line-checked"}${out.includes(`line-pending" ${byName}`) ? " line-pending" : ""}" ${byName}`, (li) =>
+          marked(
+            li
+              .replace(/^<li class="row line[^"]*"/, `<li class="row line${checked ? " line-checked" : ""} line-pending"`)
+              .replace(checked ? 'action="/shopping/check"' : 'action="/shopping/uncheck"', checked ? 'action="/shopping/uncheck"' : 'action="/shopping/check"')
+              .replace(`aria-pressed="${!checked}"`, `aria-pressed="${checked}"`)
+              .replace(checked ? /<span class="row-label">([^<]*)<\/span>/ : /<s class="row-label">([^<]*)<\/s>/, checked ? '<s class="row-label">$1</s>' : '<span class="row-label">$1</span>'),
+            mark,
+          ),
+        );
+        break;
+      }
+      case "remove":
+        out = rewriteLine(out, `<li class="row line" ${byName}`, (li) =>
+          marked(
+            li
+              .replace('<li class="row line"', '<li class="row line line-removed line-pending"')
+              .replace('action="/shopping/remove"', 'action="/shopping/restore"')
+              .replace(new RegExp(`(action="/shopping/restore">[\\s\\S]*?<button[^>]*>)${escapeHtml(texts.remove)}(</button>)`), `$1${escapeHtml(texts.restore)}$2`),
+            mark,
+          ),
+        );
+        break;
+      case "restore":
+        out = rewriteLine(out, `<li class="row with-actions" ${byName}`, (li) => marked(li.replace('<li class="row with-actions"', '<li class="row with-actions line-pending"'), mark));
+        break;
+      case "extra": {
+        const label = `${edit.quantity ? `${edit.quantity} ` : ""}${edit.name}`;
+        const li = `<li class="row line line-pending"><div class="line-body"><span class="row-label">${escapeHtml(label)}</span>${mark}</div></li>`;
+        const form = out.indexOf('<form method="post" action="/shopping/extra"');
+        const ul = out.lastIndexOf("</ul>", form);
+        const buyStart = out.indexOf('<section id="buy">');
+        out = ul > buyStart ? `${out.slice(0, ul)}${li}\n${out.slice(ul)}` : `${out.slice(0, form)}<ul class="rows">\n${li}\n</ul>\n${out.slice(form)}`;
+        break;
+      }
+      case "extra-delete":
+        out = out.replace(new RegExp(`(<li class="row line[^"]*" data-line="[^"]*" data-extra="${edit.id}")>`), "$1 hidden>");
+        break;
+    }
+  }
+  return out;
+}
+
 /**
  * The language a page was rendered in, from `<html lang="xx">`; Swedish when it names none.
  * @param {string} html
@@ -191,33 +320,43 @@ export function backPath(value, origin) {
  *   config: { marker: string, offlinePaths: { saved: string, requiresConnection: string }, texts: Record<string, Record<string, string>>, frames: Record<string, Record<string, string>> },
  *   lang: string,
  *   copy?: { html: string, fetchedAt: string },
+ *   pending?: readonly PendingChange[],
  *   back?: string,
  *   htmx?: boolean,
  *   formatTime?: (iso: string) => string,
- * }} context `htmx`: the request carried the HX-Request header. An htmx request never gets a
- * page, since a full page must never land in a fragment target: a write is sent to one of the
- * worker's own pages with HX-Redirect, anything else gets an empty 204 so htmx polling stays
- * quiet. Any other passthrough request (the online signal's /health ping) gets an empty 503,
- * which is not `ok`.
+ * }} context `pending`: the device's Pending Changes, shown on a Shopping copy and counted in
+ * every copy's banner. `htmx`: the request carried the HX-Request header. An htmx request never
+ * gets a page, since a full page must never land in a fragment target: a write is sent to one of
+ * the worker's own pages with HX-Redirect, anything else gets an empty 204 so htmx polling stays
+ * quiet. A Shopping List edit from a plain form is answered like the server answers it, a 303
+ * back to the list, where the overlay shows it; other edits get the saved page. Any other
+ * passthrough request (the online signal's /health ping) gets an empty 503, which is not `ok`.
  * @returns {Response}
  */
 export function offlineResponseFor(classification, context) {
-  const { config, copy, back = "/", htmx = false, formatTime = localTime } = context;
+  const { config, copy, pending = [], back = "/", htmx = false, formatTime = localTime } = context;
   const lang = context.lang in config.frames ? context.lang : "sv";
   const texts = config.texts[lang];
   const frames = config.frames[lang];
-  const requiresConnection = () => htmlResponse(fillFrame(frames.requiresConnection, texts.requiresConnection, back), 503);
+  const ownPage = (/** @type {string} */ frame, /** @type {string} */ text, /** @type {number} */ status) => htmlResponse(activateTab(fillFrame(frame, text, back), back), status);
+  const requiresConnection = () => ownPage(frames.requiresConnection, texts.requiresConnection, 503);
+  const saved = () => ownPage(frames.saved, texts.saved, 200);
   const htmxRedirect = (/** @type {string} */ path) => new Response(null, { status: 204, headers: { "HX-Redirect": `${path}?back=${encodeURIComponent(back)}` } });
   switch (classification.kind) {
-    case "page":
-      if (classification.cacheable && copy) return htmlResponse(injectBanner(copy.html, texts.banner.replaceAll("{time}", formatTime(copy.fetchedAt)), config.marker), 200);
-      return requiresConnection();
+    case "page": {
+      if (!classification.cacheable || !copy) return requiresConnection();
+      const open = pending.filter((entry) => entry.state === "pending").length;
+      const count = open === 0 ? "" : ` · ${open === 1 ? texts.pendingOne : texts.pending.replaceAll("{n}", String(open))}`;
+      const banner = texts.banner.replaceAll("{time}", formatTime(copy.fetchedAt)) + count;
+      return htmlResponse(injectBanner(overlayPendingChanges(copy.html, pending, texts), banner, config.marker), 200);
+    }
     case "online-only-write":
       return htmx ? htmxRedirect(config.offlinePaths.requiresConnection) : requiresConnection();
     case "queueable-write":
-      return htmx ? htmxRedirect(config.offlinePaths.saved) : htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+      if (htmx) return htmxRedirect(config.offlinePaths.saved);
+      return classification.route.startsWith("/shopping/") ? new Response(null, { status: 303, headers: { location: back } }) : saved();
     case "offline-page":
-      return classification.page === "saved" ? htmlResponse(fillFrame(frames.saved, texts.saved, back), 200) : requiresConnection();
+      return classification.page === "saved" ? saved() : requiresConnection();
     case "asset":
       return new Response(null, { status: 404 });
     default:
