@@ -33,9 +33,14 @@ const TEXT_KEYS = {
   unknownChange: "offline.unknownChange",
   replayNextOpen: "offline.replayNextOpen",
   replayBackground: "offline.replayBackground",
+  pending: "offline.pending",
+  pendingOne: "offline.pendingOne",
+  failed: "offline.failed",
+  pendingState: "offline.pendingState",
+  discard: "offline.discard",
 } as const satisfies Record<string, MessageKey>;
 
-type Texts = Record<keyof typeof TEXT_KEYS, string>;
+type Texts =Record<keyof typeof TEXT_KEYS, string>;
 
 export interface WorkerConfig {
   queueable: readonly string[];

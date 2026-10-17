@@ -15,6 +15,7 @@ import {
   replayOrder,
   replayOutcome,
   replayRequest,
+  routeLabel,
 } from "/assets/offline-core.js";
 
 const config = self.OFFLINE_CONFIG;
@@ -285,8 +286,8 @@ self.addEventListener("sync", (event) => {
 });
 
 /**
- * Messages from pages: `replay` (the app is back online), `prewarm`, `queue` (answered on the
- * message port with `{ type: "queue", entries }`, oldest first) and `discard` (`{ id }`).
+ * Messages from pages: `replay` (the app is back online), `prewarm`, `queue` (`{ lang }`, answered on the
+ * message port with `{ type: "queue", entries }`, oldest first, each with a `label` in `lang`) and `discard` (`{ id }`).
  */
 self.addEventListener("message", (event) => {
   const message = event.data ?? {};
@@ -297,7 +298,12 @@ self.addEventListener("message", (event) => {
     case "queue":
       return event.waitUntil(
         (async () => {
-          event.ports[0]?.postMessage({ type: "queue", entries: replayOrder(await pending.all()) });
+          const lang = message.lang in config.texts ? message.lang : "sv";
+          const entries = replayOrder(await pending.all()).map((entry) => ({
+            ...entry,
+            label: routeLabel(entry.method, new URL(entry.url, self.location.origin).pathname, config, lang),
+          }));
+          event.ports[0]?.postMessage({ type: "queue", entries });
         })(),
       );
     case "discard":

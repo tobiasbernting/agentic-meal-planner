@@ -65,6 +65,95 @@ function offlineBannerMarker(): string {
   return `<div id="offline-banner"></div>`;
 }
 
+/** JSON for an inline script element: `<` is escaped so text can never close the element. */
+function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+/** The Pending Changes badge (#108), hidden until the worker reports a queue, plus its texts. */
+function pendingChangesBadge(lang: Lang): string {
+  const texts = {
+    pending: t(lang, "offline.pending"),
+    pendingOne: t(lang, "offline.pendingOne"),
+    failed: t(lang, "offline.failed"),
+    pendingState: t(lang, "offline.pendingState"),
+    discard: t(lang, "offline.discard"),
+    replayNextOpen: t(lang, "offline.replayNextOpen"),
+    replayBackground: t(lang, "offline.replayBackground"),
+  };
+  return `<div id="pending-changes" hidden data-lang="${escapeHtml(lang)}"><button type="button" class="quiet" id="pending-changes-toggle"></button><ul class="rows" id="pending-changes-list" hidden></ul><p class="muted" id="pending-changes-note"></p></div>
+<script type="application/json" id="offline-texts">${scriptJson(texts)}</script>`;
+}
+
+/**
+ * The badge's glue: asks the worker for the queue (with the page language, so each entry comes
+ * back labelled) on load and whenever the worker says it changed, and renders it with
+ * textContent only. Discard tells the worker, which broadcasts the change.
+ */
+function pendingChangesScript(): string {
+  return `<script>(function () {
+  if (!("serviceWorker" in navigator)) return;
+  var box = document.getElementById("pending-changes");
+  var toggle = document.getElementById("pending-changes-toggle");
+  var list = document.getElementById("pending-changes-list");
+  var note = document.getElementById("pending-changes-note");
+  var texts = JSON.parse(document.getElementById("offline-texts").textContent);
+  var lang = box.dataset.lang;
+  function fill(template, values) {
+    return template.replace(/\\{(\\w+)\\}/g, function (whole, name) { return name in values ? String(values[name]) : whole; });
+  }
+  function time(iso) {
+    return new Date(iso).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+  }
+  function row(entry, worker) {
+    var li = document.createElement("li");
+    li.className = "row with-actions";
+    var label = document.createElement("p");
+    label.textContent = entry.label + " " + time(entry.createdAt);
+    var state = document.createElement("p");
+    if (entry.state === "failed") {
+      state.className = "notice";
+      state.textContent = fill(texts.failed, { reason: entry.reason || "" });
+    } else {
+      state.className = "muted";
+      state.textContent = texts.pendingState;
+    }
+    var discard = document.createElement("button");
+    discard.type = "button";
+    discard.className = "quiet";
+    discard.textContent = texts.discard;
+    discard.addEventListener("click", function () { worker.postMessage({ type: "discard", id: entry.id }); });
+    li.append(label, state, discard);
+    return li;
+  }
+  function render(entries, worker, background) {
+    box.hidden = entries.length === 0;
+    if (entries.length === 0) list.hidden = true;
+    toggle.textContent = entries.length === 1 ? texts.pendingOne : fill(texts.pending, { n: entries.length });
+    toggle.setAttribute("aria-expanded", String(!list.hidden));
+    list.replaceChildren.apply(list, entries.map(function (entry) { return row(entry, worker); }));
+    note.textContent = background ? texts.replayBackground : texts.replayNextOpen;
+  }
+  function refresh() {
+    navigator.serviceWorker.ready.then(function (registration) {
+      var worker = navigator.serviceWorker.controller || registration.active;
+      if (!worker) return;
+      var channel = new MessageChannel();
+      channel.port1.onmessage = function (event) { render(event.data.entries, worker, "sync" in registration); };
+      worker.postMessage({ type: "queue", lang: lang }, [channel.port2]);
+    });
+  }
+  toggle.addEventListener("click", function () {
+    list.hidden = !list.hidden;
+    toggle.setAttribute("aria-expanded", String(!list.hidden));
+  });
+  navigator.serviceWorker.addEventListener("message", function (event) {
+    if (event.data && event.data.type === "pending-changed") refresh();
+  });
+  refresh();
+})();</script>`;
+}
+
 /**
  * The online signal (ADR-0007): the app is online when a request succeeds, not by the browser's
  * flag. Starts online unless the worker already put a banner in; the worker's connectivity
@@ -129,9 +218,11 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
 ${offlineBannerMarker()}
+${pendingChangesBadge(lang)}
 ${markOnlineOnlyForms(body, lang)}
     </main>
     ${tabBar(lang, tab)}
+    ${pendingChangesScript()}
     ${onlineSignalScript()}
   </body>
 </html>

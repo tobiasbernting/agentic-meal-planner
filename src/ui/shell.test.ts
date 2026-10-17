@@ -110,6 +110,23 @@ describe("assets (NFR-2)", () => {
     }
   });
 
+  it("puts the Pending Changes badge, its texts and script on every page, in the page's language", async () => {
+    const app = await makeApp();
+    const badge =
+      '<div id="pending-changes" hidden data-lang="LANG"><button type="button" class="quiet" id="pending-changes-toggle"></button><ul class="rows" id="pending-changes-list" hidden></ul><p class="muted" id="pending-changes-note"></p></div>';
+    for (const [url] of PAGES) {
+      const sv = await app.inject({ method: "GET", url });
+      expect(sv.body, url).toContain(badge.replace("LANG", "sv"));
+      expect(sv.body, url).toContain('<script type="application/json" id="offline-texts">');
+      expect(sv.body, url).toContain("{n} ändringar väntar");
+      expect(sv.body, url).toContain("pending-changes-toggle");
+      expect(sv.body.indexOf('id="offline-banner"'), url).toBeLessThan(sv.body.indexOf('id="pending-changes"'));
+      const en = await app.inject({ method: "GET", url, headers: { cookie: "lang=en" } });
+      expect(en.body, url).toContain(badge.replace("LANG", "en"));
+      expect(en.body, url).toContain("{n} changes pending");
+    }
+  });
+
   it("carries the default working label in the page's language", async () => {
     const app = await makeApp();
     expect((await app.inject({ method: "GET", url: "/plan" })).body).toContain('data-working-label="Arbetar…"');
