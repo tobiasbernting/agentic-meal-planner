@@ -28,6 +28,10 @@ export const SETTING_AGENT_COMMAND = "agent_command";
 /** JSON array of Shopping List Sink configs (secrets stay in env vars, never here). */
 export const SETTING_SHOPPING_LIST_SINKS = "shopping_list_sinks";
 
+/** Free-text style for Suggested Dishes; blank/unset = the default. */
+export const SETTING_SUGGESTION_STYLE = "suggestion_style";
+export const DEFAULT_SUGGESTION_STYLE = "family-friendly Swedish home cooking for a household with kids";
+
 /** Sunday 18:00 (FR-9). */
 export const DEFAULT_CRON_EXPRESSION = "0 18 * * 0";
 
@@ -40,6 +44,7 @@ export interface PlannerSettings {
   quickDayTemplate: QuickDayTemplate;
   quickDayOverrides: QuickDayOverrides;
   defaultPrepLimitMinutes: number;
+  suggestionStyle: string;
 }
 
 export const DEFAULT_PLANNER_SETTINGS: PlannerSettings = {
@@ -48,6 +53,7 @@ export const DEFAULT_PLANNER_SETTINGS: PlannerSettings = {
   quickDayTemplate: { tue: 30 },
   quickDayOverrides: {},
   defaultPrepLimitMinutes: 30,
+  suggestionStyle: DEFAULT_SUGGESTION_STYLE,
 };
 
 function readInt(db: Database.Database, key: string, fallback: number): number {
@@ -102,6 +108,7 @@ export function readPlannerSettings(db: Database.Database): PlannerSettings {
     quickDayTemplate: template ? toWeekdayMap(template, isMinutes) : { ...d.quickDayTemplate },
     quickDayOverrides,
     defaultPrepLimitMinutes: readInt(db, SETTING_DEFAULT_PREP_LIMIT_MINUTES, d.defaultPrepLimitMinutes),
+    suggestionStyle: readSetting(db, SETTING_SUGGESTION_STYLE)?.trim() || d.suggestionStyle,
   };
 }
 
