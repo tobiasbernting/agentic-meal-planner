@@ -12,7 +12,11 @@ import type {
   SelectedDish,
 } from "./types.js";
 
-type Scripted<Args extends unknown[], T> = LlmResult<T> | ((...args: Args) => LlmResult<T>);
+/**
+ * A fixed result, or a function of the call's arguments. The function may return a Promise,
+ * so a test can hold a Plan Run inside an agent call and release it later.
+ */
+type Scripted<Args extends unknown[], T> = LlmResult<T> | ((...args: Args) => LlmResult<T> | Promise<LlmResult<T>>);
 
 export interface ScriptedResponses {
   extractLunchMenu?: Scripted<[pageContent: string, weekStart: string], LunchEntry[]>;
@@ -30,7 +34,7 @@ export interface ScriptedCall {
 
 /**
  * Test double for other features' tests: responses are supplied per method (a fixed
- * result or a function of the arguments). An unscripted method degrades, and every call
+ * result or a function of the arguments, sync or async). An unscripted method degrades, and every call
  * is recorded in `calls`.
  */
 export class ScriptedLlmAgent implements LlmAgent {
@@ -71,7 +75,7 @@ export class ScriptedLlmAgent implements LlmAgent {
     if (scripted === undefined) {
       return { ok: false, reason: `no scripted response for ${method}` } as Extract<ScriptedResponses[M], { ok: boolean }>;
     }
-    const result = typeof scripted === "function" ? scripted(...args) : scripted;
+    const result = typeof scripted === "function" ? await scripted(...args) : scripted;
     return result as Extract<ScriptedResponses[M], { ok: boolean }>;
   }
 }
