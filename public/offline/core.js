@@ -255,3 +255,25 @@ export function replayRequest(entry) {
     },
   };
 }
+
+/**
+ * Reverses escapeHtml (and src/ui/layout.ts's), which is all the server's escaping does.
+ * @param {string} html
+ */
+function unescapeHtml(html) {
+  return html.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
+}
+
+/**
+ * What a replay's response means for its Pending Change. A network error never gets here: the
+ * glue keeps the change and stops the run.
+ * @param {number} status
+ * @param {string} bodyHtml the response body, read for a refusal's notice
+ * @returns {{ kind: "drop" } | { kind: "failed", reason: string } | { kind: "keep" }}
+ */
+export function replayOutcome(status, bodyHtml) {
+  if (status < 400) return { kind: "drop" };
+  if (status >= 500) return { kind: "keep" };
+  const notice = /<span class="notice-text">([^<]*)<\/span>/.exec(bodyHtml);
+  return { kind: "failed", reason: notice ? unescapeHtml(notice[1]) : `HTTP ${status}` };
+}

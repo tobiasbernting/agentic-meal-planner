@@ -2,8 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder, replayRequest } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
+import { notice, page } from "../ui/layout.js";
 import { workerConfig } from "./routes.js";
 
 const config = workerConfig();
@@ -341,5 +342,26 @@ describe("replayRequest", () => {
     const keys = [1, 2, 3].map(() => new Headers(replayRequest(stored).init.headers).get("Idempotency-Key"));
 
     expect(keys).toEqual([stored.key, stored.key, stored.key]);
+  });
+});
+
+describe("replayOutcome", () => {
+  it("drops a Pending Change the server took, whether it answered 2xx or redirected", () => {
+    for (const status of [200, 201, 204, 302, 303]) expect(replayOutcome(status, ""), String(status)).toEqual({ kind: "drop" });
+  });
+
+  it("marks a Pending Change the server refused as failed, carrying the page's notice text unescaped", () => {
+    const body = page({ title: "Rätter", tab: "dishes", lang: "sv", body: notice({ label: "Misslyckades", text: "Namnet finns redan: \"Pasta & ost\" <1>" }) });
+
+    expect(replayOutcome(400, body)).toEqual({ kind: "failed", reason: 'Namnet finns redan: "Pasta & ost" <1>' });
+  });
+
+  it("names the status when a refused Pending Change's page has no notice", () => {
+    expect(replayOutcome(404, "<!doctype html><p>Not found</p>")).toEqual({ kind: "failed", reason: "HTTP 404" });
+    expect(replayOutcome(422, "")).toEqual({ kind: "failed", reason: "HTTP 422" });
+  });
+
+  it("keeps a Pending Change for next time when the server failed", () => {
+    for (const status of [500, 502, 503]) expect(replayOutcome(status, notice({ text: "oops" })), String(status)).toEqual({ kind: "keep" });
   });
 });
