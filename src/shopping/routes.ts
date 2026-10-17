@@ -52,7 +52,7 @@ interface UndoForm extends BuildForm {
   id?: string;
 }
 
-/** The Pantry Item Har alltid hemma just created: its line under Kolla skafferiet offers Ångra. */
+/** The Pantry Item Har alltid hemma just created: its line under Check pantry offers Ångra. */
 interface Undo {
   id: number;
   name: string;
@@ -84,7 +84,7 @@ function renderSection(lang: Lang, dishName: (id: number) => string | undefined,
   return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
 }
 
-/** Ångra on a Kolla skafferiet line: deletes the Pantry Item just created and rebuilds. */
+/** Ångra on a Check pantry line: deletes the Pantry Item just created and rebuilds. */
 function undoForm(lang: Lang, weekStart: string, undo: Undo): string {
   return `<form method="post" action="/shopping/pantry/undo" hx-post="/shopping/pantry/undo" hx-target="#shopping-lists" hx-swap="outerHTML">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
@@ -101,8 +101,8 @@ function buildForm(weekStart: string, label: string): string {
 }
 
 /**
- * The Köp and Kolla skafferiet sections in one swappable wrapper. With `undo`, the matching
- * Kolla skafferiet line offers Ångra, and a placeholder fetches the plain sections after a few seconds.
+ * The Buy and Check pantry sections in one swappable wrapper. With `undo`, the matching
+ * Check pantry line offers Ångra, and a placeholder fetches the plain sections after a few seconds.
  */
 function renderLists(lang: Lang, ctx: AppContext, planId: number, weekStart: string, opts: { alwaysHome: boolean; undo?: Undo }): string {
   const { buy, checkPantry } = getShoppingList(ctx.db, planId);

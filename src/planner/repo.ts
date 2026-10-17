@@ -193,7 +193,7 @@ export function listPlannedDatesForDish(db: Database.Database, dishId: number): 
 /**
  * Before a Dish is deleted: empties its Planned Dinners in unconfirmed plans (the rationale,
  * recipe link and that date's degraded reasons described the Dish, so they go) so the day reads
- * as empty and offers "Välj rätt". Confirmed plans are untouched.
+ * as empty and offers a Swap. Confirmed plans are untouched.
  */
 export function clearDishFromUnconfirmedPlans(db: Database.Database, dishId: number): void {
   db.transaction(() => {
