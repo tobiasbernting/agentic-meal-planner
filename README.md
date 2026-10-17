@@ -49,6 +49,8 @@ The agent command (Settings, or the `AGENT_COMMAND` env var) defaults to `copilo
 
 Logs go to stdout: one JSON object per line when `NODE_ENV=production` (the container), pretty-printed through `pino-pretty` under `npm run dev`. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, or `silent`) sets verbosity; it defaults to `info` in production and `debug` otherwise. Every request, plan run and lunch ingest logs with a `runId` (the request id, or `cron-<ISO time>` for the weekly run), so `docker logs <container> | jq 'select(.runId == "req-7")'` shows one run. At startup the server logs the resolved agent command, whether its binary is on `PATH` (a `warn` when it is not), the time zone, `DATA_DIR` and the cron schedule. `GET /health` returns `{ "status": "ok", "agentBinaryFound": true, "agentCommand": "copilot -p" }`; the check is a `PATH` lookup and never calls the agent.
 
+The same records also go to an in-memory buffer of the last 2000 (nothing on disk; lost on restart). Settings links to the Logs page (`/logs`), which replays that buffer and then streams new records live from `GET /logs/stream` (Server-Sent Events, one JSON object per event, the same shape as the stdout JSON). Filter by minimum level, free text, or by clicking a record's run or component. The level selector there (`POST /logs/level`, `debug`/`info`/`warn`/`error`) changes the live level in memory, so you can switch to `debug`, generate a plan, read the prompts and raw agent output, and switch back; a restart restores `LOG_LEVEL`. `curl -N http://localhost:8080/logs/stream` follows the stream from a shell; add `?once=1` to get the buffer and stop.
+
 ## Agent CLI in the container
 
 The image installs no agent CLI, so out of the box every Weekly Plan is degraded (see [ADR-0005](./docs/adr/0005-llm-via-cli-agent-subprocess.md)). You provide the agent and its authentication. The container runs as uid 1000 (`node`) with `HOME=/home/node`.
@@ -77,7 +79,7 @@ Authenticate with a mount or env var as in (a).
 
 **Command.** The default is `copilot -p`. For another CLI, set it in Settings or with `-e AGENT_COMMAND="<command>"` (the first word is the binary looked up on `PATH`).
 
-**Confirm.** The startup log line `startup` has `agentBinaryFound: true`; if the binary is missing, a `warn` follows (`agent binary not found on PATH; plans will be degraded`). `curl localhost:8080/health` returns `"agentBinaryFound": true`. Both only check that the binary exists; they do not test authentication, so generate a plan and read the logs.
+**Confirm.** The startup log line `startup` has `agentBinaryFound: true`; if the binary is missing, a `warn` follows (`agent binary not found on PATH; plans will be degraded`). `curl localhost:8080/health` returns `"agentBinaryFound": true`. Both only check that the binary exists; they do not test authentication, so generate a plan and read the logs (the Logs page at `/logs` shows the agent call records).
 
 ## Development
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fastifyLoggerOptions, resolveLogLevel } from "./config.js";
+import { prettyStdout, resolveLogLevel } from "./config.js";
 
 describe("resolveLogLevel", () => {
   it("honours LOG_LEVEL", () => {
@@ -15,7 +15,7 @@ describe("resolveLogLevel", () => {
 
   it("accepts silent", () => {
     expect(resolveLogLevel({ LOG_LEVEL: "silent" })).toBe("silent");
-    expect(fastifyLoggerOptions({ LOG_LEVEL: "silent" })).toEqual({ level: "silent" });
+    expect(prettyStdout({ LOG_LEVEL: "silent" })).toBe(false);
   });
 
   it("ignores an unknown LOG_LEVEL", () => {
@@ -23,12 +23,12 @@ describe("resolveLogLevel", () => {
   });
 });
 
-describe("fastifyLoggerOptions", () => {
+describe("prettyStdout", () => {
   it("emits plain JSON lines in production", () => {
-    expect(fastifyLoggerOptions({ NODE_ENV: "production" })).toEqual({ level: "info" });
+    expect(prettyStdout({ NODE_ENV: "production" })).toBe(false);
   });
 
   it("pretty-prints outside production", () => {
-    expect(fastifyLoggerOptions({ LOG_LEVEL: "info" })).toEqual({ level: "info", transport: { target: "pino-pretty" } });
+    expect(prettyStdout({ LOG_LEVEL: "info" })).toBe(true);
   });
 });

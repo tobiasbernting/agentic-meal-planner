@@ -12,16 +12,10 @@ export function resolveLogLevel(env: EnvLike): LogThreshold {
   return env.NODE_ENV === "production" ? "info" : "debug";
 }
 
-export interface FastifyLoggerOptions {
-  level: LogThreshold;
-  transport?: { target: string };
-}
-
 /**
- * Fastify's `logger` option: JSON lines on stdout in production (the container), pretty-printed
- * through `pino-pretty` (a devDependency) everywhere else. `silent` skips the pretty worker.
+ * Whether stdout is pretty-printed through `pino-pretty` (a devDependency): everywhere except
+ * production (the container, JSON lines). `silent` skips loading it.
  */
-export function fastifyLoggerOptions(env: EnvLike): FastifyLoggerOptions {
-  const level = resolveLogLevel(env);
-  return env.NODE_ENV === "production" || level === "silent" ? { level } : { level, transport: { target: "pino-pretty" } };
+export function prettyStdout(env: EnvLike): boolean {
+  return env.NODE_ENV !== "production" && resolveLogLevel(env) !== "silent";
 }

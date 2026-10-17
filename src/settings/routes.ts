@@ -69,7 +69,8 @@ ${notice(error)}
   <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
   <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
   <button type="submit">${t(lang, "common.save")}</button>
-</form>`;
+</form>
+<p><a href="/logs">${t(lang, "logs.title")}</a></p>`;
   return page({ title: t(lang, "settings.title"), body, lang });
 }
 
