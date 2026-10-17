@@ -4,7 +4,7 @@
  */
 import type Database from "better-sqlite3";
 import type { PlanWeekResult, RecentlyPlanned } from "./plan-week.js";
-import { parseDegradedReasons, toStored, type DegradedReason } from "./degraded.js";
+import { parseDegradedReasons, toStored, type DegradedReason, type DegradedReasonDraft } from "./degraded.js";
 
 export type PlanStatus = "generated" | "confirmed";
 
@@ -46,9 +46,14 @@ interface DinnerRow {
 }
 
 /** Saves (replacing any existing plan for that week) and returns the plan id. Status resets to `generated`. */
+/** A Weekly Plan to store. Its reasons may be drafts (`detail` and log-only reasons are dropped) or stored codes. */
+export interface PlanToSave extends Omit<PlanWeekResult, "degradedReasons"> {
+  degradedReasons: (DegradedReason | DegradedReasonDraft)[];
+}
+
 export function savePlan(
   db: Database.Database,
-  plan: Omit<PlanWeekResult, "degradedReasons"> & { degradedReasons: Parameters<typeof toStored>[0] },
+  plan: PlanToSave,
   generatedAt: string,
 ): number {
   return db.transaction(() => {
