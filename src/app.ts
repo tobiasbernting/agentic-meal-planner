@@ -27,6 +27,7 @@ import { planRunRoutes } from "./plan-run/routes.js";
 import { moreRoutes } from "./more/routes.js";
 import { assetRoutes } from "./ui/assets.js";
 import { offlineRoutes } from "./offline/routes.js";
+import { registerIdempotency } from "./offline/idempotency.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -201,6 +202,8 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
     const methods = Array.isArray(route.method) ? route.method : [route.method];
     if (methods.includes("POST")) postRoutes.push(route.url);
   });
+  // App-wide, so it must come before the encapsulated feature plugins.
+  registerIdempotency(app, ctx);
   for (const feature of FEATURES) await app.register(feature, ctx);
 
   // PATH lookup only; the agent is never called here.
