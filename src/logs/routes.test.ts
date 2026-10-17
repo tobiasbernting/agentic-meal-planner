@@ -159,7 +159,7 @@ describe("GET /logs", () => {
     expect(res.body).toContain("Shows the last 2000 records");
     expect(res.body).toContain('"rank":{"debug":20,"info":30,"warn":40,"error":50},"max":2000');
     expect(res.body).toContain("Current level: debug");
-    expect(res.body).toMatch(/<form method="post" action="\/logs\/level">/);
+    expect(res.body).toMatch(/<form method="post" action="\/logs\/level"[^>]*>/);
     expect(res.body).toContain('<option value="debug" selected>');
     expect(res.body).toContain('new EventSource("/logs/stream")');
   });

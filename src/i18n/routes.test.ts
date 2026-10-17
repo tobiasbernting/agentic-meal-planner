@@ -60,7 +60,7 @@ describe("POST /lang (FR-18)", () => {
     const sw = await app.inject({ method: "POST", url: "/lang", headers: form, payload: "lang=en&next=%2Fschools" });
     const cookie = String(sw.headers["set-cookie"]).split(";")[0]!;
     const res = await app.inject({ method: "GET", url: "/schools", headers: { cookie } });
-    expect(res.body).toContain('<html lang="en">');
+    expect(res.body).toContain('<html lang="en" data-online="1">');
     expect(res.body).toContain("Skolan Norr");
     expect((await app.inject({ method: "GET", url: "/pantry", headers: { cookie } })).body).toContain("Salt");
   });
@@ -113,7 +113,7 @@ describe("every screen renders in English with the lang=en cookie", () => {
     for (const [url, text] of screens) {
       const res = await app.inject({ method: "GET", url, headers: { cookie: "lang=en" } });
       expect(res.statusCode, url).toBe(200);
-      expect(res.body, url).toContain('<html lang="en">');
+      expect(res.body, url).toContain('<html lang="en" data-online="1">');
       expect(res.body, url).toContain(text);
       expect(res.body, url).not.toContain("Måltidsplaneraren");
     }

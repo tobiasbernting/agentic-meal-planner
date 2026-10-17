@@ -41,9 +41,9 @@ describe("request language", () => {
   it("renders English with the lang=en cookie and Swedish without", async () => {
     const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "i18n-")) });
     const sw = await app.inject({ url: "/dishes" });
-    expect(sw.body).toContain('<html lang="sv">');
+    expect(sw.body).toContain('<html lang="sv" data-online="1">');
     const english = await app.inject({ url: "/dishes", headers: { cookie: "lang=en" } });
-    expect(english.body).toContain('<html lang="en">');
+    expect(english.body).toContain('<html lang="en" data-online="1">');
     expect(english.body).toContain("<h1>Dishes</h1>");
     await app.close();
   });

@@ -194,6 +194,10 @@ section + section { margin-top: 24px; }
 .notice button, .notice .button { border-color: var(--notice-fg); color: var(--notice-fg); margin-top: 8px; }
 .notice :focus-visible { outline-color: var(--notice-fg); }
 
+/* Offline Copy banner: a status, not a failure. A quiet ruled line, never inverted, never red. */
+.offline-banner { padding: 8px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-small); }
+#offline-banner:empty { display: none; }
+
 /* Plan Run banner (Plan and Shopping List). In flight and failed use the inverted notice;
    finished is a quiet ruled status line. Swap (Byt) is hidden while a run is in flight. */
 .plan-run p { margin: 0; }
@@ -247,13 +251,34 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 #sinks > .notice { margin-inline: 0; }
 #sinks { padding-bottom: 16px; }
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
-/* Dense Buy lines: name and quantity lead, the quiet "till" line under, the action quiet at the end. */
-.rows > li.line { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: center; min-height: var(--tap); padding-block: 4px; }
-.line > .row-label, .line > .row-status { grid-column: 1; }
-.line > .line-end { grid-column: 2; grid-row: 1 / span 2; justify-self: end; }
-.line-end form { margin: 0; }
-.line-end button { min-height: var(--tap); font-size: var(--fs-small); }
 .sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
+
+/* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the dense line beside
+   it (name and quantity lead, the quiet "till" line under), the quiet actions at the end.
+   Checked Off lines are struck through and muted, never removed; the add row closes Buy. */
+.rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 4px var(--gutter) 4px calc(var(--gutter) - 8px); }
+.line form { margin: 0; }
+.line > .line-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
+.line-end button { min-height: var(--tap); font-size: var(--fs-small); }
+.line .tick { width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; }
+.line .tick::before { content: ""; display: block; width: 22px; height: 22px; border: 1.5px solid var(--ink); background: var(--raised); }
+.line-checked .tick::before { background: var(--ink); box-shadow: inset 0 0 0 3px var(--raised); }
+.line-body { grid-column: 2; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.line-checked .row-label { color: var(--muted); font-weight: 400; }
+/* A Pending Change shown on its line from the Offline Copy (ADR-0007): a quiet "väntar" after the
+   label; a pending remove stays in place, muted, with its control flipped to restore. */
+.pending-mark { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+.line-removed .row-label { color: var(--muted); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--rule); }
+.line-removed .tick { visibility: hidden; }
+.line-checked .row-status { opacity: 0.7; }
+.extra-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 10px var(--gutter) 0; }
+.extra-add label { margin-top: 0; }
+.extra-add input { margin-top: 4px; }
+.extra-add input[name="quantity"] { width: 7em; }
+main > #removed { margin-inline: 0; }
+#removed summary { padding: 14px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); cursor: pointer; }
+#removed .rows { border-top: 1px solid var(--rule); }
+#removed .row-label { color: var(--muted); font-weight: 400; }
 
 /* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
 .swap-list { flex-basis: 100%; margin: 0; }
@@ -264,3 +289,17 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 }
 .swap-list button.row:hover { background: var(--raised); }
 .tag-favorited { font-size: var(--fs-small); font-weight: 600; border: 1.5px solid var(--ink); padding: 2px 8px; }
+
+/* Online signal (#105): online-only forms are dimmed offline and say why, quietly (no red). */
+html[data-online="0"] form[data-online-only] button { opacity: .55; pointer-events: none; }
+html[data-online="0"] form[data-online-only]::after { content: attr(data-online-only); display: block; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
+
+/* Pending Changes (#108): a quiet ruled block under the banner. Muted small text, no red;
+   a failed change states its reason as a .notice. */
+#pending-changes { margin-inline: 0; padding: 4px var(--gutter) 8px; border-bottom: 1px solid var(--rule); font-size: var(--fs-small); color: var(--muted); }
+#pending-changes[hidden], #pending-changes [hidden] { display: none; }
+#pending-changes-toggle { padding-inline: 0; min-height: var(--tap); color: var(--muted); font-size: var(--fs-small); }
+#pending-changes .rows { border-top: 1px solid var(--rule); }
+#pending-changes .rows > li.with-actions { padding-inline: 0; }
+#pending-changes .rows .notice { margin: 4px 0 0; padding: 8px 10px; font-size: var(--fs-small); }
+#pending-changes-note { margin: 0; }

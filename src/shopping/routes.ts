@@ -3,7 +3,8 @@
  * sections, "Buy" and "Check pantry", with a rebuild action (page parts in ./view.ts). Building also happens
  * automatically after plan generation (src/plan/routes.ts and src/server.ts). The week's
  * Plan Run banner explains a half-built list; Build/Rebuild and Har alltid hemma are withheld
- * (and refused over HTTP) while that run is in flight.
+ * (and refused over HTTP) while that run is in flight. The household's own edits (ADR-0007:
+ * check, uncheck, remove, restore, Extra Items) touch no list rows and are allowed any time.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FeaturePlugin } from "../app.js";
@@ -18,6 +19,7 @@ import { isHtmx, navigate } from "../ui/htmx.js";
 import { notice, page } from "../ui/layout.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { buildShoppingList, getMissingDishIds, getShoppingList } from "./build.js";
+import { addExtraItem, checkLine, deleteExtraItem, removeLine, restoreLine, uncheckLine } from "./edits.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
@@ -51,6 +53,28 @@ interface UndoForm extends BuildForm {
   id?: string;
 }
 
+/** Every week edit posts at least the week. */
+interface WeekForm {
+  weekStart?: string;
+}
+
+/** Check, uncheck, remove and restore post the week and the line's name. */
+interface LineForm {
+  weekStart?: string;
+  name?: string;
+}
+
+/** Extra Item add posts the week, the item's name and an optional free-text quantity. */
+interface ExtraForm extends LineForm {
+  quantity?: string;
+}
+
+/** Extra Item delete posts the week and the item's id. */
+interface ExtraDeleteForm {
+  weekStart?: string;
+  id?: string;
+}
+
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
   const rebuildDeps = (req: FastifyRequest) => ({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) });
 
@@ -66,10 +90,10 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     if (!plan) {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
-      const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
+      const { buy, checkPantry, removed } = getShoppingList(ctx.db, plan.id);
       const missing = renderMissing(lang, weekStart, getMissingDishIds(ctx.db, plan.id).flatMap((id) => dishName(id) ?? []), !runInFlight);
       content =
-        buy.length + checkPantry.length === 0
+        buy.length + checkPantry.length + removed.length === 0
           ? `${missing}<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
           : `${missing}
@@ -148,6 +172,35 @@ ${content}`;
   app.get<{ Querystring: ShoppingQuery }>("/shopping/sections", async (req, reply) => {
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
     return sendLists(req, reply, weekStart);
+  });
+
+  // The week's own edits (ADR-0007): plain POST forms, each back to the week's page.
+  /** Resolves the posted week, applies the edit to it, and redirects back to the week's list. */
+  const weekEdit = <Form extends WeekForm>(action: string, edit: (weekStart: string, form: Form) => void) => {
+    app.post<{ Body: WeekForm }>(action, async (req, reply) => {
+      const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+      edit(weekStart, req.body as Form);
+      return reply.redirect(`/shopping?week=${weekStart}`, 303);
+    });
+  };
+  const lineEdit = (action: string, edit: (weekStart: string, name: string) => void) =>
+    weekEdit<LineForm>(action, (weekStart, form) => {
+      const name = form.name?.trim();
+      if (name) edit(weekStart, name);
+    });
+  lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/remove", (weekStart, name) => removeLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/restore", (weekStart, name) => restoreLine(ctx.db, weekStart, name));
+
+  weekEdit<ExtraForm>("/shopping/extra", (weekStart, form) => {
+    const name = form.name?.trim();
+    if (name) addExtraItem(ctx.db, weekStart, { name, quantity: form.quantity });
+  });
+
+  weekEdit<ExtraDeleteForm>("/shopping/extra/delete", (weekStart, form) => {
+    const id = Number(form.id);
+    if (Number.isInteger(id)) deleteExtraItem(ctx.db, weekStart, id);
   });
 
   app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {

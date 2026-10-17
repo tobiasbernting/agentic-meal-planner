@@ -2,7 +2,7 @@ import { silentLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getPlanById } from "../planner/repo.js";
-import { buyFingerprint, getShoppingList } from "../shopping/build.js";
+import { buyFingerprint, getShoppingList, pushedItem } from "../shopping/build.js";
 import { recordPush } from "./repo.js";
 import { configuredSinks } from "./registry.js";
 import type { Env, FetchLike, PushResult } from "./types.js";
@@ -32,10 +32,12 @@ export async function pushShoppingList(deps: PushDeps, planId: number): Promise<
     if (!plan) return 0;
     const { buy } = getShoppingList(deps.db, planId);
     const buyHash = buyFingerprint(buy);
+    // Extra Items go, Removed Lines are already filtered out, and Checked Off is never pushed.
+    const items = buy.map(pushedItem);
     for (const sink of configuredSinks(deps.db, deps.env ?? process.env, deps.fetch)) {
       let result: PushResult;
       try {
-        result = await sink.push({ weekStart: plan.weekStart, items: buy });
+        result = await sink.push({ weekStart: plan.weekStart, items });
       } catch (err) {
         result = { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
