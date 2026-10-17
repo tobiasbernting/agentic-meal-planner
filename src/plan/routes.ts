@@ -218,12 +218,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
       { replace: false },
     );
     logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
-    const notice =
-      "skipped" in result
-        ? `&notice=${result.skipped}`
-        : changed.length === 0
-          ? ""
-          : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
+    const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
     if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
