@@ -29,6 +29,8 @@ export interface Dish {
   preferredDays: Weekday[];
   /** Weekend Dish: hard rule, only Saturday or Sunday. */
   weekendOnly: boolean;
+  /** Suggested Dish (GLOSSARY): created by the Planner Agent, not yet promoted to a Favorite Dish. */
+  suggested: boolean;
   ingredients: Ingredient[];
 }
 
@@ -45,6 +47,7 @@ interface DishRow {
   in_rotation: number;
   preferred_days: string;
   weekend_only: number;
+  suggested: number;
 }
 
 interface IngredientRow {
@@ -64,6 +67,7 @@ function withDefaults(input: DishInput): Omit<Dish, "id"> {
     inRotation: input.inRotation ?? true,
     preferredDays: input.preferredDays ?? [],
     weekendOnly: input.weekendOnly ?? false,
+    suggested: input.suggested ?? false,
     ingredients: input.ingredients ?? [],
   };
 }
@@ -79,6 +83,7 @@ function toDish(row: DishRow, ingredients: Ingredient[]): Dish {
     inRotation: row.in_rotation === 1,
     preferredDays: JSON.parse(row.preferred_days) as Weekday[],
     weekendOnly: row.weekend_only === 1,
+    suggested: row.suggested === 1,
     ingredients,
   };
 }
@@ -101,8 +106,8 @@ export function createDish(db: Database.Database, input: DishInput): number {
     const result = db
       .prepare(
         `INSERT INTO dish (name, recipe_url, adaptation_notes, prep_time_minutes, main_category,
-                           in_rotation, preferred_days, weekend_only)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                           in_rotation, preferred_days, weekend_only, suggested)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         dish.name,
@@ -113,6 +118,7 @@ export function createDish(db: Database.Database, input: DishInput): number {
         dish.inRotation ? 1 : 0,
         JSON.stringify(dish.preferredDays),
         dish.weekendOnly ? 1 : 0,
+        dish.suggested ? 1 : 0,
       );
     const id = Number(result.lastInsertRowid);
     replaceIngredients(db, id, dish.ingredients);
@@ -126,7 +132,8 @@ export function updateDish(db: Database.Database, id: number, input: DishInput):
     const result = db
       .prepare(
         `UPDATE dish SET name = ?, recipe_url = ?, adaptation_notes = ?, prep_time_minutes = ?,
-                         main_category = ?, in_rotation = ?, preferred_days = ?, weekend_only = ?
+                         main_category = ?, in_rotation = ?, preferred_days = ?, weekend_only = ?,
+                         suggested = COALESCE(?, suggested)
          WHERE id = ?`,
       )
       .run(
@@ -138,6 +145,7 @@ export function updateDish(db: Database.Database, id: number, input: DishInput):
         dish.inRotation ? 1 : 0,
         JSON.stringify(dish.preferredDays),
         dish.weekendOnly ? 1 : 0,
+        input.suggested === undefined ? null : input.suggested ? 1 : 0,
         id,
       );
     if (result.changes === 0) return false;
@@ -172,4 +180,9 @@ export function listDishes(db: Database.Database): Dish[] {
 
 export function deleteDish(db: Database.Database, id: number): boolean {
   return db.prepare("DELETE FROM dish WHERE id = ?").run(id).changes > 0;
+}
+
+/** "Add to favorites": puts a Suggested Dish into the rotation and clears the flag. */
+export function promoteDishToFavorite(db: Database.Database, id: number): boolean {
+  return db.prepare("UPDATE dish SET in_rotation = 1, suggested = 0 WHERE id = ?").run(id).changes > 0;
 }

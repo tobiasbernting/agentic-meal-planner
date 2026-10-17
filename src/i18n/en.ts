@@ -106,6 +106,8 @@ export const en = {
   "dishes.prepMinutes": "{n} min",
   "dishes.tagNotInRotation": "not in rotation",
   "dishes.tagWeekend": "weekend",
+  "dishes.tagSuggested": "Suggested",
+  "dishes.addToFavorites": "Add to favorites",
 
   "schools.title": "Schools",
   "schools.invalid": "A School needs a name and exactly one menu URL.",
