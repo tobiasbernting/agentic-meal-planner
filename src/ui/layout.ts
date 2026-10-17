@@ -4,6 +4,7 @@
  * and component classes live in public/app.css (see `ASSET_PATHS`). Keep feature logic out.
  */
 import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
+import { markOnlineOnlyForms } from "../offline/online-only.js";
 import { ASSET_PATHS } from "./assets.js";
 
 export function escapeHtml(value: unknown): string {
@@ -64,9 +65,55 @@ function offlineBannerMarker(): string {
   return `<div id="offline-banner"></div>`;
 }
 
+/**
+ * The online signal (ADR-0007): the app is online when a request succeeds, not by the browser's
+ * flag. Starts online unless the worker already put a banner in; the worker's connectivity
+ * messages flip it; offline it pings /health every 10 s. Offline, online-only buttons are
+ * disabled and htmx requests (the Plan Run banner polling) are cancelled. Back online, it asks
+ * the worker to replay Pending Changes. Rendered at the end of body so the banner exists.
+ */
+function onlineSignalScript(): string {
+  return `<script>(function () {
+  var root = document.documentElement;
+  var banner = document.getElementById("offline-banner");
+  var online = !(banner && banner.children.length > 0);
+  var timer = null;
+  function apply() {
+    root.dataset.online = online ? "1" : "0";
+    var controls = document.querySelectorAll("form[data-online-only] button, form[data-online-only] input[type=submit]");
+    for (var i = 0; i < controls.length; i++) controls[i].disabled = !online;
+  }
+  function ping() {
+    fetch("/health", { cache: "no-store" }).then(function (res) { if (res.ok) set(true); }, function () {});
+  }
+  function set(next) {
+    if (next === online) return;
+    var wasOffline = !online;
+    online = next;
+    apply();
+    if (online) {
+      clearInterval(timer);
+      timer = null;
+      var controller = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (wasOffline && controller) controller.postMessage({ type: "replay" });
+    } else if (!timer) {
+      timer = setInterval(ping, 10000);
+    }
+  }
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", function (event) {
+      if (event.data && event.data.type === "connectivity") set(Boolean(event.data.online));
+    });
+  }
+  document.addEventListener("htmx:beforeRequest", function (event) { if (!online) event.preventDefault(); });
+  apply();
+  if (!online) timer = setInterval(ping, 10000);
+})();</script>`;
+}
+
 export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): string {
   return `<!doctype html>
-<html lang="${escapeHtml(lang)}">
+<html lang="${escapeHtml(lang)}" data-online="1">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -82,9 +129,10 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
 ${offlineBannerMarker()}
-${body}
+${markOnlineOnlyForms(body, lang)}
     </main>
     ${tabBar(lang, tab)}
+    ${onlineSignalScript()}
   </body>
 </html>
 `;

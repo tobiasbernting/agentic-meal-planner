@@ -280,3 +280,7 @@ main > #removed { margin-inline: 0; }
 }
 .swap-list button.row:hover { background: var(--raised); }
 .tag-favorited { font-size: var(--fs-small); font-weight: 600; border: 1.5px solid var(--ink); padding: 2px 8px; }
+
+/* Online signal (#105): online-only forms are dimmed offline and say why, quietly (no red). */
+html[data-online="0"] form[data-online-only] button { opacity: .55; pointer-events: none; }
+html[data-online="0"] form[data-online-only]::after { content: attr(data-online-only); display: block; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
