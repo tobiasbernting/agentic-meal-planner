@@ -142,6 +142,7 @@ export const en = {
   "settings.cron": "Plan schedule (cron, 5 fields)",
   "settings.varietyWindow": "Variety window (weeks)",
   "settings.collision": "Avoid Main Category collisions with lunch",
+  "settings.suggestionStyle": "Suggestion style (free text for dinners suggested when no favorite fits)",
   "settings.agentCommand": "Agent command (blank = server default, normally copilot -p; set AGENT_COMMAND empty for no agent)",
   "settings.sinks": "Shopping List Sinks (JSON array, e.g. below; format is ntfy or json; secret via env WEBHOOK_SECRET; blank = Trello from env)",
   "settings.error.quickDay": "{day}: Quick Day minutes must be a whole number.",

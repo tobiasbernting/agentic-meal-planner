@@ -105,6 +105,13 @@ describe("planWeek", () => {
     expect(req.candidates[1]?.[0]).toMatchObject({ preferredDays: ["tue"] });
   });
 
+  it("sends the suggestion style from settings to the LLM", async () => {
+    const llm = new ScriptedLlmAgent({ selectDishes: { ok: true, value: [] } });
+    await planWeek(input({ settings: { ...DEFAULT_PLANNER_SETTINGS, suggestionStyle: "vegetarian weeknight food" }, llm }));
+    const req = llm.calls[0]?.args[0] as SelectDishesInput;
+    expect(req.suggestionStyle).toBe("vegetarian weeknight food");
+  });
+
   it("leaves a day with no eligible Dish empty, with a rationale asking for a manual pick", async () => {
     const roast = dish({ name: "Roast", weekendOnly: true });
     const llm = new ScriptedLlmAgent({

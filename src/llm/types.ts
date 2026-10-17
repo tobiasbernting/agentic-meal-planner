@@ -31,20 +31,36 @@ export interface Dish {
   prepTimeMinutes?: number;
 }
 
+/** A brand-new Suggested Dish proposed for a day with no eligible Favorite Dish. */
+export interface DishSuggestion {
+  name: string;
+  mainCategory: string;
+  prepTimeMinutes?: number;
+}
+
+/** One entry of the built-in seed list (inspiration and deterministic fallback pool). */
+export interface SeedDish {
+  name: string;
+  mainCategory: MainCategory;
+  prepTimeMinutes: number;
+}
+
 export interface SelectDishesInput {
   days: { date: string; isQuickDay: boolean; lunch: LunchEntry[] }[];
   /** Per day, pre-filtered by the deterministic engine; same index as `days`. */
   candidates: Dish[][];
   /** Soft variety preference. */
   recentlyPlanned: { dishId: string; lastDate: string }[];
+  /** Free-text style for Suggested Dishes (settings `suggestion_style`). */
+  suggestionStyle: string;
+  /** Inspiration only: the built-in seed list. */
+  seedDishes: SeedDish[];
 }
 
-export interface SelectedDish {
-  date: string;
-  /** `String(dish.id)` of the chosen candidate. */
-  dishId: string;
-  rationale: string;
-}
+export type SelectedDish =
+  /** `dishId` is `String(dish.id)` of the chosen candidate. */
+  | { date: string; dishId: string; rationale: string }
+  | { date: string; suggestion: DishSuggestion; rationale: string };
 
 export interface FoundRecipe {
   url: string;
