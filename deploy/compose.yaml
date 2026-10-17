@@ -1,0 +1,25 @@
+# Homelab deploy. Update with: docker compose pull && docker compose up -d
+services:
+  meal-planner:
+    image: ghcr.io/tobiasbernting/agentic-meal-planner:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Europe/Stockholm
+      # AGENT_COMMAND: "copilot --model gpt-5-mini --reasoning-effort low --allow-tool=url -p"
+    volumes:
+      - meal-planner-data:/data
+      # Agent CLI (the image ships none; see "Agent CLI in the container" in the README).
+      # The auth dir must be readable and writable by uid 1000.
+      # - /usr/local/bin/copilot:/usr/local/bin/copilot:ro
+      # - ~/.copilot:/home/node/.copilot
+    healthcheck:
+      # The slim image has no curl
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  meal-planner-data:
