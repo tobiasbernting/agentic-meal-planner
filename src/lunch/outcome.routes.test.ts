@@ -104,3 +104,51 @@ describe("Schools page", () => {
     expect(res.body).toContain("Hämtad");
   });
 });
+
+describe("no lunch data notice", () => {
+  it("Today names each School without lunch and why", async () => {
+    const app = await start({ fetchPage: failingFetch, llm: failingAgent() });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    await app.inject({ method: "POST", url: "/lunch/refresh" });
+
+    const res = await app.inject({ method: "GET", url: "/" });
+
+    expect(res.body).toContain("Northside: fetch failed: connection refused");
+  });
+
+  it("Today keeps the generic message when no ingest was attempted", async () => {
+    const app = await start();
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+
+    const res = await app.inject({ method: "GET", url: "/" });
+
+    expect(res.body).toContain("No lunch data");
+    expect(res.body).not.toContain("Northside:");
+  });
+
+  it("Plan names each School without lunch and why, after generate", async () => {
+    const app = await start({ fetchPage: failingFetch, llm: failingAgent() });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+
+    expect(res.body).toContain("Northside: fetch failed: connection refused");
+  });
+
+  it("clears the reason once a later ingest succeeds", async () => {
+    let fail = true;
+    const llm = new ScriptedLlmAgent({
+      extractLunchMenu: () => (fail ? { ok: false, reason: "agent exited with code 1" } : { ok: true, value: MENU }),
+    });
+    const app = await start({ fetchPage: async () => "<html/>", llm });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+    await app.inject({ method: "POST", url: "/lunch/refresh" });
+    fail = false;
+    await app.inject({ method: "POST", url: "/lunch/refresh" });
+
+    const res = await app.inject({ method: "GET", url: "/" });
+
+    expect(res.body).not.toContain("agent exited with code 1");
+  });
+});
