@@ -51,8 +51,8 @@ function fishLunchSetup(seen: SelectDishesInput[] = []) {
 
 describe("degraded reasons on the day they affect", () => {
   it.each([
-    ["sv", "Lunchen var fisk, så Laxpasta byttes ut."],
-    ["en", "Lunch was fish, so Laxpasta was swapped out."],
+    ["sv", "Lunchen var fisk, så Laxpasta valdes bort."],
+    ["en", "Lunch was fish, so Laxpasta was left out."],
   ] as const)("shows a dropped suggestion on its date in household language (%s)", async (lang, text) => {
     const { logger, records } = createCapturingLogger();
     const app = await start({ logger, llm: fishLunchSetup(), fetchPage: async () => "<html>menu</html>" });
