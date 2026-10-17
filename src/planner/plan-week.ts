@@ -141,6 +141,15 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
       isQuickDay: day.quickDayLimitMinutes !== null,
       lunchThatDay: day.lunch.length > 0 ? day.lunch.map((l) => l.rawText).join("; ") : null,
     };
+    /** The day's dinner: a reused Dish, a new Suggested Dish, or (neither) empty. */
+    const dinner = (rationale: string, dishId: number | null = null, suggestion: DishSuggestion | null = null): PlannedDinnerDraft => ({
+      ...base,
+      dishId,
+      suggestion,
+      rationale,
+    });
+    const landed = (outcome: Exclude<SuggestionOutcome, { kind: "dropped" }>, rationale: string) =>
+      outcome.kind === "reuse" ? dinner(rationale, outcome.dishId) : dinner(rationale, null, outcome.suggestion);
     const pick = pickByDate.get(day.date);
     let dropped = false;
 
@@ -150,8 +159,7 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
           "suggestion" in pick
             ? resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions)
             : ({ kind: "dropped", why: `agent picked dish ${pick.dishId} instead of suggesting one` } as const);
-        if (outcome.kind === "reuse") return { ...base, dishId: outcome.dishId, suggestion: null, rationale: pick.rationale };
-        if (outcome.kind === "new") return { ...base, dishId: null, suggestion: outcome.suggestion, rationale: pick.rationale };
+        if (outcome.kind !== "dropped") return landed(outcome, pick.rationale);
         const name = "suggestion" in pick ? String((pick.suggestion as { name?: unknown } | null)?.name ?? "") : "";
         const detail = `${day.date}: suggestion "${name}" dropped: ${outcome.why}`;
         const { code, params } = droppedCode("suggestion" in pick, outcome.rule);
@@ -159,24 +167,22 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
         dropped = true;
       }
       const seed = pickSeed(day);
-      if (seed === undefined) return { ...base, dishId: null, suggestion: null, rationale: noEligibleRationale };
+      if (seed === undefined) return dinner(noEligibleRationale);
       // A dropped suggestion already explains the day; the seed fallback only goes to Logs then.
       const detail = `${day.date}: seed fallback used`;
       degradedReasons.push(dropped ? { code: "unknown", date: day.date, detail, logOnly: true } : { code: "seed-fallback", date: day.date, detail });
-      return seed.kind === "reuse"
-        ? { ...base, dishId: seed.dishId, suggestion: null, rationale: seedRationale }
-        : { ...base, dishId: null, suggestion: seed.suggestion, rationale: seedRationale };
+      return landed(seed, seedRationale);
     }
 
-    if (pick === undefined) return { ...base, dishId: null, suggestion: null, rationale: noEligibleRationale };
+    if (pick === undefined) return dinner(noEligibleRationale);
     const pickedId = "dishId" in pick ? pick.dishId : undefined;
     const chosen = eligible.find((d) => String(d.id) === pickedId);
     if (chosen === undefined) {
       const reason = `${day.date}: agent picked dish ${pickedId ?? "(suggestion)"}, which is not eligible that day; dropped`;
       degradedReasons.push({ code: "pick-not-eligible", date: day.date, detail: reason });
-      return { ...base, dishId: null, suggestion: null, rationale: t(lang, "rationale.pickDropped") };
+      return dinner(t(lang, "rationale.pickDropped"));
     }
-    return { ...base, dishId: chosen.id, suggestion: null, rationale: rationaleOf(pick) || noEligibleRationale };
+    return dinner(rationaleOf(pick) || noEligibleRationale, chosen.id);
   });
 
   return { weekStart: input.weekStart, dinners, degradedReasons };
