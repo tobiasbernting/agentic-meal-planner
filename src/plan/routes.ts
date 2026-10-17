@@ -20,8 +20,7 @@ import type { OnProgress } from "../plan-run/phase.js";
 import { logPlanRunProgress } from "../plan-run/progress-log.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
-import { buildShoppingList } from "../shopping/build.js";
-import { pushShoppingList } from "../sinks/push.js";
+import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { escapeHtml, NAV, page } from "../ui/layout.js";
 
@@ -183,9 +182,7 @@ async function finishPlan(
   onProgress: OnProgress,
   result: { planId: number; degradedReasons: string[] },
 ): Promise<void> {
-  const deps = { ...ctx, log, onProgress };
-  await buildShoppingList(deps, result.planId);
-  const sinksPushed = await pushShoppingList(deps, result.planId);
+  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress }, result.planId);
   logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
 }
 

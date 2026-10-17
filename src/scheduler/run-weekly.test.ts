@@ -9,6 +9,7 @@ import { createCapturingLogger } from "../logging/logger.js";
 import { listLunchEntries } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
+import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
 import { runWeeklyPlanning } from "./run-weekly.js";
 
 // Sunday 2026-10-11 18:00 local (week of Monday 10-05): the run plans the coming week, Monday 2026-10-12.
@@ -109,6 +110,36 @@ describe("runWeeklyPlanning", () => {
     expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "lunch-ingest", msg: "menu fetch failed" }));
     expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "planner" }));
     expect(records).toContainEqual(expect.objectContaining({ level: "info", runId, msg: "plan summary", dinners: 7, degraded: true, sinksPushed: 2 }));
+  });
+
+  it("logs each Phase of the Plan Run under the cron run id, with Ingredient resolution progress", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    const { logger, records } = createCapturingLogger();
+    const runId = "cron-2026-10-11T16:00:00.000Z";
+    const llm = new ScriptedLlmAgent({ findRecipe: { ok: true, value: { url: "https://recipes.example/b", ingredients: [{ name: "Beef" }] } } });
+    const fetchPage = async () => "";
+
+    await runWeeklyPlanning({
+      db,
+      llm,
+      fetchPage,
+      now: () => SUNDAY,
+      log: logger.child({ runId }),
+      afterPlan: (planId, log, onProgress) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
+    });
+
+    const planRun = records.filter((r) => r.component === "plan-run");
+    expect(planRun.every((r) => r.level === "info" && r.runId === runId && r.weekStart === NEXT_MONDAY)).toBe(true);
+    expect(planRun.filter((r) => r.msg === "phase").map((r) => r.phase)).toEqual([
+      "lunch-ingest",
+      "dish-selection",
+      "ingredient-resolution",
+      "pantry-matching",
+      "shopping-list-push",
+    ]);
+    const progress = planRun.filter((r) => r.msg === "phase progress");
+    expect(progress.map((r) => [r.done, r.total, r.dish])).toEqual([0, 1, 2, 3, 4, 5, 6].map((done) => [done, 7, "Burgers"]));
   });
 
   it("stores an agent suggestion as a Suggested Dish the coming week's plan points at", async () => {
