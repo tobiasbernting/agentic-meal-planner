@@ -139,6 +139,9 @@ export const sv: Dictionary = {
   "schools.outcome.fetched": "Hämtad",
   "schools.outcome.cached": "Redan sparad",
   "schools.outcome.no-data": "Ingen menydata",
+  "schools.outcome.failed": "Kunde inte hämta menyn",
+  "schools.retry": "Försök igen",
+  "schools.outcome.when": "hämtad {when}",
   "schools.outcome.none": "Inget hämtningsförsök än",
 
   "pantry.title": "Skafferi",

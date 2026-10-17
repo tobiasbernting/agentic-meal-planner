@@ -137,6 +137,9 @@ export const en = {
   "schools.outcome.fetched": "Menu fetched",
   "schools.outcome.cached": "Menu already stored",
   "schools.outcome.no-data": "No menu data",
+  "schools.outcome.failed": "Could not fetch the menu",
+  "schools.retry": "Try again",
+  "schools.outcome.when": "fetched {when}",
   "schools.outcome.none": "No ingest attempt yet",
 
   "pantry.title": "Pantry",

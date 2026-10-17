@@ -193,3 +193,9 @@ section + section { margin-top: 24px; }
 @media (prefers-reduced-motion: no-preference) {
   .htmx-request { transition: opacity 120ms ease-out; opacity: 0.6; }
 }
+
+/* Row with its own actions (Schools): label, status lines, then a button row. */
+.rows > li.with-actions { display: flex; flex-direction: column; gap: 2px; padding: 10px var(--gutter); }
+.rows > li.with-actions p { margin: 0; }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+.row-actions form { margin: 0; }

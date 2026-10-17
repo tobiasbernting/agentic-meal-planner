@@ -88,4 +88,19 @@ describe("Pantry pages", () => {
 
     expect(res.statusCode).toBe(404);
   });
+
+  it("lists items as shell rows with aliases and plain edit and delete controls", async () => {
+    const app = await start();
+    await createItem(app, "milk", "mjölk, whole milk");
+
+    const res = await app.inject({ method: "GET", url: "/pantry" });
+
+    expect(res.body).toContain('<header class="page-head"><h1>Pantry</h1></header>');
+    expect(res.body).toContain('<ul class="rows">');
+    expect(res.body).toContain('<span class="row-label">milk</span>');
+    expect(res.body).toContain('<span class="row-status">mjölk, whole milk</span>');
+    expect(res.body).toContain('href="/pantry/1/edit"');
+    expect(res.body).toContain('action="/pantry/1/delete"');
+    expect(res.body).not.toContain('style="');
+  });
 });

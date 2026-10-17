@@ -4,28 +4,19 @@
  */
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { listDishes } from "../dishes/repo.js";
-import { langOf, t, weekdayName, type Lang, type MessageKey, type WeekdayKey } from "../i18n/index.js";
+import { langOf, t, type Lang, type MessageKey } from "../i18n/index.js";
 import { agentBinaryFound } from "../logging/startup.js";
 import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
 import { listPantryItems } from "../pantry/repo.js";
 import { readTimezone } from "../planner/settings.js";
 import { listSchools } from "../schools/repo.js";
 import { escapeHtml, page } from "../ui/layout.js";
+import { shortWhen } from "../ui/when.js";
 
 type Countable = "dish" | "school" | "pantryItem";
 
 function count(lang: Lang, noun: Countable, n: number): string {
   return t(lang, `count.${noun}.${n === 1 ? "one" : "other"}` as MessageKey, { n });
-}
-
-const WEEKDAY_KEYS: Record<string, WeekdayKey> = { Mon: "mon", Tue: "tue", Wed: "wed", Thu: "thu", Fri: "fri", Sat: "sat", Sun: "sun" };
-
-/** "lör 10:20" in the household time zone. */
-function shortWhen(lang: Lang, iso: string, timeZone: string | undefined): string {
-  const parts = new Intl.DateTimeFormat("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23", ...(timeZone ? { timeZone } : {}) }).formatToParts(new Date(iso));
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  const weekday = WEEKDAY_KEYS[part("weekday")];
-  return `${weekday ? weekdayName(lang, weekday, "short").toLowerCase() : ""} ${part("hour")}:${part("minute")}`.trim();
 }
 
 /** The most recent Ingest Outcome across Schools, as a status phrase. */

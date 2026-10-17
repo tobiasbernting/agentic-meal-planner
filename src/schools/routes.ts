@@ -2,6 +2,11 @@ import type { FeaturePlugin } from "../app.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
+import { shortWhen } from "../ui/when.js";
+import { ingestWeek } from "../lunch/ingest.js";
+import { runLogger } from "../logging/logger.js";
+import { householdToday, readTimezone } from "../planner/settings.js";
+import { mondayOf } from "../week.js";
 import {
   createSchool,
   deleteSchool,
@@ -30,24 +35,36 @@ function parseSchoolForm(body: SchoolForm): SchoolInput | undefined {
   return { name, url };
 }
 
-function action(school: School, verb: string, label: string): string {
-  return `<form method="post" action="/schools/${school.id}/${verb}" style="display:inline"><button type="submit">${label}</button></form>`;
+function action(school: School, verb: string, label: string, cls = "quiet"): string {
+  return `<form method="post" action="/schools/${school.id}/${verb}"><button type="submit" class="${cls}">${label}</button></form>`;
 }
 
-function outcomeLine(lang: Lang, outcome: IngestOutcome | undefined): string {
-  if (!outcome) return `<p class="ingest-outcome">${t(lang, "schools.outcome.none")}</p>`;
-  const reason = outcome.reason ? `: ${escapeHtml(outcome.reason)}` : "";
-  const at = escapeHtml(outcome.recordedAt);
-  return `<p class="ingest-outcome">${t(lang, `schools.outcome.${outcome.status}`)}${reason} <time datetime="${at}">${at}</time></p>`;
+/** The menu URL's host name; a stored value that is not a URL is shown as typed. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
-function schoolRow(lang: Lang, school: School, outcome?: IngestOutcome): string {
+/** The Ingest Outcome in household terms: "hämtad lör 10:20", or a plain failure line with a retry. */
+function outcomeLine(lang: Lang, school: School, outcome: IngestOutcome | undefined, timeZone: string | undefined): string {
+  if (!outcome) return `<p class="row-status">${t(lang, "schools.outcome.none")}</p>`;
+  if (outcome.status === "no-data") {
+    return `<p class="row-status">${t(lang, "schools.outcome.failed")}</p>${action(school, "retry", t(lang, "schools.retry"), "")}`;
+  }
+  return `<p class="row-status">${t(lang, "schools.outcome.when", { when: shortWhen(lang, outcome.recordedAt, timeZone) })}</p>`;
+}
+
+function schoolRow(lang: Lang, school: School, outcome: IngestOutcome | undefined, timeZone: string | undefined): string {
   const status = school.active ? "" : ` <em>(${t(lang, "schools.paused")})</em>`;
   const toggle = school.active ? action(school, "pause", t(lang, "schools.pause")) : action(school, "resume", t(lang, "schools.resume"));
-  return `<li>
-  <strong>${escapeHtml(school.name)}</strong>${status} &mdash; <a href="${escapeHtml(school.url)}">${escapeHtml(school.url)}</a>
-  <a href="/schools/${school.id}/edit">${t(lang, "common.edit")}</a> ${toggle} ${action(school, "delete", t(lang, "common.delete"))}
-  ${outcomeLine(lang, outcome)}
+  return `<li class="row with-actions">
+  <span class="row-label">${escapeHtml(school.name)}${status}</span>
+  <span class="row-status">${escapeHtml(hostOf(school.url))}</span>
+  ${outcomeLine(lang, school, outcome, timeZone)}
+  <div class="row-actions"><a class="button quiet" href="/schools/${school.id}/edit">${t(lang, "common.edit")}</a> ${toggle} ${action(school, "delete", t(lang, "common.delete"))}</div>
 </li>`;
 }
 
@@ -60,12 +77,12 @@ function errorNotice(error?: string): string {
   return error ? notice({ text: error }) : "";
 }
 
-function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], error?: string): string {
+function listPage(lang: Lang, schools: School[], outcomes: IngestOutcome[], timeZone: string | undefined, error?: string): string {
   const bySchool = new Map(outcomes.map((o) => [o.schoolId, o]));
-  const body = `<h1>${t(lang, "schools.title")}</h1>
+  const body = `<header class="page-head"><h1>${t(lang, "schools.title")}</h1></header>
 ${errorNotice(error)}
-<ul>
-${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id))).join("\n")}
+<ul class="rows">
+${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id), timeZone)).join("\n")}
 </ul>
 <h2>${t(lang, "schools.addHeading")}</h2>
 <form method="post" action="/schools">
@@ -76,7 +93,7 @@ ${schools.map((s) => schoolRow(lang, s, bySchool.get(s.id))).join("\n")}
 }
 
 function editPage(lang: Lang, school: School, error?: string): string {
-  const body = `<h1>${t(lang, "schools.editHeading")}</h1>
+  const body = `<header class="page-head"><h1>${t(lang, "schools.editHeading")}</h1></header>
 ${errorNotice(error)}
 <form method="post" action="/schools/${school.id}">
   ${schoolFields(lang, school)}
@@ -86,19 +103,20 @@ ${errorNotice(error)}
   return page({ title: t(lang, "schools.editTitle"), body, lang, tab: "more" });
 }
 
-export const schoolRoutes: FeaturePlugin = async (app, { db }) => {
+export const schoolRoutes: FeaturePlugin = async (app, ctx) => {
+  const { db } = ctx;
   const html = (reply: { type(t: string): unknown }) => reply.type("text/html; charset=utf-8");
 
   app.get("/schools", async (req, reply) => {
     html(reply);
-    return listPage(langOf(req), listSchools(db), listIngestOutcomes(db));
+    return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), readTimezone(db));
   });
 
   app.post<{ Body: SchoolForm }>("/schools", async (req, reply) => {
     const input = parseSchoolForm(req.body);
     if (!input) {
       html(reply.code(400));
-      return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), t(langOf(req), "schools.invalid"));
+      return listPage(langOf(req), listSchools(db), listIngestOutcomes(db), readTimezone(db), t(langOf(req), "schools.invalid"));
     }
     createSchool(db, input);
     return reply.redirect("/schools", 303);
@@ -120,6 +138,18 @@ export const schoolRoutes: FeaturePlugin = async (app, { db }) => {
       return editPage(langOf(req), school, t(langOf(req), "schools.invalid"));
     }
     updateSchool(db, school.id, input);
+    return reply.redirect("/schools", 303);
+  });
+
+  // Retry (FR-4): re-ingest this School for the current week, then back to the list. A failed
+  // scrape is recorded as no-data by ingestWeek, so this never fails the request.
+  app.post<{ Params: SchoolParams }>("/schools/:id/retry", async (req, reply) => {
+    const school = getSchool(db, Number(req.params.id));
+    if (!school) return reply.code(404).send(t(langOf(req), "schools.notFound"));
+    const weekStart = mondayOf(householdToday(db, ctx.now()));
+    const log = runLogger(ctx.log, req, "lunch");
+    log.info({ weekStart, schoolId: school.id, trigger: "retry" }, "run started");
+    await ingestWeek({ db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log }, weekStart, { force: true, schoolId: school.id });
     return reply.redirect("/schools", 303);
   });
 
