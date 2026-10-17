@@ -31,8 +31,12 @@ Cooking instructions and an ingredient list, usually living at an external URL t
 _Avoid_: instructions, cooking page
 
 **Ingredient**:
-A single line item a Dish requires, optionally with quantity and unit. Comes from the Dish's manual entries or from its Recipe.
+A single line item a Dish requires, optionally with quantity and unit. Comes from the Dish's manual entries or from its Recipe. Named as it would be bought ("mjölk"), in the household's language; how it is used ("till mos", "smält") is its Preparation Note.
 _Avoid_: item, product
+
+**Preparation Note**:
+How a Dish uses an Ingredient ("till mos", "smält"). Shown with the Dish, never on the Shopping List, so the same Ingredient from several Dishes merges into one line.
+_Avoid_: comment, remark
 
 **Adaptation**:
 A household's standing modification to a Dish ("no chili — the kids"), applied to whatever source the Dish's Ingredients came from.
@@ -73,6 +77,10 @@ _Avoid_: meal plan (ambiguous), menu
 **Planned Dinner**:
 One dated slot in a Weekly Plan.
 _Avoid_: meal, slot
+
+**Swap**:
+The household replacing one Planned Dinner's Dish by hand with another Dish eligible for that date. Every hard rule still holds; the rationale says it was chosen by hand. Not possible once the Weekly Plan is confirmed.
+_Avoid_: override, reroll, change
 
 **Quick Day**:
 A dinner date constrained to Dishes under a configured prep-time limit, because the household has activities. The limit applies to every Dish planned on that date, Weekend Dishes included.
