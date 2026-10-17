@@ -241,12 +241,18 @@ section + section { margin-top: 24px; }
 .ingredient-row { padding: 8px 0 12px; border-bottom: 1px solid var(--rule); }
 
 /* Shopping List: week neighbours, section labels over ruled rows, sink status. */
-main > section#buy, main > section#check-pantry, main > section#sinks { margin-inline: 0; }
+main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin-inline: 0; }
 .section-label { margin: 0; padding: 18px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
 #buy .rows, #check-pantry .rows { border-top: 1px solid var(--rule); }
 #sinks > .notice { margin-inline: 0; }
 #sinks { padding-bottom: 16px; }
 #sinks > form, .sink-status { margin-inline: var(--gutter); }
+/* Dense Buy lines: name and quantity lead, the quiet "till" line under, the action quiet at the end. */
+.rows > li.line { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; align-items: center; min-height: var(--tap); padding-block: 4px; }
+.line > .row-label, .line > .row-status { grid-column: 1; }
+.line > .line-end { grid-column: 2; grid-row: 1 / span 2; justify-self: end; }
+.line-end form { margin: 0; }
+.line-end button { min-height: var(--tap); font-size: var(--fs-small); }
 .sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
 
 /* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */

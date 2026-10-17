@@ -99,6 +99,7 @@ export const sv: Dictionary = {
 
   "shopping.title": "Inköpslista",
   "shopping.alwaysHome": "Har alltid hemma",
+  "shopping.undo": "Ångra",
   "shopping.alwaysHomeFor": "Har alltid hemma: {name}",
   "shopping.buy": "Köp",
   "shopping.checkPantry": "Kolla skafferiet",
