@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { ScriptedLlmAgent } from "../llm/index.js";
 import { MAIN_CATEGORY_KEYS } from "./categories.js";
+import { savePlan } from "../planner/repo.js";
 import { createDish, getDish, listDishes } from "./repo.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
@@ -51,6 +52,14 @@ describe("GET /dishes/new", () => {
     expect(res.statusCode).toBe(200);
     const options = [...res.body.matchAll(/<option value="([a-z]*)"/g)].map((m) => m[1]);
     expect(options).toEqual(["", ...MAIN_CATEGORY_KEYS]);
+  });
+
+  it("labels the save button with its working label in sv and en", async () => {
+    const app = await start();
+    const sv = await app.inject({ method: "GET", url: "/dishes/new", headers: { cookie: "lang=sv" } });
+    expect(sv.body).toMatch(/<button type="submit" class="primary" data-working-label="Sparar…">Spara<\/button>/);
+    const en = await app.inject({ method: "GET", url: "/dishes/new", headers: { cookie: "lang=en" } });
+    expect(en.body).toMatch(/<button type="submit" class="primary" data-working-label="Saving…">Save<\/button>/);
   });
 
   it("starts a new dish in rotation", async () => {
@@ -263,6 +272,23 @@ describe("deleting a Dish", () => {
     expect((await app.inject({ method: "GET", url: "/dishes" })).body).toContain("No dishes yet");
   });
 
+  it("names the dates the Dish is planned for, in any week, before asking", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Pizza" });
+    const other = createDish(app.ctx.db, { name: "Soup" });
+    const dinner = (date: string, dishId: number) => ({ date, dishId, isQuickDay: false, lunchThatDay: null, rationale: "" });
+    savePlan(app.ctx.db, { weekStart: "2026-10-19", dinners: [dinner("2026-10-20", id), dinner("2026-10-21", other)], degradedReasons: [] }, "2026-10-18T00:00:00Z");
+    savePlan(app.ctx.db, { weekStart: "2026-10-26", dinners: [dinner("2026-10-30", id)], degradedReasons: [] }, "2026-10-18T00:00:00Z");
+
+    const ask = await app.inject({ method: "GET", url: `/dishes/${id}/delete` });
+    expect(ask.body).toContain("2026-10-20");
+    expect(ask.body).toContain("2026-10-30");
+    expect(ask.body).not.toContain("2026-10-21");
+
+    const unplanned = await app.inject({ method: "GET", url: `/dishes/${createDish(app.ctx.db, { name: "Lone" })}/delete` });
+    expect(unplanned.body).not.toContain("Planned for");
+  });
+
   it("returns 404 when confirming an unknown Dish", async () => {
     const app = await start();
     expect((await app.inject({ method: "GET", url: "/dishes/999/delete" })).statusCode).toBe(404);
@@ -369,6 +395,30 @@ describe("Suggested Dishes", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe("/plan");
     expect(getDish(app.ctx.db, id)).toMatchObject({ inRotation: true, suggested: false });
+  });
+
+  it("promotes in place and returns the \"I favoriter ✓\" fragment for an HTMX request", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    const res = await app.inject({ method: "POST", url: `/dishes/${id}/promote`, headers: { "hx-request": "true", referer: "/plan", cookie: "lang=sv" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("I favoriter ✓");
+    expect(res.body).not.toContain("<html");
+    expect(getDish(app.ctx.db, id)).toMatchObject({ inRotation: true, suggested: false });
+    const en = await app.inject({ method: "POST", url: `/dishes/${createDish(app.ctx.db, { name: "Y", inRotation: false, suggested: true })}/promote`, headers: { "hx-request": "true", cookie: "lang=en" } });
+    expect(en.body).toContain("In favorites ✓");
+  });
+
+  it("gives the promote button an HTMX post and a working label in sv and en", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+    const sv = (await app.inject({ method: "GET", url: "/dishes", headers: { cookie: "lang=sv" } })).body;
+    expect(sv).toContain(`hx-post="/dishes/${id}/promote"`);
+    expect(sv).toContain('data-working-label="Lägger till…">Lägg till i favoriter</button>');
+    const en = (await app.inject({ method: "GET", url: "/dishes", headers: { cookie: "lang=en" } })).body;
+    expect(en).toContain('data-working-label="Adding…">Add to favorites</button>');
   });
 
   it("redirects to /dishes without a Referer", async () => {

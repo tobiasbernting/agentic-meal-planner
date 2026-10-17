@@ -10,6 +10,7 @@ export type {
   LunchEntry,
   Dish,
   SelectDishesInput,
+  ExistingDish,
   SelectedDish,
   DishSuggestion,
   SeedDish,

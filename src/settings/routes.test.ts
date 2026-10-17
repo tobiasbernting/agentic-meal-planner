@@ -43,7 +43,7 @@ describe("Settings page", () => {
     expect(res.body).toContain('name="variety_window_weeks" value="3"');
     expect(res.body).toContain('name="category_collision_enabled" checked');
     expect(res.body).toContain('name="default_prep_limit_minutes" value="30"');
-    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot --model gpt-5-mini --reasoning-effort low -p"');
+    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot --model gpt-5-mini --reasoning-effort low --allow-tool=url -p"');
     expect(res.body).toContain('name="webhook_url" value=""');
   });
 

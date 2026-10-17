@@ -3,6 +3,20 @@ import { normaliseName } from "../text.js";
 import type { PantryItem } from "./repo.js";
 
 /**
+ * The deterministic Pantry match: a lookup from a name to the Pantry Item whose normalised
+ * name or alias equals it. The first item listed wins a shared key.
+ */
+export function pantryLookup(items: PantryItem[]): (name: string) => PantryItem | undefined {
+  const byKey = new Map<string, PantryItem>();
+  for (const item of items) {
+    for (const key of [item.name, ...item.aliases].map(normaliseName)) {
+      if (!byKey.has(key)) byKey.set(key, item);
+    }
+  }
+  return (name) => byKey.get(normaliseName(name));
+}
+
+/**
  * Maps each Ingredient name to the Pantry Item it belongs to, or null for "Buy" (FR-11).
  * First an exact match on the normalised name or any alias; whatever is left goes to
  * the LLM in one call. If the LLM degrades, or answers with an unknown pantry id, the
@@ -13,17 +27,11 @@ export async function matchPantry(
   items: PantryItem[],
   llm: LlmAgent,
 ): Promise<Map<string, PantryItem | null>> {
-  const byKey = new Map<string, PantryItem>();
-  for (const item of items) {
-    for (const key of [item.name, ...item.aliases].map(normaliseName)) {
-      if (!byKey.has(key)) byKey.set(key, item);
-    }
-  }
-
+  const lookup = pantryLookup(items);
   const result = new Map<string, PantryItem | null>();
   const unmatched: string[] = [];
   for (const name of ingredientNames) {
-    const hit = byKey.get(normaliseName(name)) ?? null;
+    const hit = lookup(name) ?? null;
     result.set(name, hit);
     if (!hit) unmatched.push(name);
   }

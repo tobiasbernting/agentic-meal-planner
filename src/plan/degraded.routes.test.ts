@@ -35,7 +35,7 @@ function row(body: string, date: string): string {
 const top = (body: string) => body.slice(0, body.indexOf("<article"));
 const cookie = (lang: "sv" | "en") => ({ cookie: `lang=${lang}` });
 
-/** Tuesday's school lunch is fish; the agent suggests salmon pasta (fish) for every empty day. */
+/** Tuesday's school lunch is fish; the agent suggests salmon pasta (fish) there and a different beef stew on every other day. */
 function fishLunchSetup(seen: SelectDishesInput[] = []) {
   return new ScriptedLlmAgent({
     extractLunchMenu: { ok: true, value: [{ date: TUESDAY, rawText: "Fiskgratäng", mainCategory: "fish" }] },
@@ -43,7 +43,11 @@ function fishLunchSetup(seen: SelectDishesInput[] = []) {
       seen.push(input);
       return {
         ok: true,
-        value: input.days.map((d) => ({ date: d.date, suggestion: { name: "Laxpasta", mainCategory: "fish", prepTimeMinutes: 25 }, rationale: "r" })),
+        value: input.days.map((d, i) => ({
+          date: d.date,
+          suggestion: d.date === TUESDAY ? { name: "Laxpasta", mainCategory: "fish", prepTimeMinutes: 25 } : { name: `Kalops ${i}`, mainCategory: "beef", prepTimeMinutes: 25 },
+          rationale: "r",
+        })),
       };
     },
   });
@@ -73,6 +77,51 @@ describe("degraded reasons on the day they affect", () => {
     expect(warn?.degradedReasons).toContainEqual(expect.stringMatching(/^2026-10-20: suggestion "Laxpasta" dropped: same Main Category/));
   });
 
+  it("hides the generic seed-fallback rationale on a day with a degraded notice, but keeps agent-written ones", async () => {
+    const app = await start({ llm: fishLunchSetup(), fetchPage: async () => "<html>menu</html>" });
+    createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK }, headers: cookie("en") });
+    await planRunSettled(app, WEEK);
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie("en") });
+
+    expect(row(res.body, TUESDAY)).toContain('class="notice"');
+    expect(row(res.body, TUESDAY)).not.toContain("No Favorite Dish fit");
+    expect(row(res.body, TUESDAY)).not.toContain("did not fit this day");
+    expect(row(res.body, WEEK)).toContain('<p class="why">r</p>');
+  });
+
+  it("keeps a generic rationale on a day without a degraded notice", async () => {
+    const app = await start();
+    const dish = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: dish, isQuickDay: false, lunchThatDay: null, rationale: "No Favorite Dish fit; a Suggested Dish was picked." }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [{ code: "no-agent", date: TUESDAY }] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie("en") });
+
+    expect(row(res.body, WEEK)).toContain("No Favorite Dish fit");
+    expect(row(res.body, TUESDAY)).not.toContain("No Favorite Dish fit");
+  });
+
+  it.each([
+    ["sv", "Burgers finns redan i veckans plan, så den valdes bort."],
+    ["en", "Burgers is already planned this week, so it was left out."],
+  ] as const)("shows a Dish the agent picked twice on the second date, in household language (%s)", async (lang, text) => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input: SelectDishesInput) => ({ ok: true, value: input.days.slice(0, 2).map((d) => ({ date: d.date, dishId: String(burgers), rationale: "r" })) }),
+    });
+    const app = await start({ llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK }, headers: cookie(lang) });
+    await planRunSettled(app, WEEK);
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie(lang) });
+
+    expect(row(res.body, WEEK)).toContain('<div class="day-dinner">Burgers</div>');
+    expect(row(res.body, TUESDAY)).toMatch(new RegExp(`class="notice"[\\s\\S]*${text}`));
+    expect(row(res.body, TUESDAY)).not.toContain('<div class="day-dinner">Burgers</div>');
+  });
+
   it.each([
     ["sv", "Agenten svarade inte, så rätterna valdes automatiskt."],
     ["en", "The agent did not answer, so the dishes were picked automatically."],
@@ -89,7 +138,7 @@ describe("degraded reasons on the day they affect", () => {
     expect(top(res.body)).toContain(text);
     expect(res.body.split(text)).toHaveLength(2);
     expect(res.body).not.toContain("exited with code");
-    expect(records).toContainEqual(expect.objectContaining({ level: "warn", degradedReasons: ["agent exited with code 1"] }));
+    expect(records).toContainEqual(expect.objectContaining({ level: "warn", degradedReasons: expect.arrayContaining(["agent exited with code 1"]) }));
   });
 
   it.each([

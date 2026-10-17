@@ -9,7 +9,7 @@ import { swedishHoliday } from "../calendar/holidays.js";
 import { getDish, type Dish } from "../dishes/repo.js";
 import { isWeekend } from "../engine/filter.js";
 import { suggestedBadge } from "../dishes/suggested-badge.js";
-import { t, type Lang } from "../i18n/index.js";
+import { LANGS, t, type Lang, type MessageKey } from "../i18n/index.js";
 import { noLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
@@ -17,6 +17,9 @@ import { quickDayLimitFor, readPlannerSettings } from "../planner/settings.js";
 import { dayRow, type DayDensity } from "../ui/almanac.js";
 import { escapeHtml } from "../ui/layout.js";
 import { mondayOf, weekdayOf } from "../week.js";
+
+/** Rationales the planner writes itself when it falls back; a degraded notice already says the same. */
+const GENERIC_RATIONALE_KEYS: MessageKey[] = ["rationale.seedFallback", "rationale.pickDropped"];
 
 export interface AlmanacDayOptions {
   date: string;
@@ -28,6 +31,8 @@ export interface AlmanacDayOptions {
   swapHtml?: string;
   /** Extra HTML at the end of the cell (a degraded reason, say). Not escaped. */
   extraHtml?: string;
+  /** The day carries a degraded notice, so the generic fallback rationales would repeat it. */
+  hideGenericRationale?: boolean;
 }
 
 const lines = (rawText: string) =>
@@ -95,11 +100,15 @@ export function almanac(db: Database.Database, lang: Lang) {
     const dinner = plan.dinners.find((d) => d.date === date);
     if (!dinner) return `${label}<div class="day-dinner muted">${t(lang, "plan.noDinner")}</div>`;
     const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
-    if (!dish) return `${label}<div class="day-dinner">${t(lang, "common.noEligibleDish")}</div>`;
+    if (!dish) {
+      const pick = density === "full" && opts.swapHtml ? `<div class="actions">${opts.swapHtml}</div>` : "";
+      return `${label}<div class="day-dinner">${t(lang, "common.noEligibleDish")}</div>${pick}`;
+    }
     const name = `<div class="day-dinner">${escapeHtml(dish.name)}</div>`;
     if (density === "compact") return name;
     if (density === "half") return name + metaHtml(date, dinner, dish);
-    const why = dinner.rationale.trim() ? `<p class="why">${escapeHtml(dinner.rationale)}</p>` : "";
+    const generic = opts.hideGenericRationale && GENERIC_RATIONALE_KEYS.some((k) => LANGS.some((l) => t(l, k) === dinner.rationale.trim()));
+    const why = dinner.rationale.trim() && !generic ? `<p class="why">${escapeHtml(dinner.rationale)}</p>` : "";
     const recipe = dish.recipeUrl ?? dinner.sourceUrl;
     const swap = opts.swapHtml ?? "";
     const recipeLink = recipe ? `<a class="button" href="${escapeHtml(recipe)}">${t(lang, "day.recipe")}</a>` : "";

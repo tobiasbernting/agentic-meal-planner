@@ -1,7 +1,9 @@
 import type { FeaturePlugin } from "../app.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
+import { isHtmx } from "../ui/htmx.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { MAIN_CATEGORY_KEYS, categoryLabel, isMainCategory, type MainCategory } from "./categories.js";
+import { clearDishFromUnconfirmedPlans, listPlannedDatesForDish } from "../planner/repo.js";
 import {
   WEEKDAYS,
   createDish,
@@ -181,7 +183,7 @@ function dishForm(lang: Lang, action: string, dish: Omit<Dish, "id">, error?: st
         ${dayBoxes}
       </fieldset>
       ${checkbox("weekend_only", "1", t(lang, "dishes.weekendOnly"), dish.weekendOnly)}
-      <p class="actions"><button type="submit" class="primary">${t(lang, "common.save")}</button> <a class="button quiet" href="/dishes">${t(lang, "common.cancel")}</a></p>
+      <p class="actions"><button type="submit" class="primary" data-working-label="${escapeHtml(t(lang, "dishes.saving"))}">${t(lang, "common.save")}</button> <a class="button quiet" href="/dishes">${t(lang, "common.cancel")}</a></p>
     </form>
     ${deleteId === undefined ? "" : `<p class="actions"><a class="button quiet" href="/dishes/${deleteId}/delete">${t(lang, "dishes.deleteDish")}</a></p>`}`;
 }
@@ -292,6 +294,10 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.post<{ Params: { id: string } }>("/dishes/:id/promote", async (req, reply) => {
     if (!promoteDishToFavorite(db, Number(req.params.id))) return reply.code(404).send(t(langOf(req), "dishes.notFound"));
+    if (isHtmx(req)) {
+      html(reply);
+      return `<span class="tag-favorited">${t(langOf(req), "dishes.inFavorites")}</span>`;
+    }
     return reply.redirect(sameSitePath(req.headers.referer, req.headers.host) ?? "/dishes", 303);
   });
 
@@ -300,8 +306,10 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     const dish = getDish(db, Number(req.params.id));
     if (!dish) return reply.code(404).send(t(lang, "dishes.notFound"));
     html(reply);
+    const dates = listPlannedDatesForDish(db, dish.id);
+    const plannedOn = dates.length ? `<p>${t(lang, "dishes.plannedOn", { dates: dates.join(", ") })}</p>\n    ` : "";
     const body = `<div class="page-head"><h1>${t(lang, "dishes.deleteConfirm", { name: dish.name })}</h1></div>
-    <p>${t(lang, "dishes.deleteWarning")}</p>
+    ${plannedOn}<p>${t(lang, "dishes.deleteWarning")}</p>
     <form method="post" action="/dishes/${dish.id}/delete" class="actions">
       <input type="hidden" name="confirm" value="1" />
       <button type="submit" class="primary">${t(lang, "dishes.deleteYes")}</button>
@@ -314,7 +322,10 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
   app.post<{ Params: { id: string }; Body: { confirm?: string } | undefined }>("/dishes/:id/delete", async (req, reply) => {
     const id = Number(req.params.id);
     if (req.body?.confirm !== "1") return reply.redirect(`/dishes/${id}/delete`, 303);
-    deleteDish(db, id);
+    db.transaction(() => {
+      clearDishFromUnconfirmedPlans(db, id);
+      deleteDish(db, id);
+    })();
     return reply.redirect("/dishes", 303);
   });
 };
