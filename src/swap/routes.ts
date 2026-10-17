@@ -39,9 +39,12 @@ function safeNext(next: string | undefined, date: string): string {
  * the list as a page; with HTMX the list replaces the button in place.
  */
 export function swapControl(ctx: Pick<AppContext, "db" | "planRuns">, lang: Lang, date: string, next: string): string {
-  if (!swappablePlan(ctx, date)) return "";
+  const plan = swappablePlan(ctx, date);
+  if (!plan) return "";
+  // A day with no Dish reads "Välj rätt"; the list and the write are the same as Byt's.
+  const empty = plan.dinners.find((d) => d.date === date)?.dishId == null;
   const url = escapeHtml(`/plan/swap?date=${date}&next=${encodeURIComponent(next)}`);
-  return `<a class="button" href="${url}" hx-get="${url}" hx-target="this" hx-swap="outerHTML">${t(lang, "day.swap")}</a>`;
+  return `<a class="button" href="${url}" hx-get="${url}" hx-target="this" hx-swap="outerHTML">${t(lang, empty ? "day.pick" : "day.swap")}</a>`;
 }
 
 function swapList(db: Database.Database, lang: Lang, date: string, currentDishId: number | null, next: string): string {
