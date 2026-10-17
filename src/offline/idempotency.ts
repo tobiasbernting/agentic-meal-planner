@@ -18,6 +18,8 @@ export const SCHEMA_IDEMPOTENCY = `CREATE TABLE IF NOT EXISTS idempotency_key (
 );`;
 
 const HEADER = "idempotency-key";
+/** Stored keys older than this are deleted on the next keyed request. */
+const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface StoredResponse {
   status: number;
@@ -37,6 +39,7 @@ function keyOf(req: FastifyRequest): string | undefined {
 
 /** Adds the hooks to `app`. Call from buildApp before the feature plugins so every route is covered. */
 export function registerIdempotency(app: FastifyInstance, ctx: AppContext): void {
+  const expire = ctx.db.prepare("DELETE FROM idempotency_key WHERE created_at < ?");
   const lookup = ctx.db.prepare("SELECT status, location, content_type, body FROM idempotency_key WHERE key = ?");
   const store = ctx.db.prepare(
     "INSERT OR IGNORE INTO idempotency_key (key, status, location, content_type, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -47,6 +50,7 @@ export function registerIdempotency(app: FastifyInstance, ctx: AppContext): void
   app.addHook("preHandler", async (req, reply) => {
     const key = keyOf(req);
     if (!key) return;
+    expire.run(new Date(ctx.now().getTime() - EXPIRY_MS).toISOString());
     const hit = lookup.get(key) as StoredResponse | undefined;
     if (!hit) {
       pending.set(req, key);
@@ -62,6 +66,8 @@ export function registerIdempotency(app: FastifyInstance, ctx: AppContext): void
     const key = pending.get(req);
     if (key === undefined) return payload;
     pending.delete(req);
+    // A server error is not an outcome: the worker keeps the change and retries it (ADR-0007).
+    if (reply.statusCode >= 500) return payload;
     const location = reply.getHeader("location");
     const contentType = reply.getHeader("content-type");
     const body = typeof payload === "string" ? payload : Buffer.isBuffer(payload) ? payload.toString("utf8") : null;
