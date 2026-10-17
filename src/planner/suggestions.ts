@@ -32,10 +32,16 @@ export function validateSuggestion(raw: unknown): { ok: true; value: DishSuggest
   return { ok: true, value: { name: name.trim(), mainCategory } };
 }
 
+/**
+ * Id of the throwaway Dish record built from a suggestion: never stored and never matched
+ * against real Dishes; the hard-rule engine only needs some id to report against.
+ */
+const UNSAVED_SUGGESTION_ID = -1;
+
 /** A Dish-shaped record so the hard-rule engine can judge a suggestion like a Favorite Dish. */
 function asRotationDish(s: DishSuggestion): Dish {
   return {
-    id: -1,
+    id: UNSAVED_SUGGESTION_ID,
     name: s.name,
     recipeUrl: null,
     adaptationNotes: null,
@@ -87,14 +93,18 @@ export function resolveSuggestion(
 
 /**
  * Round-robin over the seed list across the week: each call starts after the previous pick and
- * takes the first seed that resolves to a Dish for that day. Returns `undefined` when none does.
+ * takes the first seed that resolves to a Dish for that day, preferring seeds whose name is not
+ * in `recentNames` (Variety Preference). Returns `undefined` when none resolves.
  */
-export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: FilterOptions) {
+export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: FilterOptions, recentNames: string[] = []) {
+  const recent = new Set(recentNames.map(normaliseName));
   let next = 0;
-  return (day: DayInput): Exclude<SuggestionOutcome, { kind: "dropped" }> | undefined => {
+  const pass = (day: DayInput, skipRecent: boolean) => {
     for (let k = 0; k < seeds.length; k++) {
       const index = (next + k) % seeds.length;
-      const outcome = resolveSuggestion({ ...seeds[index] }, day, dishes, options);
+      const seed = seeds[index]!;
+      if (skipRecent && recent.has(normaliseName(seed.name))) continue;
+      const outcome = resolveSuggestion({ ...seed }, day, dishes, options);
       if (outcome.kind !== "dropped") {
         next = index + 1;
         return outcome;
@@ -102,4 +112,5 @@ export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: Fil
     }
     return undefined;
   };
+  return (day: DayInput): Exclude<SuggestionOutcome, { kind: "dropped" }> | undefined => pass(day, true) ?? pass(day, false);
 }

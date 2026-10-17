@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { isMainCategory, type MainCategory } from "../dishes/categories.js";
+import type { MainCategory } from "../dishes/categories.js";
 import { silentLogger, type Logger } from "../logging/logger.js";
 import type {
   DishSuggestion,
@@ -326,7 +326,7 @@ export const validateFoundRecipe: Validator<FoundRecipe> = (v) => {
 
 /**
  * A selection is valid only when every pick was a candidate for that date, and every
- * suggestion is well-formed and sits on a date with no candidates.
+ * suggestion has the structural shape and sits on a date with no candidates.
  */
 export function validateSelection(v: unknown, input: SelectDishesInput): SelectedDish[] | undefined {
   const allowed = new Map(
@@ -338,7 +338,7 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
     if (typeof date !== "string" || typeof rationale !== "string") return undefined;
     if (item.suggestion !== undefined) {
       if (allowed.get(date)?.size !== 0) return undefined;
-      const suggestion = validateSuggestion(item.suggestion);
+      const suggestion = coerceSuggestion(item.suggestion);
       return suggestion && { date, suggestion, rationale };
     }
     const dishId = typeof item.dishId === "number" ? String(item.dishId) : item.dishId;
@@ -348,13 +348,16 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
   });
 }
 
-function validateSuggestion(v: unknown): DishSuggestion | undefined {
-  if (!isRecord(v) || typeof v.name !== "string" || v.name.trim().length === 0) return undefined;
-  if (!isMainCategory(v.mainCategory)) return undefined;
+/**
+ * Structural shape only: a record with a string `name`. Category and prep time are coerced
+ * (non-string category to "", non-number prep time dropped); the planner's
+ * `validateSuggestion` judges the content per day, so one bad suggestion degrades only its day.
+ */
+function coerceSuggestion(v: unknown): DishSuggestion | undefined {
+  if (!isRecord(v) || typeof v.name !== "string") return undefined;
+  const mainCategory = typeof v.mainCategory === "string" ? v.mainCategory : "";
   const prep = v.prepTimeMinutes;
-  if (prep === undefined || prep === null) return { name: v.name, mainCategory: v.mainCategory };
-  if (typeof prep !== "number" || !Number.isInteger(prep) || prep <= 0) return undefined;
-  return { name: v.name, mainCategory: v.mainCategory, prepTimeMinutes: prep };
+  return typeof prep === "number" ? { name: v.name, mainCategory, prepTimeMinutes: prep } : { name: v.name, mainCategory };
 }
 
 /** A pantry match is valid only when every non-null `pantryId` is an id from the input pantry. */

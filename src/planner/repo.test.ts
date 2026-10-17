@@ -121,8 +121,8 @@ describe("listRecentlyPlanned", () => {
     const recent = listRecentlyPlanned(db, "2026-10-12", 3);
 
     expect(recent).toEqual([
-      { dishId: String(a), lastDate: "2026-10-06" },
-      { dishId: String(b), lastDate: "2026-10-05" },
+      { dishId: String(a), name: "A", lastDate: "2026-10-06" },
+      { dishId: String(b), name: "B", lastDate: "2026-10-05" },
     ]);
   });
 });

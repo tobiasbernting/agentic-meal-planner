@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Dish } from "../dishes/repo.js";
+import { CliAgent } from "../llm/cli-agent.js";
 import {
   NO_AGENT_REASON,
   NoAgent,
@@ -88,7 +89,7 @@ describe("planWeek", () => {
     const slow = dish({ name: "Stew", prepTimeMinutes: 90 });
     const llm = new ScriptedLlmAgent({ selectDishes: { ok: true, value: [] } });
     const lunch = { "2026-10-14": [{ date: "2026-10-14", rawText: "Stew", mainCategory: "beef" }] };
-    const recentlyPlanned = [{ dishId: String(slow.id), lastDate: "2026-10-07" }];
+    const recentlyPlanned = [{ dishId: String(slow.id), name: "Stew", lastDate: "2026-10-07" }];
 
     await planWeek(
       input({
@@ -286,6 +287,29 @@ describe("planWeek", () => {
       });
     });
 
+    it("keeps six agent picks and drops only the malformed suggestion from a CLI agent reply", async () => {
+      const pasta = dish({ name: "Pasta", mainCategory: "pasta" });
+      const lunch = { "2026-10-12": [{ date: "2026-10-12", rawText: "Spagetti", mainCategory: "pasta" }] };
+      const reply = [
+        { date: "2026-10-12", suggestion: { name: "Sushi", mainCategory: "sushi" }, rationale: "new" },
+        ...["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"].map((date) => ({
+          date,
+          dishId: pasta.id,
+          rationale: "favorite",
+        })),
+      ];
+      const llm = new CliAgent("agent -p", {
+        run: async () => ({ stdout: JSON.stringify(reply), stderr: "", exitCode: 0 }),
+      });
+
+      const result = await planWeek(input({ dishes: [pasta], lunchByDate: lunch, llm }));
+
+      expect(result.dinners.slice(1).every((d) => d.dishId === pasta.id && d.rationale === "favorite")).toBe(true);
+      expect(result.dinners[0]?.suggestion?.name).not.toBe("Sushi");
+      expect(result.degradedReasons[0]).toMatch(/^2026-10-12: suggestion "Sushi" dropped: Main Category "sushi"/);
+      expect(result.degradedReasons).toContain("2026-10-12: seed fallback used");
+    });
+
     it("reuses an existing out-of-rotation Dish whose name matches the suggestion", async () => {
       const shelved = dish({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90, inRotation: false });
       const llm = suggesting(() => ({ name: " KALOPS ", mainCategory: "beef", prepTimeMinutes: 80 }));
@@ -349,6 +373,23 @@ describe("planWeek", () => {
         NO_AGENT_REASON,
         ...result.dinners.map((d) => `${d.date}: seed fallback used`),
       ]);
+    });
+    it("prefers seed dishes not recently planned, so an empty rotation does not repeat last week's seeds", async () => {
+      const lastWeek = SEED_DISHES.slice(0, 7).map((s) => dish({ ...s, inRotation: false, suggested: true }));
+      const recentlyPlanned = lastWeek.map((d, i) => ({ dishId: String(d.id), name: d.name.toUpperCase(), lastDate: `2026-10-0${i + 1}` }));
+
+      const result = await planWeek(input({ dishes: lastWeek, recentlyPlanned, llm: new NoAgent() }));
+
+      expect(result.dinners.map((d) => d.suggestion?.name)).toEqual(SEED_DISHES.slice(7, 14).map((s) => s.name));
+    });
+
+    it("still uses a recently planned seed dish when it is the only one eligible", async () => {
+      const settings = { ...DEFAULT_PLANNER_SETTINGS, quickDayTemplate: { mon: 15 } };
+      const recentlyPlanned = [{ dishId: "1", name: "Omelett med sallad", lastDate: "2026-10-05" }];
+
+      const result = await planWeek(input({ dishes: [], settings, recentlyPlanned, llm: new NoAgent() }));
+
+      expect(result.dinners[0]?.suggestion?.name).toBe("Omelett med sallad");
     });
   });
 

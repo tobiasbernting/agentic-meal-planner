@@ -28,6 +28,7 @@ export const SEED_FALLBACK_RATIONALE = "no eligible Favorite Dish; picked from t
 
 export interface RecentlyPlanned {
   dishId: string;
+  name: string;
   lastDate: string;
 }
 
@@ -90,18 +91,18 @@ function toDayInputs(input: PlanWeekInput): DayInput[] {
   });
 }
 
-/** The agent's picks, and whether they came from the deterministic NoAgent path. */
+/** The agent's picks, and whether they came from NoAgent (configured, or as the fallback after an agent failure). */
 async function select(
   llm: LlmAgent,
   request: SelectDishesInput,
   degradedReasons: string[],
-): Promise<{ picks: SelectedDish[]; deterministic: boolean }> {
+): Promise<{ picks: SelectedDish[]; fromNoAgent: boolean }> {
   if (llm instanceof NoAgent) degradedReasons.push(NO_AGENT_REASON);
   const result = await llm.selectDishes(request);
-  if (result.ok) return { picks: result.value, deterministic: llm instanceof NoAgent };
+  if (result.ok) return { picks: result.value, fromNoAgent: llm instanceof NoAgent };
   degradedReasons.push(result.reason);
   const fallback = await new NoAgent().selectDishes(request);
-  return { picks: fallback.ok ? fallback.value : [], deterministic: true };
+  return { picks: fallback.ok ? fallback.value : [], fromNoAgent: true };
 }
 
 export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
@@ -117,10 +118,15 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     seedDishes: SEED_DISHES,
   };
   const degradedReasons: string[] = [];
-  const { picks, deterministic } = await select(input.llm, request, degradedReasons);
+  const { picks, fromNoAgent } = await select(input.llm, request, degradedReasons);
   const pickByDate = new Map(picks.map((p) => [p.date, p]));
   const filterOptions = { categoryCollisionEnabled: input.settings.categoryCollisionEnabled };
-  const pickSeed = createSeedPicker(SEED_DISHES, input.dishes, filterOptions);
+  const pickSeed = createSeedPicker(
+    SEED_DISHES,
+    input.dishes,
+    filterOptions,
+    input.recentlyPlanned.map((r) => r.name),
+  );
 
   const dinners = days.map((day, i): PlannedDinnerDraft => {
     const eligible = candidates[i]?.eligible ?? [];
@@ -132,7 +138,7 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     const pick = pickByDate.get(day.date);
 
     if (eligible.length === 0) {
-      if (pick !== undefined && !deterministic) {
+      if (pick !== undefined && !fromNoAgent) {
         const outcome =
           "suggestion" in pick
             ? resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions)
