@@ -114,3 +114,23 @@ describe("the service worker script", () => {
     expect(config.frames.en.requiresConnection).toContain(">Back</a>");
   });
 });
+
+describe("the installable shell", () => {
+  it("links the manifest, registers the worker and carries the banner marker on Today and Shopping", async () => {
+    const app = await makeApp();
+    for (const url of ["/", "/shopping"]) {
+      const html = (await app.inject({ method: "GET", url })).body;
+      const head = /<head>([\s\S]*?)<\/head>/.exec(html)?.[1] ?? "";
+
+      expect(head, url).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
+      expect(head, url).toContain('<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />');
+      expect(head, url).toContain('<meta name="apple-mobile-web-app-capable" content="yes" />');
+      expect(head, url).toContain('<meta name="theme-color" content="#fbfaf6" />');
+      const script = /<script>([^<]*serviceWorker[^<]*)<\/script>/.exec(html)?.[1] ?? "";
+      expect(script, url).toContain('"serviceWorker" in navigator');
+      expect(script, url).toContain('navigator.serviceWorker.register("/sw.js", { type: "module" })');
+      expect(html.split('<div id="offline-banner"></div>').length - 1, url).toBe(1);
+      expect(html, url).toMatch(/<main class="page">\s*<div id="offline-banner"><\/div>/);
+    }
+  });
+});

@@ -7,13 +7,8 @@ import { readFileSync } from "node:fs";
 import type { FeaturePlugin } from "../app.js";
 import { LANGS, t, type Lang, type MessageKey } from "../i18n/index.js";
 import { ALL_ASSET_PATHS, ASSET_PATHS } from "../ui/assets.js";
-import { escapeHtml, page } from "../ui/layout.js";
+import { escapeHtml, MANIFEST_PATH, page, THEME_COLOR } from "../ui/layout.js";
 import { OFFLINE_PAGES, ONLINE_ONLY_ROUTES, PREWARM_PAGES, QUEUEABLE_LABELS, QUEUEABLE_ROUTES } from "./allowlist.js";
-
-/** Paper, the stylesheet's background token in light mode. */
-export const THEME_COLOR = "#fbfaf6";
-
-export const MANIFEST_PATH = "/manifest.webmanifest";
 
 const MANIFEST = {
   name: "Måltidsplaneraren",
