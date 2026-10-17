@@ -13,6 +13,8 @@ export interface Ingredient {
   name: string;
   quantity?: number | string;
   unit?: string;
+  /** How the Dish uses it ("till mos"), kept apart from the bare shopping name. */
+  preparationNote?: string;
 }
 
 /** What a School serves on one date (GLOSSARY: Lunch Entry). Minimal structural shape. */
@@ -82,6 +84,8 @@ export interface PantryMatch {
 /** Options for Ingredient extraction: the Dish's Adaptation notes are applied during extraction (ADR-0003). */
 export interface ExtractIngredientsOptions {
   adaptationNotes?: string;
+  /** The household's UI language: Ingredient names and Preparation Notes come back in it. */
+  language?: "sv" | "en";
 }
 
 export interface LlmAgent {

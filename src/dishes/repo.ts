@@ -14,6 +14,8 @@ export interface Ingredient {
   name: string;
   quantity: number | null;
   unit: string | null;
+  /** How the Dish uses the Ingredient ("till mos"); stored with it, never on the Shopping List. */
+  preparationNote?: string | null;
 }
 
 export interface Dish {
@@ -55,6 +57,7 @@ interface IngredientRow {
   name: string;
   quantity: number | null;
   unit: string | null;
+  preparation_note: string | null;
 }
 
 function withDefaults(input: DishInput): Omit<Dish, "id"> {
@@ -89,15 +92,19 @@ function toDish(row: DishRow, ingredients: Ingredient[]): Dish {
 }
 
 function toIngredient(row: IngredientRow): Ingredient {
-  return { name: row.name, quantity: row.quantity, unit: row.unit };
+  const ingredient: Ingredient = { name: row.name, quantity: row.quantity, unit: row.unit };
+  if (row.preparation_note) ingredient.preparationNote = row.preparation_note;
+  return ingredient;
 }
 
 function replaceIngredients(db: Database.Database, dishId: number, ingredients: Ingredient[]): void {
   db.prepare("DELETE FROM dish_ingredient WHERE dish_id = ?").run(dishId);
   const insert = db.prepare(
-    "INSERT INTO dish_ingredient (dish_id, position, name, quantity, unit) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO dish_ingredient (dish_id, position, name, quantity, unit, preparation_note) VALUES (?, ?, ?, ?, ?, ?)",
   );
-  ingredients.forEach((ing, position) => insert.run(dishId, position, ing.name, ing.quantity, ing.unit));
+  ingredients.forEach((ing, position) =>
+    insert.run(dishId, position, ing.name, ing.quantity, ing.unit, ing.preparationNote ?? null),
+  );
 }
 
 export function createDish(db: Database.Database, input: DishInput): number {
