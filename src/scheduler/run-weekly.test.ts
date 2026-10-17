@@ -88,7 +88,7 @@ describe("runWeeklyPlanning", () => {
     const db = freshDb();
     createDish(db, { name: "A", prepTimeMinutes: 20 });
     const seen: number[] = [];
-    const deps = { db, llm: new NoAgent(), fetchPage: async () => "", now: () => SUNDAY, afterPlan: async (planId: number) => void seen.push(planId) };
+    const deps = { db, llm: new NoAgent(), fetchPage: async () => "", now: () => SUNDAY, afterPlan: async ({ planId }: { planId: number }) => void seen.push(planId) };
 
     const first = await runWeeklyPlanning(deps);
     confirmPlan(db, NEXT_MONDAY);
@@ -130,7 +130,7 @@ describe("runWeeklyPlanning", () => {
       fetchPage,
       now: () => SUNDAY,
       log: logger.child({ runId }),
-      afterPlan: (planId, log, onProgress) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
+      afterPlan: ({ planId, log, onProgress }) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
     });
 
     const planRun = records.filter((r) => r.component === "plan-run");

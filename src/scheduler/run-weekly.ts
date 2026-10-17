@@ -30,7 +30,7 @@ export interface WeeklyRunDeps {
    * and the Plan Run progress callback (it reports the shopping Phases), and may return how
    * many sinks accepted the list (for the plan summary).
    */
-  afterPlan?: (planId: number, log: Logger | undefined, onProgress: OnProgress) => Promise<number | void>;
+  afterPlan?: (plan: { planId: number; log: Logger | undefined; onProgress: OnProgress }) => Promise<number | void>;
   /** Run logger bound to `runId: cron-<ISO>`; the scheduler sets it per tick. */
   log?: Logger;
   /**
@@ -72,7 +72,7 @@ async function planWeek(deps: WeeklyRunDeps, weekStart: string, onProgress: OnPr
     { replace: false },
   );
   if ("planId" in plan) {
-    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log, onProgress) : undefined;
+    const sinksPushed = deps.afterPlan ? await deps.afterPlan({ planId: plan.planId, log: deps.log, onProgress }) : undefined;
     logPlanSummary(deps.log, deps.db, plan.planId, plan.degradedReasons, sinksPushed ?? 0);
   }
   return { weekStart, ingest, plan };
