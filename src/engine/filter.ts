@@ -3,6 +3,7 @@
  * no network. Filters Favorite Dishes per dinner date by the hard rules; the LLM selection
  * step (FR-7) picks among what is left.
  */
+import type { MainCategory } from "../dishes/categories.js";
 import type { Dish, Weekday } from "../dishes/repo.js";
 import { normaliseName } from "../text.js";
 import type { LunchEntry } from "../types.js";
@@ -27,7 +28,7 @@ export interface PlannedElsewhere {
   dishId: number | null;
   name: string;
   /** The dinner's Main Category, when known; the seed fallback avoids repeating it. */
-  mainCategory?: string | null;
+  mainCategory?: MainCategory | null;
 }
 
 export interface FilterOptions {

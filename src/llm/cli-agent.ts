@@ -163,7 +163,7 @@ export class CliAgent implements LlmAgent {
       `on a Quick Day, a prepTimeMinutes at or under the day's quickDayLimitMinutes; ` +
       `a Weekend Dish only on Saturday or Sunday; ` +
       `Once a Week: no Dish, and no near-identical meal under another name, on two dates of the week. ` +
-      `existingDishes lists the household's Dishes by id and name. When a suggestion would be the same meal as one of existingDishes, return that Dish's id as {"date", "dishId", "rationale"} instead of a new name. ` +
+      `existingDishes lists the household's Dishes by id and name: kind "favorite" is in the household's rotation, kind "suggested" is an earlier suggestion they kept. When a suggestion would be the same meal as one of existingDishes, return that Dish's id as {"date", "dishId", "rationale"} instead of a new name. ` +
       `Avoid the same Main Category on consecutive dinners; when you don't, say why in the rationale. ` +
       `Write each rationale as one short sentence in ${LANGUAGE_NAMES[input.language ?? "sv"]}, for the household to read. ` +
       `Respond with JSON only: an array of {"date": "YYYY-MM-DD", "dishId": string, "rationale": string} for a pick, ` +
@@ -357,7 +357,7 @@ export function validateSelection(v: unknown, input: SelectDishesInput): Selecte
     input.days.map((d, i) => [d.date, new Set((input.candidates[i] ?? []).map((c) => String(c.id)))]),
   );
   // A day with no candidates may reuse an existing Dish by id instead of suggesting a twin.
-  const existing = new Set((input.existingDishes ?? []).map((d) => String(d.id)));
+  const existing = new Set((input.existingDishes ?? []).map((d) => d.id));
   return validateArray(v, (item) => {
     if (!isRecord(item)) return undefined;
     const { date, rationale } = item;

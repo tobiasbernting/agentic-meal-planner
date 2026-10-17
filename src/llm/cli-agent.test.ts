@@ -542,6 +542,7 @@ describe("CliAgent.selectDishes", () => {
     expect(prompt).toContain('"id": "d9"');
     expect(prompt).toContain('"name": "Ärtsoppa med pannkakor"');
     expect(prompt).toMatch(/same meal as one of existingDishes, return that Dish's id/);
+    expect(prompt).toMatch(/kind "favorite"[^.]*rotation[^.]*kind "suggested"/);
   });
 
   it("asks to avoid the same Main Category on consecutive dinners, with a rationale when it can't", async () => {
@@ -572,7 +573,7 @@ describe("CliAgent.selectDishes", () => {
 
       const result = await new CliAgent("copilot -p", { run }).selectDishes({
         ...emptyDay,
-        existingDishes: [{ id: 9, name: "Ärtsoppa", kind: "suggested" }],
+        existingDishes: [{ id: "9", name: "Ärtsoppa", kind: "suggested" }],
       });
 
       expect(result).toEqual({ ok: true, value: reply });
@@ -587,7 +588,7 @@ describe("CliAgent.selectDishes", () => {
 
       const result = await new CliAgent("copilot -p", { run }).selectDishes({
         ...emptyDay,
-        existingDishes: [{ id: 9, name: "Ärtsoppa", kind: "suggested" }],
+        existingDishes: [{ id: "9", name: "Ärtsoppa", kind: "suggested" }],
       });
 
       expect(result).toMatchObject({ ok: false });

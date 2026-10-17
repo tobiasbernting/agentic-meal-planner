@@ -49,10 +49,11 @@ export interface SeedDish {
 
 /** A Dish that already exists, listed so a suggestion reuses it instead of inventing a twin. */
 export interface ExistingDish {
-  id: string | number;
+  id: string;
   name: string;
+  /** Favorite Dish (in rotation) or Suggested Dish (kept from an earlier suggestion); the prompt says which is which. */
   kind: "favorite" | "suggested";
-  mainCategory?: string;
+  mainCategory?: MainCategory;
   prepTimeMinutes?: number;
   /** Weekend Dish: only Saturday or Sunday. */
   weekendOnly?: boolean;

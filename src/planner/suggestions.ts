@@ -3,7 +3,7 @@
  * from the agent (or the seed list) is validated, re-checked against the day's hard rules by
  * the same engine that filters Favorite Dishes, and name-matched against existing Dishes.
  */
-import { isMainCategory } from "../dishes/categories.js";
+import { isMainCategory, type MainCategory } from "../dishes/categories.js";
 import type { Dish } from "../dishes/repo.js";
 import { describeExclusion, exclusionRule, type DayInput, type ExclusionRule, type FilterOptions } from "../engine/filter.js";
 import type { DishSuggestion, SeedDish } from "../llm/index.js";
@@ -116,7 +116,7 @@ export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: Fil
   let next = 0;
   const pass = (day: DayInput, skipWeekCategories: boolean, skipRecent: boolean) => {
     // "other" is uncategorised and never counts as a repeat, as with the lunch collision rule.
-    const weekCategories = new Set(
+    const weekCategories = new Set<MainCategory>(
       (day.plannedElsewhere ?? []).flatMap((p) => (p.mainCategory && p.mainCategory !== "other" ? [p.mainCategory] : [])),
     );
     for (let k = 0; k < seeds.length; k++) {
