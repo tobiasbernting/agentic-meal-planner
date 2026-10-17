@@ -317,6 +317,8 @@ export const sv: Dictionary = {
   "offline.saved": "Sparat, synkas nästa gång appen når hemmanätet",
   "offline.back": "Tillbaka",
   "offline.unknownChange": "Ändring",
+  "offline.replayNextOpen": "Skickas nästa gång appen öppnas hemma",
+  "offline.replayBackground": "Skickas i bakgrunden när telefonen är hemma igen, och nästa gång appen öppnas",
   "offline.label.dishCreate": "Ny rätt",
   "offline.label.dishEdit": "Ändra rätt",
   "offline.label.dishPromote": "Lägg rätt i rotation",

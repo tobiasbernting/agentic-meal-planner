@@ -31,6 +31,8 @@ const TEXT_KEYS = {
   saved: "offline.saved",
   back: "offline.back",
   unknownChange: "offline.unknownChange",
+  replayNextOpen: "offline.replayNextOpen",
+  replayBackground: "offline.replayBackground",
 } as const satisfies Record<string, MessageKey>;
 
 type Texts = Record<keyof typeof TEXT_KEYS, string>;

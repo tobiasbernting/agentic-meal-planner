@@ -315,6 +315,8 @@ export const en = {
   "offline.saved": "Saved, will sync when the app next reaches home",
   "offline.back": "Back",
   "offline.unknownChange": "Change",
+  "offline.replayNextOpen": "Replayed the next time the app is opened at home",
+  "offline.replayBackground": "Replayed in the background when the phone is back home, and on the next open",
   "offline.label.dishCreate": "New dish",
   "offline.label.dishEdit": "Edit dish",
   "offline.label.dishPromote": "Add dish to rotation",
