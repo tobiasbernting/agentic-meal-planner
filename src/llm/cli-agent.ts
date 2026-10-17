@@ -98,7 +98,7 @@ const JSON_ONLY_NUDGE =
 /**
  * Runs the configured agent CLI (`agent_command`, e.g. `copilot -p`, `claude -p`) as a
  * subprocess, one prompt per call (ADR-0005). The prompt is passed both as the last
- * argument and on stdin. The first JSON value in stdout is parsed and validated; one
+ * argument and on stdin. The last complete JSON value in stdout is parsed and validated; one
  * retry with a JSON-only nudge, then the result degrades (NFR-4). Never throws for
  * agent failure.
  */
@@ -254,27 +254,32 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Finds the first JSON object or array in `text`, tolerating code fences and prose
- * around it. Returns undefined when nothing parses.
+ * Finds the last complete JSON object or array in `text`, tolerating code fences and prose
+ * around it (agents often print tool logs before the answer). Returns undefined when
+ * nothing parses.
  */
 export function extractJson(text: string): unknown {
-  const starts: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "{" || ch === "[") starts.push(i);
-  }
-  for (const start of starts) {
-    const close = text[start] === "{" ? "}" : "]";
+  let found: unknown;
+  let from = 0;
+  while (from < text.length) {
+    const start = text.slice(from).search(/[{[]/);
+    if (start < 0) break;
+    const open = from + start;
+    const close = text[open] === "{" ? "}" : "]";
     let end = text.lastIndexOf(close);
-    while (end > start) {
+    let parsed = false;
+    while (end > open) {
       try {
-        return JSON.parse(text.slice(start, end + 1));
+        found = JSON.parse(text.slice(open, end + 1));
+        parsed = true;
+        break;
       } catch {
         end = text.lastIndexOf(close, end - 1);
       }
     }
+    from = parsed ? end + 1 : open + 1;
   }
-  return undefined;
+  return found;
 }
 
 // --- validators (hand-written, no deps) ---

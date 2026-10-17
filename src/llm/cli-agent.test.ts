@@ -98,6 +98,26 @@ describe("CliAgent.extractIngredients", () => {
     expect(result).toEqual({ ok: true, value: [{ name: "eggs", quantity: 6 }] });
   });
 
+  it("takes the last complete JSON value when leading text has brackets of its own", async () => {
+    const { run } = scriptedRunner([
+      'Fetched page [1] and {"note": "tool log"} first.\n[{"name": "eggs", "quantity": 6}]',
+    ]);
+    const agent = new CliAgent("claude -p", { run });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result).toEqual({ ok: true, value: [{ name: "eggs", quantity: 6 }] });
+  });
+
+  it("rejects output with leading text but no JSON", async () => {
+    const { run } = scriptedRunner(["I fetched the page but found nothing.", "Still nothing."]);
+    const agent = new CliAgent("claude -p", { run });
+
+    const result = await agent.extractIngredients("page");
+
+    expect(result.ok).toBe(false);
+  });
+
   it("retries once with a JSON-only nudge when the response is not valid JSON", async () => {
     const { run, calls } = scriptedRunner(["I could not find any ingredients, sorry.", '[{"name": "milk"}]']);
     const agent = new CliAgent("copilot -p", { run });
