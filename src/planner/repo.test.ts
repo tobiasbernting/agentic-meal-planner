@@ -12,7 +12,7 @@ function freshDb() {
   return openDatabase(mkdtempSync(join(tmpdir(), "planner-repo-")));
 }
 
-function plan(weekStart: string, dishIds: (number | null)[], degradedReasons: string[] = []): PlanWeekResult {
+function plan(weekStart: string, dishIds: (number | null)[], degradedReasons: PlanWeekResult["degradedReasons"] = []): PlanWeekResult {
   return {
     weekStart,
     degradedReasons,
@@ -31,7 +31,7 @@ describe("savePlan / getPlanForWeek", () => {
     const db = freshDb();
     const burgers = createDish(db, { name: "Burgers" });
 
-    const id = savePlan(db, plan("2026-10-12", [burgers, null, burgers, burgers, burgers, burgers, burgers], ["x"]), "2026-10-11T18:00:00.000Z");
+    const id = savePlan(db, plan("2026-10-12", [burgers, null, burgers, burgers, burgers, burgers, burgers], [{ code: "seed-fallback", date: "2026-10-13", detail: "raw text" }]), "2026-10-11T18:00:00.000Z");
     const stored = getPlanForWeek(db, "2026-10-12");
 
     expect(stored).toMatchObject({
@@ -39,7 +39,7 @@ describe("savePlan / getPlanForWeek", () => {
       weekStart: "2026-10-12",
       generatedAt: "2026-10-11T18:00:00.000Z",
       status: "generated",
-      degradedReasons: ["x"],
+      degradedReasons: [{ code: "seed-fallback", date: "2026-10-13" }],
     });
     expect(stored?.dinners).toHaveLength(7);
     expect(stored?.dinners[0]).toEqual({

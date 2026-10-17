@@ -4,6 +4,7 @@
  */
 import type Database from "better-sqlite3";
 import type { PlanWeekResult, RecentlyPlanned } from "./plan-week.js";
+import { parseDegradedReasons, toStored, type DegradedReason, type DegradedReasonDraft } from "./degraded.js";
 
 export type PlanStatus = "generated" | "confirmed";
 
@@ -22,7 +23,8 @@ export interface WeeklyPlan {
   weekStart: string;
   generatedAt: string;
   status: PlanStatus;
-  degradedReasons: string[];
+  /** Per date (or the whole week) as reason codes; render with `describeDegraded`. */
+  degradedReasons: DegradedReason[];
   dinners: PlannedDinner[];
 }
 
@@ -44,12 +46,21 @@ interface DinnerRow {
 }
 
 /** Saves (replacing any existing plan for that week) and returns the plan id. Status resets to `generated`. */
-export function savePlan(db: Database.Database, plan: PlanWeekResult, generatedAt: string): number {
+/** A Weekly Plan to store. Its reasons may be drafts (`detail` and log-only reasons are dropped) or stored codes. */
+export interface PlanToSave extends Omit<PlanWeekResult, "degradedReasons"> {
+  degradedReasons: (DegradedReason | DegradedReasonDraft)[];
+}
+
+export function savePlan(
+  db: Database.Database,
+  plan: PlanToSave,
+  generatedAt: string,
+): number {
   return db.transaction(() => {
     db.prepare("DELETE FROM weekly_plan WHERE week_start = ?").run(plan.weekStart);
     const result = db
       .prepare("INSERT INTO weekly_plan (week_start, generated_at, status, degraded_reasons) VALUES (?, ?, 'generated', ?)")
-      .run(plan.weekStart, generatedAt, JSON.stringify(plan.degradedReasons));
+      .run(plan.weekStart, generatedAt, JSON.stringify(toStored(plan.degradedReasons)));
     const id = Number(result.lastInsertRowid);
     const insert = db.prepare(
       `INSERT INTO planned_dinner (plan_id, date, dish_id, is_quick_day, lunch_that_day, selection_rationale)
@@ -70,7 +81,7 @@ export function getPlanForWeek(db: Database.Database, weekStart: string): Weekly
     weekStart: row.week_start,
     generatedAt: row.generated_at,
     status: row.status,
-    degradedReasons: JSON.parse(row.degraded_reasons) as string[],
+    degradedReasons: parseDegradedReasons(row.degraded_reasons),
     dinners: listPlannedDinners(db, row.id),
   };
 }
@@ -143,4 +154,33 @@ function windowStart(weekStart: string, windowWeeks: number): string {
 export function getPlanById(db: Database.Database, planId: number): { weekStart: string } | undefined {
   const row = db.prepare("SELECT week_start FROM weekly_plan WHERE id = ?").get(planId) as { week_start: string } | undefined;
   return row ? { weekStart: row.week_start } : undefined;
+}
+
+/**
+ * Swap (spec #71): puts `dishId` on the plan's dinner for `date` with `rationale`, and clears the
+ * old Dish's recipe link and that date's degraded reasons (the household picked the Dish, so they
+ * no longer describe it; week-wide reasons stay). Returns false when the plan has no dinner on that date.
+ */
+export function setPlannedDinnerDish(
+  db: Database.Database,
+  planId: number,
+  date: string,
+  dishId: number,
+  rationale: string,
+): boolean {
+  return db.transaction(() => {
+    const changed =
+      db
+        .prepare("UPDATE planned_dinner SET dish_id = ?, selection_rationale = ?, source_url = NULL WHERE plan_id = ? AND date = ?")
+        .run(dishId, rationale, planId, date).changes > 0;
+    if (!changed) return false;
+    const row = db.prepare("SELECT degraded_reasons FROM weekly_plan WHERE id = ?").get(planId) as
+      | { degraded_reasons: string }
+      | undefined;
+    if (row) {
+      const kept = parseDegradedReasons(row.degraded_reasons).filter((r) => r.date !== date);
+      db.prepare("UPDATE weekly_plan SET degraded_reasons = ? WHERE id = ?").run(JSON.stringify(kept), planId);
+    }
+    return true;
+  })();
 }

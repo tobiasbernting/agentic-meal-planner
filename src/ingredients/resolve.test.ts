@@ -35,6 +35,86 @@ function fetcher(pages: Record<string, string>, fetched: string[] = []) {
   };
 }
 
+describe("extracted Ingredients", () => {
+  it("keep the Preparation Note from a URL extraction, also from the cache", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos", recipeUrl: RECIPE_URL });
+    const llm = new ScriptedLlmAgent({
+      extractIngredients: { ok: true, value: [{ name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" }, { name: "salt" }] },
+    });
+    const deps = { db, llm, fetchPage: fetcher({ [RECIPE_URL]: RECIPE_PAGE }) };
+    const expected = [
+      { name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" },
+      { name: "salt", quantity: null, unit: null },
+    ];
+
+    const first = await resolveIngredients(deps, getDish(db, id)!);
+    const cached = await resolveIngredients(deps, getDish(db, id)!);
+
+    expect(first.ingredients).toEqual(expected);
+    expect(cached.ingredients).toEqual(expected);
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  it("keep the Preparation Note from an LLM-found recipe", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos" });
+    const llm = new ScriptedLlmAgent({
+      findRecipe: { ok: true, value: { url: FOUND_URL, ingredients: [{ name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" }] } },
+    });
+
+    const result = await resolveIngredients({ db, llm, fetchPage: fetcher({}) }, getDish(db, id)!);
+
+    expect(result.ingredients).toEqual([{ name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" }]);
+  });
+
+  it("ask the agent for the household's UI language", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos", recipeUrl: RECIPE_URL });
+    const llm = new ScriptedLlmAgent({ extractIngredients: { ok: true, value: [] } });
+
+    await resolveIngredients({ db, llm, fetchPage: fetcher({ [RECIPE_URL]: RECIPE_PAGE }) }, getDish(db, id)!);
+
+    expect(llm.calls[0]!.args[1]).toEqual({ language: "sv" });
+  });
+
+  it("are extracted again after a language change: the URL cache is per language", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos", recipeUrl: RECIPE_URL });
+    const llm = new ScriptedLlmAgent({
+      extractIngredients: (_page, { language }) => ({ ok: true, value: [{ name: language === "en" ? "milk" : "mjölk" }] }),
+    });
+    const deps = { db, llm, fetchPage: fetcher({ [RECIPE_URL]: RECIPE_PAGE }) };
+
+    const sv = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+    const en = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+    const enAgain = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+
+    expect(sv.ingredients.map((i) => i.name)).toEqual(["mjölk"]);
+    expect(en.ingredients.map((i) => i.name)).toEqual(["milk"]);
+    expect(enAgain).toEqual(en);
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  it("are found again after a language change: the found-recipe cache is per language", async () => {
+    const db = freshDb();
+    const id = createDish(db, { name: "Mos" });
+    const llm = new ScriptedLlmAgent({
+      findRecipe: (_name, { language }) => ({ ok: true, value: { url: FOUND_URL, ingredients: [{ name: language === "en" ? "milk" : "mjölk" }] } }),
+    });
+    const deps = { db, llm, fetchPage: fetcher({}) };
+
+    const sv = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+    const en = await resolveIngredients({ ...deps, language: "en" }, getDish(db, id)!);
+    const svAgain = await resolveIngredients({ ...deps, language: "sv" }, getDish(db, id)!);
+
+    expect(sv.ingredients.map((i) => i.name)).toEqual(["mjölk"]);
+    expect(en.ingredients.map((i) => i.name)).toEqual(["milk"]);
+    expect(svAgain).toEqual(sv);
+    expect(llm.calls).toHaveLength(2);
+  });
+});
+
 describe("resolveIngredients", () => {
   it("manual Ingredients win over a recipe URL: nothing is fetched or extracted", async () => {
     const db = freshDb();
@@ -89,7 +169,7 @@ describe("resolveIngredients", () => {
       source: "url",
       sourceUrl: RECIPE_URL,
     });
-    expect(llm.calls).toEqual([{ method: "extractIngredients", args: [RECIPE_PAGE, { adaptationNotes: undefined }] }]);
+    expect(llm.calls).toEqual([{ method: "extractIngredients", args: [RECIPE_PAGE, { adaptationNotes: undefined, language: "sv" }] }]);
   });
 
   it("fetches a URL on every resolve but extracts once per content hash", async () => {
@@ -139,8 +219,8 @@ describe("resolveIngredients", () => {
     expect(adaptedResult.ingredients.map((i) => i.name)).toEqual(["flour", "eggs"]);
     expect(adaptedAgain).toEqual(adaptedResult);
     expect(llm.calls.map((c) => c.args[1])).toEqual([
-      { adaptationNotes: undefined },
-      { adaptationNotes: "no chili — the kids" },
+      { adaptationNotes: undefined, language: "sv" },
+      { adaptationNotes: "no chili — the kids", language: "sv" },
     ]);
   });
 
@@ -200,7 +280,7 @@ describe("resolveIngredients", () => {
       sourceUrl: FOUND_URL,
     });
     expect(fetched).toEqual([]);
-    expect(llm.calls).toEqual([{ method: "findRecipe", args: ["Burgers", { adaptationNotes: undefined }] }]);
+    expect(llm.calls).toEqual([{ method: "findRecipe", args: ["Burgers", { adaptationNotes: undefined, language: "sv" }] }]);
   });
 
   it("degrades to source none with the agent's reason when no recipe is found, and retries next resolve", async () => {
@@ -238,8 +318,8 @@ describe("resolveIngredients", () => {
     expect(adaptedResult.ingredients.map((i) => i.name)).toEqual(["buns"]);
     expect(adaptedAgain).toEqual(adaptedResult);
     expect(llm.calls.map((c) => c.args)).toEqual([
-      ["Burgers", { adaptationNotes: undefined }],
-      ["Burgers", { adaptationNotes: "no pickles — the kids" }],
+      ["Burgers", { adaptationNotes: undefined, language: "sv" }],
+      ["Burgers", { adaptationNotes: "no pickles — the kids", language: "sv" }],
     ]);
   });
 });

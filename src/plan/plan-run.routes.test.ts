@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,6 +67,7 @@ describe("Plan Run started from the Plan page", () => {
 
     const finished = await banner(app, WEEK);
     expect(finished.body).toContain("Plan Run finished 18:30");
+    expect(finished.body).toContain('class="plan-run plan-run-done"');
     expect(finished.body).not.toMatch(/hx-(get|trigger|swap)/);
   });
 
@@ -85,7 +86,33 @@ describe("Plan Run started from the Plan page", () => {
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body).toContain("Ingredient resolution");
     expect(view.body).toContain("Ingredients 0 of 7: Köttbullar");
-    expect(view.body.match(/<strong>Köttbullar<\/strong>/g)).toHaveLength(7);
+    expect(view.body.match(/<div class="day-dinner">Köttbullar<\/div>/g)).toHaveLength(7);
+    held.resolve({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+  });
+
+  it("places the almanac-style banner between the status block and the days, with Byt and Regenerate hidden hooks", async () => {
+    const held = deferred<LlmResult<FoundRecipe>>();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({ ok: true, value: input.days.map((d) => ({ date: d.date, dishId: String(kottbullar), rationale: "r" })) }),
+      findRecipe: () => held.promise,
+    });
+    const app = await start({ llm });
+    const kottbullar = createDish(app.ctx.db, { name: "Köttbullar", prepTimeMinutes: 20 });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await until(async () => (await banner(app, WEEK)).body.includes("Ingredients"));
+
+    const body = (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body;
+
+    const at = body.indexOf('id="plan-run-banner"');
+    expect(at).toBeGreaterThan(body.indexOf("plan-status"));
+    expect(at).toBeLessThan(body.indexOf('id="day-'));
+    expect(body).toMatch(/<div id="plan-run-banner" class="plan-run plan-run-active notice" role="status"/);
+    expect(body).toContain('<strong class="notice-label">Phase</strong> Ingredient resolution');
+    expect(body).not.toContain('action="/plan/generate"');
+    expect(body).not.toContain('action="/plan/regenerate"');
+    // Byt hides through the stylesheet: every action but the Recept link, after an active banner.
+    expect(readFileSync("public/app.css", "utf8")).toContain(".plan-run-active ~ .day .actions > :not(a) { display: none; }");
     held.resolve({ ok: false, reason: "released" });
     await planRunSettled(app, WEEK);
   });
@@ -100,12 +127,12 @@ describe("Plan Run started from the Plan page", () => {
     await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
 
     const during = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(during.body.match(/<strong>Burgers<\/strong>/g)).toHaveLength(7);
+    expect(during.body.match(/<div class="day-dinner">Burgers<\/div>/g)).toHaveLength(7);
     held.resolve({ ok: true, value: weekDates(WEEK).map((date) => ({ date, dishId: String(stew), rationale: "r" })) });
     await planRunSettled(app, WEEK);
     const after = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(after.body.match(/<strong>Stew<\/strong>/g)).toHaveLength(7);
-    expect(after.body).not.toContain("<strong>Burgers</strong>");
+    expect(after.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(7);
+    expect(after.body).not.toContain('<div class="day-dinner">Burgers</div>');
   });
 
   it("hides Generate and Regenerate while the run is in flight and offers them again when it has finished", async () => {
@@ -216,7 +243,7 @@ describe("Plan Run started from the Plan page", () => {
 
     const inFlight = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: sv });
     expect(inFlight.body).toContain("Planering pågår sedan 18:30");
-    expect(inFlight.body).toContain("Fas: Hämtar ingredienser");
+    expect(inFlight.body).toContain('<strong class="notice-label">Fas</strong> Hämtar ingredienser');
     expect(inFlight.body).toContain("Ingredienser 0 av 7: Köttbullar");
     const refused = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
     expect((await app.inject({ method: "GET", url: refused.headers.location as string, headers: sv })).body).toContain("En planering pågår redan");
@@ -259,6 +286,7 @@ describe("a Plan Run that throws", () => {
 
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body).toContain("Plan Run failed 18:30: agent exploded");
+    expect(view.body).toMatch(/<div id="plan-run-banner" class="plan-run plan-run-failed notice" role="alert">/);
     expect((await banner(app, WEEK)).body).not.toMatch(/hx-(get|trigger|swap)/);
     const sv = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: { cookie: "lang=sv" } });
     expect(sv.body).toContain("Planeringen misslyckades 18:30: agent exploded");
@@ -273,7 +301,7 @@ describe("a Plan Run that throws", () => {
     const pasta = createDish(app.ctx.db, { name: "Pasta", prepTimeMinutes: 20, ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(pasta), degradedReasons: [] }, NOW.toISOString());
     await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
-    const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<strong>[^<]*<\/strong>/g);
+    const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<div class="day-dinner">[^<]*<\/div>/g);
     const shoppingList = async () => (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body.match(/<section id="(buy|check-pantry)">[\s\S]*?<\/section>/g);
     const before = { dinners: await dinners(), shoppingList: await shoppingList() };
 
@@ -281,7 +309,7 @@ describe("a Plan Run that throws", () => {
     await planRunSettled(app, WEEK);
 
     expect(before.dinners).toHaveLength(7);
-    expect(before.shoppingList?.join("")).toContain("<li>400 g pasta</li>");
+    expect(before.shoppingList?.join("")).toContain("400 g pasta");
     expect({ dinners: await dinners(), shoppingList: await shoppingList() }).toEqual(before);
   });
 
@@ -302,8 +330,8 @@ describe("a Plan Run that throws", () => {
     await planRunSettled(app, WEEK);
 
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(view.body.match(/<strong>Stew<\/strong>/g)).toHaveLength(7);
-    expect(view.body).not.toContain("<strong>Burgers</strong>");
+    expect(view.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(7);
+    expect(view.body).not.toContain('<div class="day-dinner">Burgers</div>');
     expect(view.body).toContain("Plan Run failed 18:30: recipe search exploded");
     expect(view.body).toContain('action="/plan/regenerate"');
   });

@@ -23,12 +23,12 @@ afterEach(async () => {
 });
 
 describe("Settings page", () => {
-  it("links to Settings last in the nav", async () => {
+  it("is listed on More, before Logs", async () => {
     const app = await start();
 
-    const res = await app.inject({ method: "GET", url: "/" });
+    const res = await app.inject({ method: "GET", url: "/more" });
 
-    expect(res.body).toMatch(/<a href="\/settings">Settings<\/a><\/nav>/);
+    expect(res.body).toMatch(/<a class="row-link" href="\/settings"><span class="row-label">Settings<\/span>[\s\S]*href="\/logs"/);
   });
 
   it("shows the documented defaults in the form", async () => {
@@ -39,12 +39,12 @@ describe("Settings page", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('name="quick_day_tue" value="30"');
     expect(res.body).toContain('name="quick_day_mon" value=""');
-    expect(res.body).toContain('name="cron_expression" value="0 18 * * 0"');
+    expect(res.body).toContain('name="schedule_time" value="18:00"');
     expect(res.body).toContain('name="variety_window_weeks" value="3"');
     expect(res.body).toContain('name="category_collision_enabled" checked');
     expect(res.body).toContain('name="default_prep_limit_minutes" value="30"');
     expect(res.body).toContain('name="agent_command" value="" placeholder="copilot --model gpt-5-mini --reasoning-effort low -p"');
-    expect(res.body).toContain('name="shopping_list_sinks">[]</textarea>');
+    expect(res.body).toContain('name="webhook_url" value=""');
   });
 
   it("saves the form; the Quick Day template is what the planner reads (FR-6d)", async () => {
@@ -310,5 +310,106 @@ describe("suggestion style", () => {
     expect(readSetting(app.ctx.db, "suggestion_style")).toBe("vegetarian Indian");
     const again = await app.inject({ method: "GET", url: "/settings" });
     expect(again.body).toContain('name="suggestion_style" value="vegetarian Indian"');
+  });
+});
+
+describe("Settings sections (grouped, plain controls)", () => {
+  const base = { variety_window_weeks: "3", default_prep_limit_minutes: "30" };
+  const sections = (body: string) => [...body.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1]);
+
+  it("groups the page into its sections and links to Logs (English)", async () => {
+    const app = await start();
+    const res = await app.inject({ method: "GET", url: "/settings" });
+    expect(sections(res.body)).toEqual(["Week & Quick Days", "Planning", "Agent", "Recipients", "Language"]);
+    expect(res.body).toContain('href="/logs"');
+  });
+
+  it("groups the page into its sections (Swedish)", async () => {
+    const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-sv-")) });
+    apps.push(app);
+    const res = await app.inject({ method: "GET", url: "/settings" });
+    expect(sections(res.body)).toEqual(["Vecka & snabbdagar", "Planering", "Agent", "Mottagare", "Språk"]);
+    expect(res.body).toContain("Söndag");
+  });
+
+  it("shows the default schedule as weekday and time with no advanced field", async () => {
+    const app = await start();
+    const res = await app.inject({ method: "GET", url: "/settings" });
+    expect(res.body).toMatch(/<option value="0" selected>Sunday<\/option>/);
+    expect(res.body).toContain('name="schedule_time" value="18:00"');
+    expect(res.body).not.toContain('name="cron_expression"');
+  });
+
+  it("round-trips the picker to cron: Sunday 18:00 <-> 0 18 * * 0", async () => {
+    const app = await start();
+    const saved = await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "5", schedule_time: "07:30" } });
+    expect(saved.statusCode).toBe(303);
+    expect(readSetting(app.ctx.db, "cron_expression")).toBe("30 7 * * 5");
+    const shown = await app.inject({ method: "GET", url: "/settings" });
+    expect(shown.body).toMatch(/<option value="5" selected>Friday<\/option>/);
+    expect(shown.body).toContain('name="schedule_time" value="07:30"');
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00" } });
+    expect(readSetting(app.ctx.db, "cron_expression")).toBe("0 18 * * 0");
+  });
+
+  it("rejects a malformed picker time", async () => {
+    const app = await start();
+    const res = await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "25:99" } });
+    expect(res.statusCode).toBe(400);
+    expect(readSetting(app.ctx.db, "cron_expression")).toBeUndefined();
+  });
+
+  it("shows and saves an unusual cron under avancerat", async () => {
+    const app = await start();
+    const saved = await app.inject({ method: "POST", url: "/settings", payload: { ...base, cron_expression: "*/15 * * * 1-5" } });
+    expect(saved.statusCode).toBe(303);
+    expect(readSetting(app.ctx.db, "cron_expression")).toBe("*/15 * * * 1-5");
+    const shown = await app.inject({ method: "GET", url: "/settings" });
+    expect(shown.body).toMatch(/<details[^>]* open>\s*<summary>Advanced<\/summary>/);
+    expect(shown.body).toContain('name="cron_expression" value="*/15 * * * 1-5"');
+    // Saving the page again unchanged keeps it.
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, cron_expression: "*/15 * * * 1-5", schedule_day: "", schedule_time: "" } });
+    expect(readSetting(app.ctx.db, "cron_expression")).toBe("*/15 * * * 1-5");
+  });
+
+  it("writes the webhook URL and format to the sinks JSON and shows them again", async () => {
+    const app = await start();
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", webhook_url: "https://ntfy.sh/mat", webhook_format: "json" } });
+    expect(JSON.parse(readSetting(app.ctx.db, "shopping_list_sinks")!)).toEqual([{ type: "webhook", url: "https://ntfy.sh/mat", format: "json" }]);
+    const shown = await app.inject({ method: "GET", url: "/settings" });
+    expect(shown.body).toContain('name="webhook_url" value="https://ntfy.sh/mat"');
+    expect(shown.body).toMatch(/<option value="json" selected>/);
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", webhook_url: "", webhook_format: "ntfy" } });
+    expect(JSON.parse(readSetting(app.ctx.db, "shopping_list_sinks")!)).toEqual([]);
+  });
+
+  it("keeps other sink entries when the webhook changes, and rejects a non-http URL", async () => {
+    const app = await start();
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", shopping_list_sinks: '[{"type":"trello"}]' } });
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", webhook_url: "https://ntfy.sh/mat", webhook_format: "ntfy" } });
+    expect(JSON.parse(readSetting(app.ctx.db, "shopping_list_sinks")!)).toEqual([{ type: "trello" }, { type: "webhook", url: "https://ntfy.sh/mat", format: "ntfy" }]);
+    const bad = await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", webhook_url: "ftp://x" } });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("shows whether Trello is configured from env", async () => {
+    const without = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-trello-")), env: {} }));
+    apps.push(without);
+    expect((await without.inject({ method: "GET", url: "/settings" })).body).toContain("Trello: not configured");
+    const withEnv = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-trello-")), env: { TRELLO_KEY: "k", TRELLO_TOKEN: "t", TRELLO_BOARD_ID: "b" } }));
+    apps.push(withEnv);
+    const body = (await withEnv.inject({ method: "GET", url: "/settings" })).body;
+    expect(body).toContain("Trello: configured");
+    expect(body).not.toContain(">t<");
+  });
+
+  it("shows the agent command and whether its binary was found", async () => {
+    vi.stubEnv("AGENT_COMMAND", "");
+    const app = await start();
+    expect((await app.inject({ method: "GET", url: "/settings" })).body).toContain("No agent");
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", agent_command: "no-such-binary-xyz -p" } });
+    expect((await app.inject({ method: "GET", url: "/settings" })).body).toContain("Agent program not found");
+    await app.inject({ method: "POST", url: "/settings", payload: { ...base, schedule_day: "0", schedule_time: "18:00", agent_command: "node -p" } });
+    expect((await app.inject({ method: "GET", url: "/settings" })).body).toContain("Agent found");
   });
 });

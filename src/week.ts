@@ -34,9 +34,14 @@ export function mondayOf(date: string): string {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Whether a request value has the ISO `YYYY-MM-DD` shape every date route accepts. */
+export function isIsoDate(raw: string | undefined): raw is string {
+  return raw !== undefined && ISO_DATE.test(raw);
+}
+
 /** The Monday of a requested week (a `?week=` or form value); absent or malformed means `today`'s week. */
 export function resolveWeek(raw: string | undefined, today: string): string {
-  return mondayOf(raw && ISO_DATE.test(raw) ? raw : today);
+  return mondayOf(isIsoDate(raw) ? raw : today);
 }
 
 /**
@@ -59,4 +64,12 @@ export function localTime(d: Date, timezone?: string): string {
 /** The Monday of the week after the one containing `now` (the week the Sunday run plans). */
 export function comingWeekStart(now: Date, timezone?: string): string {
   return addDays(mondayOf(localDate(now, timezone)), 7);
+}
+
+/** ISO 8601 week number of `date` (weeks start Monday; week 1 holds the year's first Thursday). */
+export function isoWeek(date: string): number {
+  const thursday = addDays(mondayOf(date), 3);
+  const jan1 = `${thursday.slice(0, 4)}-01-01`;
+  const dayOfYear = (Date.parse(`${thursday}T00:00:00Z`) - Date.parse(`${jan1}T00:00:00Z`)) / 86_400_000;
+  return Math.floor(dayOfYear / 7) + 1;
 }

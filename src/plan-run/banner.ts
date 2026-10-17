@@ -52,22 +52,22 @@ export function renderPlanRunBanner(lang: Lang, weekStart: string, state: PlanRu
     const progressText = progress
       ? `<p class="plan-run-progress">${escapeHtml(t(lang, "planRun.progress", { done: progress.done, total: progress.total, dish: progress.dish }))}</p>`
       : "";
-    return `<div id="${BANNER_ID}" class="plan-run notice" hx-get="${bannerUrl(weekStart, shown)}" hx-trigger="every 2s" hx-swap="outerHTML">
+    return `<div id="${BANNER_ID}" class="plan-run plan-run-active notice" role="status" hx-get="${bannerUrl(weekStart, shown)}" hx-trigger="every 2s" hx-swap="outerHTML">
   <p>${escapeHtml(t(lang, "planRun.inProgress", { time: localTime(startedAt, timezone) }))}</p>
-  <p class="plan-run-phase">${escapeHtml(t(lang, "planRun.phase"))}: ${escapeHtml(phaseText)}</p>
+  <p class="plan-run-phase"><strong class="notice-label">${escapeHtml(t(lang, "planRun.phase"))}</strong> ${escapeHtml(phaseText)}</p>
   ${progressText}
 </div>`;
   }
   if (state?.outcome.kind === "finished") {
     const { at, lunchChanged } = state.outcome;
-    return `<div id="${BANNER_ID}" class="plan-run">
+    return `<div id="${BANNER_ID}" class="plan-run plan-run-done">
   <p>${escapeHtml(t(lang, "planRun.finished", { time: localTime(at, timezone) }))}</p>
   ${lunchChanged.length ? lunchChangedNotice(lang, describeChanges ? describeChanges(lunchChanged) : []) : ""}
 </div>`;
   }
   if (state?.outcome.kind === "failed") {
     const { at, message } = state.outcome;
-    return `<div id="${BANNER_ID}" class="plan-run plan-run-failed">
+    return `<div id="${BANNER_ID}" class="plan-run plan-run-failed notice" role="alert">
   <p>${escapeHtml(t(lang, "planRun.failed", { time: localTime(at, timezone), reason: message }))}</p>
 </div>`;
   }

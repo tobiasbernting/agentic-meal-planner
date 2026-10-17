@@ -34,6 +34,49 @@ describe("openDatabase", () => {
     expect(reopened).toBe(createdAt);
   });
 
+  it("adds the preparation_note column to an old dish_ingredient table", () => {
+    const dataDir = tempDataDir();
+    openDatabase(dataDir).close();
+    const old = new Database(join(dataDir, DB_FILENAME));
+    old.exec("ALTER TABLE dish_ingredient DROP COLUMN preparation_note");
+    old.close();
+
+    const db = openDatabase(dataDir);
+    const columns = (db.pragma("table_info(dish_ingredient)") as { name: string }[]).map((c) => c.name);
+    db.close();
+
+    expect(columns).toContain("preparation_note");
+  });
+
+  it("rebuilds a pre-language extraction cache empty, keyed by language, once", () => {
+    const dataDir = tempDataDir();
+    const old = new Database(join(dataDir, DB_FILENAME));
+    old.exec(`CREATE TABLE recipe_extraction (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, content_hash TEXT NOT NULL,
+      adaptation_notes TEXT NOT NULL DEFAULT '', ingredients_json TEXT NOT NULL, extracted_at TEXT NOT NULL,
+      UNIQUE (url, content_hash, adaptation_notes));
+    CREATE TABLE found_recipe (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, dish_name TEXT NOT NULL, adaptation_notes TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL, ingredients_json TEXT NOT NULL, found_at TEXT NOT NULL,
+      UNIQUE (dish_name, adaptation_notes));
+    INSERT INTO recipe_extraction (url, content_hash, ingredients_json, extracted_at) VALUES ('u', 'h', '[]', 'now');
+    INSERT INTO found_recipe (dish_name, url, ingredients_json, found_at) VALUES ('d', 'u', '[]', 'now');`);
+    old.close();
+
+    const first = openDatabase(dataDir);
+    const count = (db: Database.Database, table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const afterUpgrade = [count(first, "recipe_extraction"), count(first, "found_recipe")];
+    first.exec(`INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'sv', '[]', 'now');
+      INSERT INTO recipe_extraction (url, content_hash, language, ingredients_json, extracted_at) VALUES ('u', 'h', 'en', '[]', 'now');`);
+    first.close();
+    const second = openDatabase(dataDir);
+    const afterReopen = count(second, "recipe_extraction");
+    second.close();
+
+    expect(afterUpgrade).toEqual([0, 0]);
+    expect(afterReopen).toBe(2);
+  });
+
   it("adds the suggested column, default 0, to a pre-#51 dish table, and reopens cleanly", () => {
     const dataDir = tempDataDir();
     const old = new Database(join(dataDir, DB_FILENAME));

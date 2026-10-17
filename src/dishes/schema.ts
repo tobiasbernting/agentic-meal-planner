@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS dish_ingredient (
   position INTEGER NOT NULL,
   name     TEXT    NOT NULL,
   quantity REAL,
-  unit     TEXT
+  unit     TEXT,
+  preparation_note TEXT
 );
 CREATE INDEX IF NOT EXISTS dish_ingredient_dish_id ON dish_ingredient(dish_id);
 `;

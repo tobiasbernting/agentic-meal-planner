@@ -43,8 +43,8 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     const itemId = typeof item === "number" ? item : item.id;
 
     const screens: [string, string][] = [
-      ["/", "Skollunch"],
-      ["/plan", "Veckoplan"],
+      ["/", "Uppdatera lunchmenyer"],
+      ["/plan", "Ingen plan för den här veckan"],
       ["/shopping", "Inköpslista"],
       ["/dishes", "Rätter"],
       ["/dishes/new", "Ny rätt"],
@@ -70,7 +70,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-26" });
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-10-26" });
     expect(res.body).toContain('<a href="/">Idag</a>');
-    expect(res.body).toContain("Måndag");
+    expect(res.body).toContain("<span>Mån</span>");
   });
   it("localises the sinks section of the Shopping List (#32, #37)", async () => {
     const app = await makeApp();
@@ -93,11 +93,11 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     );
     await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: "2026-10-26" } });
     const sv = (await app.inject({ method: "GET", url: "/shopping?week=2026-10-26" })).body;
-    expect(sv).toContain('<section id="sinks"><h2>Mottagare</h2>');
+    expect(sv).toContain('<section id="sinks">');
     expect(sv).toContain("Skicka igen");
-    expect(sv).not.toContain("Push again");
+    expect(sv).not.toContain("Send again");
     const en = (await app.inject({ method: "GET", url: "/shopping?week=2026-10-26", headers: { cookie: "lang=en" } })).body;
-    expect(en).toContain("Push again");
+    expect(en).toContain("Send again");
     const settings = (await app.inject({ method: "GET", url: "/settings" })).body;
     expect(settings).toContain("WEBHOOK_SECRET");
     expect(settings).not.toContain("Shopping List Sinks");

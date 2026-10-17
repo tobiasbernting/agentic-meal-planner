@@ -78,7 +78,7 @@ describe("Ingest Outcome recording", () => {
 });
 
 describe("Schools page", () => {
-  it("shows each School's latest Ingest Outcome with reason and time", async () => {
+  it("shows each School's latest Ingest Outcome as a plain failure line with a retry", async () => {
     const app = await start({ fetchPage: failingFetch, llm: failingAgent() });
     createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
     createSchool(app.ctx.db, { name: "Southside", url: "https://south.example/menu" });
@@ -89,20 +89,20 @@ describe("Schools page", () => {
     await app.inject({ method: "POST", url: "/lunch/refresh" });
     const res = await app.inject({ method: "GET", url: "/schools" });
 
-    expect(res.body).toContain("No menu data");
-    expect(res.body).toContain("fetch failed: connection refused");
-    expect(res.body).toContain(`<time datetime="${NOW.toISOString()}">`);
+    expect(res.body).toContain("Could not fetch the menu");
+    expect(res.body).toContain('action="/schools/1/retry"');
+    expect(res.body).toContain('action="/schools/2/retry"');
     expect(res.body).not.toContain("No ingest attempt yet");
   });
 
-  it("labels fetched and cached outcomes in Swedish", async () => {
+  it("words a fetched outcome in Swedish household terms", async () => {
     const app = await start();
     const school = createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
     recordIngestOutcome(app.ctx.db, { schoolId: school.id, weekStart: WEEK, status: "fetched", reason: null, recordedAt: NOW.toISOString() });
 
     const res = await app.inject({ method: "GET", url: "/schools", headers: { cookie: "lang=sv" } });
 
-    expect(res.body).toContain("Hämtad");
+    expect(res.body).toContain("hämtad ons 18:30");
   });
 });
 

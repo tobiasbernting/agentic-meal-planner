@@ -3,14 +3,17 @@ import { silentLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
 import { getDish, type Dish, type Ingredient } from "../dishes/repo.js";
-import type { Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
+import type { ExtractIngredientsOptions, Ingredient as LlmIngredient, LlmAgent } from "../llm/index.js";
 import { listPlannedDinners, setPlannedDinnerSource, type PlannedDinner } from "../planner/repo.js";
+import { DEFAULT_LANG, type Lang } from "../i18n/index.js";
 import type { FetchPage } from "../plugins/schools/index.js";
 
 export interface ResolveDeps {
   db: Database.Database;
   llm: LlmAgent;
   fetchPage: FetchPage;
+  /** UI language the agent names Ingredients in; defaults to the app's default language. */
+  language?: Lang;
   /** Timestamp for cache rows (ISO string); defaults to the wall clock. */
   now?: () => Date;
   /** Run logger (bound to `runId`); defaults to `silentLogger`. */
@@ -41,7 +44,7 @@ export interface ResolvedIngredients {
  * 2. Otherwise the Recipe URL: the page is fetched, hashed (sha256), and the LLM
  *    extraction is cached per url + content hash + Adaptation notes. Fetching is cheap
  *    and happens on every resolve (it is how we learn the hash); the expensive LLM call
- *    runs once per distinct page content. Adaptations are applied during extraction.
+ *    runs once per distinct page content and UI language. Adaptations are applied during extraction.
  * 3. Neither: the LLM finds a recipe from the Dish name (`llm.findRecipe`, FR-2) and
  *    extracts from it, Adaptations applied; the result is cached per name + Adaptation
  *    (`found_recipe`) and carries `sourceUrl` for the Planned Dinner's link. When the
@@ -66,13 +69,14 @@ async function resolveByPrecedence(deps: ResolveDeps, dish: Dish): Promise<Resol
 }
 
 async function resolveFromLlm(deps: ResolveDeps, dishName: string, adaptationNotes: string): Promise<ResolvedIngredients> {
-  const cached = readFoundRecipe(deps.db, dishName, adaptationNotes);
+  const language = languageOf(deps);
+  const cached = readFoundRecipe(deps.db, dishName, adaptationNotes, language);
   if (cached) return { ingredients: cached.ingredients, source: "llm", sourceUrl: cached.url };
 
-  const result = await deps.llm.findRecipe(dishName, { adaptationNotes: adaptationNotes || undefined });
+  const result = await deps.llm.findRecipe(dishName, extractOptions(deps, adaptationNotes));
   if (!result.ok) return { ingredients: [], source: "none", degradedReason: result.reason };
   const ingredients = result.value.ingredients.map(toIngredient);
-  writeFoundRecipe(deps.db, dishName, adaptationNotes, result.value.url, ingredients, (deps.now?.() ?? new Date()).toISOString());
+  writeFoundRecipe(deps.db, dishName, adaptationNotes, language, result.value.url, ingredients, (deps.now?.() ?? new Date()).toISOString());
   return { ingredients, source: "llm", sourceUrl: result.value.url };
 }
 
@@ -80,10 +84,11 @@ function readFoundRecipe(
   db: Database.Database,
   dishName: string,
   adaptationNotes: string,
+  language: Lang,
 ): { url: string; ingredients: Ingredient[] } | undefined {
   const row = db
-    .prepare("SELECT url, ingredients_json FROM found_recipe WHERE dish_name = ? AND adaptation_notes = ?")
-    .get(dishName, adaptationNotes) as { url: string; ingredients_json: string } | undefined;
+    .prepare("SELECT url, ingredients_json FROM found_recipe WHERE dish_name = ? AND adaptation_notes = ? AND language = ?")
+    .get(dishName, adaptationNotes, language) as { url: string; ingredients_json: string } | undefined;
   return row ? { url: row.url, ingredients: JSON.parse(row.ingredients_json) as Ingredient[] } : undefined;
 }
 
@@ -91,16 +96,17 @@ function writeFoundRecipe(
   db: Database.Database,
   dishName: string,
   adaptationNotes: string,
+  language: Lang,
   url: string,
   ingredients: Ingredient[],
   foundAt: string,
 ): void {
   db.prepare(
-    `INSERT INTO found_recipe (dish_name, adaptation_notes, url, ingredients_json, found_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(dish_name, adaptation_notes) DO UPDATE
+    `INSERT INTO found_recipe (dish_name, adaptation_notes, language, url, ingredients_json, found_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(dish_name, adaptation_notes, language) DO UPDATE
        SET url = excluded.url, ingredients_json = excluded.ingredients_json, found_at = excluded.found_at`,
-  ).run(dishName, adaptationNotes, url, JSON.stringify(ingredients), foundAt);
+  ).run(dishName, adaptationNotes, language, url, JSON.stringify(ingredients), foundAt);
 }
 
 /** Convenience for a week's Planned Dinners: one result per Dish, in input order. */
@@ -149,26 +155,41 @@ async function resolveFromUrl(deps: ResolveDeps, url: string, adaptationNotes: s
     return { ingredients: [], source: "url", sourceUrl: url, degradedReason: `fetch failed: ${errorMessage(err)}` };
   }
   const contentHash = sha256(page);
-  const cached = readCache(deps.db, url, contentHash, adaptationNotes);
+  const language = languageOf(deps);
+  const cached = readCache(deps.db, url, contentHash, adaptationNotes, language);
   if (cached) return { ingredients: cached, source: "url", sourceUrl: url };
 
-  const result = await deps.llm.extractIngredients(page, { adaptationNotes: adaptationNotes || undefined });
+  const result = await deps.llm.extractIngredients(page, extractOptions(deps, adaptationNotes));
   if (!result.ok) return { ingredients: [], source: "url", sourceUrl: url, degradedReason: result.reason };
   const ingredients = result.value.map(toIngredient);
-  writeCache(deps.db, url, contentHash, adaptationNotes, ingredients, (deps.now?.() ?? new Date()).toISOString());
+  writeCache(deps.db, url, contentHash, adaptationNotes, language, ingredients, (deps.now?.() ?? new Date()).toISOString());
   return { ingredients, source: "url", sourceUrl: url };
+}
+
+function languageOf(deps: ResolveDeps): Lang {
+  return deps.language ?? DEFAULT_LANG;
+}
+
+function extractOptions(deps: ResolveDeps, adaptationNotes: string): ExtractIngredientsOptions {
+  return { adaptationNotes: adaptationNotes || undefined, language: languageOf(deps) };
 }
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-function readCache(db: Database.Database, url: string, contentHash: string, adaptationNotes: string): Ingredient[] | undefined {
+function readCache(
+  db: Database.Database,
+  url: string,
+  contentHash: string,
+  adaptationNotes: string,
+  language: Lang,
+): Ingredient[] | undefined {
   const row = db
     .prepare(
-      "SELECT ingredients_json FROM recipe_extraction WHERE url = ? AND content_hash = ? AND adaptation_notes = ?",
+      "SELECT ingredients_json FROM recipe_extraction WHERE url = ? AND content_hash = ? AND adaptation_notes = ? AND language = ?",
     )
-    .get(url, contentHash, adaptationNotes) as { ingredients_json: string } | undefined;
+    .get(url, contentHash, adaptationNotes, language) as { ingredients_json: string } | undefined;
   return row ? (JSON.parse(row.ingredients_json) as Ingredient[]) : undefined;
 }
 
@@ -177,15 +198,16 @@ function writeCache(
   url: string,
   contentHash: string,
   adaptationNotes: string,
+  language: Lang,
   ingredients: Ingredient[],
   extractedAt: string,
 ): void {
   db.prepare(
-    `INSERT INTO recipe_extraction (url, content_hash, adaptation_notes, ingredients_json, extracted_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(url, content_hash, adaptation_notes) DO UPDATE
+    `INSERT INTO recipe_extraction (url, content_hash, adaptation_notes, language, ingredients_json, extracted_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(url, content_hash, adaptation_notes, language) DO UPDATE
        SET ingredients_json = excluded.ingredients_json, extracted_at = excluded.extracted_at`,
-  ).run(url, contentHash, adaptationNotes, JSON.stringify(ingredients), extractedAt);
+  ).run(url, contentHash, adaptationNotes, language, JSON.stringify(ingredients), extractedAt);
 }
 
 /**
@@ -193,7 +215,9 @@ function writeCache(
  * agent gave a number or a numeric string (decimal comma accepted), otherwise null.
  */
 function toIngredient(ing: LlmIngredient): Ingredient {
-  return { name: ing.name, quantity: toQuantity(ing.quantity), unit: ing.unit ?? null };
+  const ingredient: Ingredient = { name: ing.name, quantity: toQuantity(ing.quantity), unit: ing.unit ?? null };
+  if (ing.preparationNote) ingredient.preparationNote = ing.preparationNote;
+  return ingredient;
 }
 
 function toQuantity(q: number | string | undefined): number | null {

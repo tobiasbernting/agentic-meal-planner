@@ -13,6 +13,41 @@ function scriptedRunner(replies: string[]) {
   return { run, calls };
 }
 
+describe("CliAgent Ingredient cleaning", () => {
+  it("asks extraction for a bare shopping name, the UI language, metric units and a separate Preparation Note", async () => {
+    const { run, calls } = scriptedRunner(['[{"name": "mjölk"}]', '{"url": "https://x.example", "ingredients": []}']);
+    const agent = new CliAgent("claude -p", { run });
+
+    await agent.extractIngredients("page", { language: "sv" });
+    await agent.findRecipe("Mos", { language: "en" });
+
+    const [extract, find] = calls.map((c) => c.args.at(-1)!);
+    expect(extract).toMatch(/Swedish/);
+    expect(find).toMatch(/English/);
+    for (const prompt of [extract, find]) {
+      expect(prompt).toMatch(/as it would be bought/);
+      expect(prompt).toMatch(/metric/);
+      expect(prompt).toMatch(/cups, lb and oz/);
+      expect(prompt).toContain('"preparationNote"');
+    }
+  });
+
+  it("accepts a Preparation Note and rejects one that is not text", async () => {
+    const { run } = scriptedRunner([
+      '[{"name": "mjölk", "quantity": 2, "unit": "dl", "preparationNote": "till mos"}]',
+      '[{"name": "mjölk", "preparationNote": 5}]',
+      '[{"name": "mjölk", "preparationNote": 5}]',
+    ]);
+    const agent = new CliAgent("claude -p", { run });
+
+    const ok = await agent.extractIngredients("page");
+    const bad = await agent.extractIngredients("page");
+
+    expect(ok).toEqual({ ok: true, value: [{ name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" }] });
+    expect(bad.ok).toBe(false);
+  });
+});
+
 describe("CliAgent.extractIngredients", () => {
   it("parses a valid JSON response", async () => {
     const { run, calls } = scriptedRunner([
@@ -427,6 +462,16 @@ describe("CliAgent.selectDishes", () => {
     const result = await agent.selectDishes(input);
 
     expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
+  });
+
+  it.each([
+    ["sv", "Swedish"],
+    ["en", "English"],
+  ] as const)("asks for rationales in the UI language (%s)", async (language, name) => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    await new CliAgent("copilot -p", { run }).selectDishes({ ...input, language });
+
+    expect(calls[0]!.args.at(-1)).toContain(`Write each rationale as one short sentence in ${name}`);
   });
 
   it("hands the suggestion style and seed list to the agent in the request JSON", async () => {

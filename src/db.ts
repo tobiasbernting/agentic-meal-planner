@@ -45,7 +45,24 @@ export function openDatabase(dataDir: string): Database.Database {
   db.pragma("foreign_keys = ON");
   for (const sql of SCHEMA) db.exec(sql);
   addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "dish_ingredient", "preparation_note", "TEXT");
+  addColumnIfMissing(db, "sink_push", "buy_hash", "TEXT");
+  // The extraction caches gained a language in their key (spec #71). They are caches, so the
+  // old tables are dropped and rebuilt empty rather than migrated.
+  runOnce(db, "extraction-cache-language-71", () =>
+    db.exec(`DROP TABLE IF EXISTS recipe_extraction; DROP TABLE IF EXISTS found_recipe; ${SCHEMA_INGREDIENTS}`),
+  );
   return db;
+}
+
+/** Runs a one-time data migration, recorded in `settings` as `migrated.<name>`. */
+function runOnce(db: Database.Database, name: string, migrate: () => void): void {
+  const key = `migrated.${name}`;
+  if (readSetting(db, key) !== undefined) return;
+  db.transaction(() => {
+    migrate();
+    writeSetting(db, key, new Date().toISOString());
+  })();
 }
 
 /** `CREATE TABLE IF NOT EXISTS` does not alter existing databases, so new columns need this. */

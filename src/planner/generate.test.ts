@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase, writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
+import { t } from "../i18n/index.js";
 import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent, type SelectDishesInput } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { createSchool, setSchoolActive } from "../schools/repo.js";
@@ -96,8 +97,8 @@ describe("generatePlan", () => {
 
     expect(result).toEqual({ planId: expect.any(Number), degradedReasons: [NO_AGENT_REASON] });
     const stored = getPlanForWeek(db, WEEK);
-    expect(stored?.degradedReasons).toEqual([NO_AGENT_REASON]);
-    expect(stored?.dinners.every((d) => d.dishId !== null && d.rationale === NO_AGENT_REASON)).toBe(true);
+    expect(stored?.degradedReasons).toEqual([{ code: "no-agent", date: null }]);
+    expect(stored?.dinners.every((d) => d.dishId !== null && d.rationale === t("sv", "rationale.noAgent"))).toBe(true);
   });
 
   it("does not replace a confirmed plan unless asked (FR-9a)", async () => {

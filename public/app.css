@@ -1,0 +1,259 @@
+/*
+ * Almanacka: the app's one stylesheet (spec #71). Served at /assets/app.css.
+ * Tokens first; component classes after. Pages use the classes, never raw colours.
+ * Red (--red) marks only Sundays and public holidays. Failures use .notice (inverted ink).
+ */
+
+@font-face { font-family: "Libre Franklin"; font-style: normal; font-weight: 400; font-display: swap; src: url("/assets/libre-franklin-400.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-style: normal; font-weight: 600; font-display: swap; src: url("/assets/libre-franklin-600.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-style: normal; font-weight: 800; font-display: swap; src: url("/assets/libre-franklin-800.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-style: normal; font-weight: 900; font-display: swap; src: url("/assets/libre-franklin-900.woff2") format("woff2"); }
+
+:root {
+  color-scheme: light dark;
+
+  /* Palette (light). --muted is darkened from the sketch's #7a7a72 to pass AA on paper. */
+  --paper: #fbfaf6;
+  --raised: #ffffff;
+  --ink: #1a1a1a;
+  --red: #c4161c;
+  --muted: #6b6b63;
+  --rule: #d9d7cf;
+  --notice-bg: var(--ink);
+  --notice-fg: #ffffff;
+  --focus: var(--ink);
+
+  /* Type ramp: date numeral > Dish name > lunch line > rationale. */
+  --font: "Libre Franklin", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fs-week: 4.5rem;     /* "v. 42" landmark */
+  --fs-date-today: 2.375rem;
+  --fs-date: 1.875rem;
+  --fs-dish-today: 1.875rem;
+  --fs-h1: 1.75rem;
+  --fs-dish: 1.0625rem;
+  --fs-body: 1rem;
+  --fs-lunch: 0.875rem;
+  --fs-small: 0.8125rem;
+  --fs-label: 0.75rem;
+
+  /* Space and sizes. */
+  --gutter: 16px;
+  --date-col: 68px;
+  --tap: 44px;
+  --tabbar-h: 58px;
+  --rule-heavy: 2px;
+  --today-rule: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #161614;
+    --raised: #22211e;
+    --ink: #ecebe4;
+    --red: #ff6b6b;
+    --muted: #a3a29a;
+    --rule: #3a3934;
+    --notice-bg: var(--ink);
+    --notice-fg: #161614;
+  }
+}
+
+/* Base */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.4;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.page {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
+}
+h1, h2, h3 { line-height: 1.1; margin: 0; }
+h1 { font-size: var(--fs-h1); font-weight: 800; }
+h2 { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+p { margin: 0.5rem 0; }
+a { color: inherit; text-underline-offset: 3px; }
+main > :not(.page-head, .week-head, .week-nav, .rows, .day, .notice) { margin-inline: var(--gutter); }
+.page > h1:first-child { margin-top: 18px; margin-bottom: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.label { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+
+/* Focus is always visible: a 2px ink ring outside the control. */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Page header: a title on a heavy ink rule. */
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  padding: 18px var(--gutter) 10px;
+  border-bottom: var(--rule-heavy) solid var(--ink);
+}
+
+/* Week landmark: "v. 42" in large type, month at the right. */
+.week-head { display: flex; align-items: flex-end; justify-content: space-between; padding: 18px var(--gutter) 10px; border-bottom: var(--rule-heavy) solid var(--ink); }
+.week-num { font-weight: 900; font-size: var(--fs-week); line-height: 0.8; letter-spacing: -2px; }
+.week-num small { font-size: 1.125rem; font-weight: 600; letter-spacing: 0; margin-right: 4px; vertical-align: top; }
+.week-month { text-align: right; font-size: 0.9375rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+
+/* Plan: "v. 41 ‹ › v. 43" under the week landmark, then status and its buttons above the days. */
+.week-nav { display: flex; justify-content: space-between; padding: 0 var(--gutter); border-bottom: 1px solid var(--rule); }
+.week-nav a { display: inline-flex; align-items: center; min-height: var(--tap); font-weight: 600; color: var(--ink); text-decoration: none; }
+.week-nav a:hover { text-decoration: underline; }
+.plan-status { padding: 12px 0 16px; }
+.plan-status p { font-weight: 600; }
+.plan-status .actions form { margin: 0; }
+
+/* Almanac day row: date numeral and weekday in a fixed left column, content to the right. */
+.day { display: grid; grid-template-columns: var(--date-col) 1fr; border-bottom: 1px solid var(--rule); }
+.day-date { padding: 12px 0 0 var(--gutter); }
+.day-date b { display: block; font-size: var(--fs-date); font-weight: 800; line-height: 1; }
+.day-date span { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+.day-red .day-date b, .day-red .day-date span { color: var(--red); }
+.day-cell { padding: 12px var(--gutter) 12px 8px; min-width: 0; }
+.day-lunch { font-size: var(--fs-lunch); color: var(--muted); line-height: 1.35; }
+.day-dinner { font-size: var(--fs-dish); font-weight: 600; margin-top: 3px; }
+.day-today { background: var(--raised); border-left: var(--today-rule) solid var(--ink); }
+.day-today .day-date b { font-size: var(--fs-date-today); }
+.day-today .day-lunch { font-size: var(--fs-body); color: var(--ink); }
+.day-today .day-dinner { font-size: var(--fs-dish-today); font-weight: 800; line-height: 1.05; }
+.meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: var(--fs-small); font-weight: 600; }
+.tag { border: 1.5px solid var(--ink); padding: 2px 8px; }
+.why { font-size: 0.875rem; color: var(--muted); margin-top: 8px; }
+.day-cell .label { display: block; margin-top: 10px; }
+.day-cell .label:first-child { margin-top: 0; }
+.day-cell .label + .day-lunch, .day-cell .label + .day-dinner { margin-top: 2px; }
+ul.day-lunch { list-style: none; margin: 0; padding: 0; }
+.day-cell .notice { margin: 4px 0 0; padding: 8px 10px; font-size: var(--fs-lunch); }
+.day-holiday { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--red); margin-bottom: 2px; }
+.day-dinner.muted { font-weight: 400; color: var(--muted); }
+.day-half .day-dinner { font-size: 1.25rem; }
+.day-full .day-cell { padding-top: 14px; padding-bottom: 16px; }
+.suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.suggested form { margin: 0; }
+.tag-suggested { font-size: var(--fs-small); font-weight: 600; border: 1.5px dashed var(--ink); padding: 2px 8px; }
+
+/* First visit on Today: a ruled block linking to what is missing. */
+.first-run { margin: 16px var(--gutter); padding: 14px; border: var(--rule-heavy) solid var(--ink); }
+.first-run h2 { color: var(--ink); }
+
+/* Ruled list rows (Mer, Dishes, Shopping). A whole row is the link. */
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { border-bottom: 1px solid var(--rule); }
+.row-link, .row {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  min-height: calc(var(--tap) + 16px);
+  padding: 10px var(--gutter);
+  text-decoration: none; color: inherit;
+}
+.row-label { font-size: var(--fs-dish); font-weight: 600; }
+.row-status { font-size: var(--fs-small); color: var(--muted); }
+
+/* Controls: standard web controls in the almanac's type, ink outlines, ≥ 44px targets. */
+button, .button, input, select, textarea { font: inherit; color: inherit; }
+button, .button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--tap); min-width: var(--tap);
+  padding: 8px 14px;
+  font-weight: 600; font-size: 0.9375rem;
+  background: transparent; border: 1.5px solid var(--ink); border-radius: 0;
+  text-decoration: none; cursor: pointer;
+}
+button.primary, .button.primary { background: var(--ink); color: var(--paper); }
+button.quiet, .button.quiet { border-color: transparent; text-decoration: underline; }
+button:disabled { opacity: 0.55; cursor: default; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+label { display: block; margin-top: 12px; font-weight: 600; font-size: 0.9375rem; }
+input:not([type="checkbox"], [type="radio"]), select, textarea {
+  display: block; width: 100%; max-width: 100%;
+  min-height: var(--tap); margin-top: 4px; padding: 8px 10px;
+  background: var(--raised); border: 1.5px solid var(--rule); border-radius: 0;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--ink); }
+input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; margin: 0 8px 0 0; vertical-align: middle; accent-color: var(--ink); }
+fieldset { border: 0; border-top: 1px solid var(--rule); margin: 16px 0 0; padding: 8px 0 0; }
+legend { padding: 0; font-weight: 800; }
+section + section { margin-top: 24px; }
+
+/* Inverted ink notice: failures and warnings. White on ink with a short bold label. */
+.notice {
+  display: block;
+  margin: 12px var(--gutter);
+  padding: 12px 14px;
+  background: var(--notice-bg); color: var(--notice-fg);
+  font-size: 0.9375rem;
+}
+.notice-label { font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; font-size: var(--fs-label); margin-right: 6px; }
+.notice a { color: inherit; }
+.notice button, .notice .button { border-color: var(--notice-fg); color: var(--notice-fg); margin-top: 8px; }
+.notice :focus-visible { outline-color: var(--notice-fg); }
+
+/* Plan Run banner (Plan and Shopping List). In flight and failed use the inverted notice;
+   finished is a quiet ruled status line. Swap (Byt) is hidden while a run is in flight. */
+.plan-run p { margin: 0; }
+.plan-run-active .plan-run-phase, .plan-run-active .plan-run-progress { margin-top: 4px; }
+.plan-run-progress { font-variant-numeric: tabular-nums; }
+.plan-run-done { padding: 8px 0; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-small); }
+.plan-run-done .notice { margin: 8px 0 0; padding: 8px 10px; color: var(--notice-fg); }
+.plan-run:empty { display: none; }
+.plan-run-active ~ .day .actions > :not(a) { display: none; } /* Byt: every action but the Recept link */
+
+/* Bottom tab bar: 2px ink top rule, fixed to the safe area; active tab bold and underlined. */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: var(--paper);
+  border-top: var(--rule-heavy) solid var(--ink);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbar a {
+  display: flex; align-items: center; justify-content: center;
+  min-height: var(--tabbar-h);
+  color: var(--muted); text-decoration: none;
+  font-weight: 600; font-size: 0.875rem;
+}
+.tabbar a[aria-current="page"] {
+  color: var(--ink); font-weight: 800;
+  text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 2px;
+}
+.tabbar a:focus-visible { outline-offset: -4px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .htmx-request { transition: opacity 120ms ease-out; opacity: 0.6; }
+}
+
+/* Row with its own actions (Schools): label, status lines, then a button row. */
+.rows > li.with-actions { display: flex; flex-direction: column; gap: 2px; padding: 10px var(--gutter); }
+.rows > li.with-actions p { margin: 0; }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; }
+.row-actions form { margin: 0; }
+
+/* Dish form: Preferred Day chips and Ingredient rows. */
+.chip { display: inline-flex; align-items: center; min-height: var(--tap); margin: 4px 4px 0 0; padding: 0 12px; border: 1.5px solid var(--rule); font-weight: 600; }
+.chip:has(input:checked) { border-color: var(--ink); background: var(--raised); }
+.ingredient-rows { list-style: none; margin: 0; padding: 0; }
+.ingredient-row { padding: 8px 0 12px; border-bottom: 1px solid var(--rule); }
+
+/* Shopping List: week neighbours, section labels over ruled rows, sink status. */
+main > section#buy, main > section#check-pantry, main > section#sinks { margin-inline: 0; }
+.section-label { margin: 0; padding: 18px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+#buy .rows, #check-pantry .rows { border-top: 1px solid var(--rule); }
+#sinks > .notice { margin-inline: 0; }
+#sinks { padding-bottom: 16px; }
+#sinks > form, .sink-status { margin-inline: var(--gutter); }
+.sink-status { margin-block: 14px 0; font-size: var(--fs-small); color: var(--muted); }
+
+/* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
+.swap-list { flex-basis: 100%; margin: 0; }
+.swap-list .rows { border-top: 1px solid var(--rule); margin-top: 4px; }
+.swap-list button.row {
+  width: 100%; border: 0; font-weight: inherit; font-size: inherit;
+  align-items: flex-start; text-align: left; padding-inline: 0;
+}
+.swap-list button.row:hover { background: var(--raised); }

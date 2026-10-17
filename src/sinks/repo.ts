@@ -8,16 +8,26 @@ export interface SinkPush {
   ok: boolean;
   error: string | null;
   detail: string | null;
+  /** Fingerprint of the Buy list that was sent (`buyFingerprint`); null for pushes recorded before it existed. */
+  buyHash: string | null;
 }
 
-export function recordPush(db: Database.Database, planId: number, sinkId: string, pushedAt: string, result: PushResult): void {
-  db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail) VALUES (?, ?, ?, ?, ?, ?)").run(
+export function recordPush(
+  db: Database.Database,
+  planId: number,
+  sinkId: string,
+  pushedAt: string,
+  result: PushResult,
+  buyHash: string,
+): void {
+  db.prepare("INSERT INTO sink_push (plan_id, sink_id, pushed_at, ok, error, detail, buy_hash) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
     planId,
     sinkId,
     pushedAt,
     result.ok ? 1 : 0,
     result.ok ? null : result.error,
     result.ok ? (result.detail ?? null) : null,
+    buyHash,
   );
 }
 
@@ -25,9 +35,17 @@ export function recordPush(db: Database.Database, planId: number, sinkId: string
 export function latestPushes(db: Database.Database, planId: number): SinkPush[] {
   const rows = db
     .prepare(
-      `SELECT plan_id, sink_id, pushed_at, ok, error, detail FROM sink_push
+      `SELECT plan_id, sink_id, pushed_at, ok, error, detail, buy_hash FROM sink_push
        WHERE id IN (SELECT MAX(id) FROM sink_push WHERE plan_id = ? GROUP BY sink_id) ORDER BY sink_id`,
     )
-    .all(planId) as { plan_id: number; sink_id: string; pushed_at: string; ok: number; error: string | null; detail: string | null }[];
-  return rows.map((r) => ({ planId: r.plan_id, sinkId: r.sink_id, pushedAt: r.pushed_at, ok: r.ok === 1, error: r.error, detail: r.detail }));
+    .all(planId) as { plan_id: number; sink_id: string; pushed_at: string; ok: number; error: string | null; detail: string | null; buy_hash: string | null }[];
+  return rows.map((r) => ({
+    planId: r.plan_id,
+    sinkId: r.sink_id,
+    pushedAt: r.pushed_at,
+    ok: r.ok === 1,
+    error: r.error,
+    detail: r.detail,
+    buyHash: r.buy_hash,
+  }));
 }

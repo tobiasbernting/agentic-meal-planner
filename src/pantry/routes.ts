@@ -1,6 +1,6 @@
 import type { FeaturePlugin } from "../app.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
 import {
   createPantryItem,
   deletePantryItem,
@@ -11,8 +11,6 @@ import {
   type PantryItem,
   type PantryItemInput,
 } from "./repo.js";
-
-NAV.push({ href: "/pantry", label: "nav.pantry" });
 
 interface PantryForm {
   name?: string;
@@ -31,11 +29,11 @@ function parsePantryForm(body: PantryForm): PantryItemInput | undefined {
 }
 
 function itemRow(lang: Lang, item: PantryItem): string {
-  const aliases = item.aliases.length ? ` &mdash; <span>${escapeHtml(item.aliases.join(", "))}</span>` : "";
-  return `<li>
-  <strong>${escapeHtml(item.name)}</strong>${aliases}
-  <a href="/pantry/${item.id}/edit">${t(lang, "common.edit")}</a>
-  <form method="post" action="/pantry/${item.id}/delete" style="display:inline"><button type="submit">${t(lang, "common.delete")}</button></form>
+  const aliases = item.aliases.length ? `\n  <span class="row-status">${escapeHtml(item.aliases.join(", "))}</span>` : "";
+  return `<li class="row with-actions">
+  <span class="row-label">${escapeHtml(item.name)}</span>${aliases}
+  <div class="row-actions"><a class="button quiet" href="/pantry/${item.id}/edit">${t(lang, "common.edit")}</a>
+  <form method="post" action="/pantry/${item.id}/delete"><button type="submit" class="quiet">${t(lang, "common.delete")}</button></form></div>
 </li>`;
 }
 
@@ -44,14 +42,14 @@ function itemFields(lang: Lang, item?: PantryItemInput): string {
   <label>${t(lang, "pantry.aliases")} <input name="aliases" value="${escapeHtml(item?.aliases.join(", ") ?? "")}" /></label>`;
 }
 
-function notice(error?: string): string {
-  return error ? `<p role="alert">${escapeHtml(error)}</p>` : "";
+function errorNotice(error?: string): string {
+  return error ? notice({ text: error }) : "";
 }
 
 function listPage(lang: Lang, items: PantryItem[], error?: string): string {
-  const body = `<h1>${t(lang, "pantry.title")}</h1>
-${notice(error)}
-<ul>
+  const body = `<header class="page-head"><h1>${t(lang, "pantry.title")}</h1></header>
+${errorNotice(error)}
+<ul class="rows">
 ${items.map((i) => itemRow(lang, i)).join("\n")}
 </ul>
 <h2>${t(lang, "pantry.addHeading")}</h2>
@@ -59,18 +57,18 @@ ${items.map((i) => itemRow(lang, i)).join("\n")}
   ${itemFields(lang)}
   <button type="submit">${t(lang, "common.add")}</button>
 </form>`;
-  return page({ title: t(lang, "pantry.title"), body, lang });
+  return page({ title: t(lang, "pantry.title"), body, lang, tab: "more" });
 }
 
 function editPage(lang: Lang, item: PantryItem, error?: string): string {
-  const body = `<h1>${t(lang, "pantry.editHeading")}</h1>
-${notice(error)}
+  const body = `<header class="page-head"><h1>${t(lang, "pantry.editHeading")}</h1></header>
+${errorNotice(error)}
 <form method="post" action="/pantry/${item.id}">
   ${itemFields(lang, item)}
   <button type="submit">${t(lang, "common.save")}</button>
 </form>
 <p><a href="/pantry">${t(lang, "pantry.back")}</a></p>`;
-  return page({ title: t(lang, "pantry.editHeading"), body, lang });
+  return page({ title: t(lang, "pantry.editHeading"), body, lang, tab: "more" });
 }
 
 export const pantryRoutes: FeaturePlugin = async (app, { db }) => {

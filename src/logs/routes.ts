@@ -141,16 +141,16 @@ function logsPage(lang: Lang, level: LogThreshold): string {
 <p id="logs-status" role="status">${t(lang, "logs.connecting")}</p>
 <style>
   #logs-list { list-style: none; padding: 0; font-family: ui-monospace, monospace; font-size: 0.8rem; }
-  .logs-row { padding: 0.15rem 0; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
-  .logs-warn { background: #fff6dd; }
-  .logs-error { background: #fde7e7; }
-  .logs-time { color: #666; }
-  .logs-pick { font: inherit; padding: 0 0.25rem; cursor: pointer; }
+  .logs-row { padding: 0.25rem 0 0.25rem 0.5rem; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+  .logs-warn { box-shadow: inset 3px 0 0 var(--muted); }
+  .logs-error { box-shadow: inset 5px 0 0 var(--ink); font-weight: 600; }
+  .logs-time { color: var(--muted); }
+  .logs-pick { font: inherit; min-height: 24px; min-width: 24px; padding: 0 0.25rem; border-width: 1px; }
 </style>
 <ol id="logs-list"></ol>
 <script type="application/json" id="logs-config">${scriptJson({ labels, rank: PINO_LEVELS, max: LOG_BUFFER_SIZE })}</script>
 <script>${CLIENT_SCRIPT}</script>`;
-  return page({ title: t(lang, "logs.title"), body, lang });
+  return page({ title: t(lang, "logs.title"), body, lang, tab: "more" });
 }
 
 export const logsRoutes: FeaturePlugin = async (app, ctx) => {

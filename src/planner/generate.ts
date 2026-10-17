@@ -6,6 +6,7 @@
 import { silentLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import type Database from "better-sqlite3";
+import type { Lang } from "../i18n/index.js";
 import { isMainCategory } from "../dishes/categories.js";
 import { createDish, listDishes } from "../dishes/repo.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -31,6 +32,8 @@ export interface GeneratePlanDeps {
   log?: Logger;
   /** Plan Run progress reports (Phase transitions); omitted outside a Plan Run. */
   onProgress?: OnProgress;
+  /** The UI language rationales are written in; the scheduler leaves it at the default (Swedish). */
+  language?: Lang;
 }
 
 /**
@@ -58,6 +61,7 @@ export interface GeneratePlanOptions {
   replace?: boolean;
 }
 
+/** `degradedReasons` is the raw technical text, for Logs; the stored plan keeps the reason codes. */
 export type GeneratePlanResult = { planId: number; degradedReasons: string[] } | { skipped: "confirmed" };
 
 export async function generatePlan(
@@ -79,15 +83,17 @@ export async function generatePlan(
     settings,
     recentlyPlanned: listRecentlyPlanned(db, weekStart, settings.varietyWindowWeeks),
     llm: deps.llm,
+    language: deps.language,
   });
-  if (plan.degradedReasons.length > 0) {
+  const details = plan.degradedReasons.map((r) => r.detail);
+  if (details.length > 0) {
     (deps.log ?? silentLogger).child({ component: "planner" }).warn(
-      { weekStart, degradedReasons: plan.degradedReasons },
+      { weekStart, degradedReasons: details },
       "plan degraded: deterministic selection used where the agent could not",
     );
   }
   const planId = db.transaction(() => savePlan(db, storeSuggestions(db, plan), deps.now()))();
-  return { planId, degradedReasons: plan.degradedReasons };
+  return { planId, degradedReasons: details };
 }
 
 /**

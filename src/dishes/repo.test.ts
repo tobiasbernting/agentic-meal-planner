@@ -92,6 +92,22 @@ describe("dish repository", () => {
     });
   });
 
+  it("stores a Preparation Note per Ingredient and omits it when there is none", () => {
+    const db = openTempDb();
+    const id = createDish(db, {
+      name: "Mos",
+      ingredients: [
+        { name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" },
+        { name: "potatis", quantity: 1, unit: "kg" },
+      ],
+    });
+
+    expect(getDish(db, id)!.ingredients).toEqual([
+      { name: "mjölk", quantity: 2, unit: "dl", preparationNote: "till mos" },
+      { name: "potatis", quantity: 1, unit: "kg" },
+    ]);
+  });
+
   it("reports false when updating or deleting an unknown dish", () => {
     const db = openTempDb();
 

@@ -4,6 +4,7 @@
  * into Buy / Check pantry, and store the rows for the plan (replacing any earlier build).
  * Resolution failures degrade: the Dish is left out and named in `degradedReasons`.
  */
+import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { resolvePlanIngredients, type ResolveDeps } from "../ingredients/resolve.js";
 import { matchPantry } from "../pantry/matching.js";
@@ -69,6 +70,11 @@ export function getShoppingList(db: Database.Database, planId: number): Shopping
     (row.section === "buy" ? sections.buy : sections.checkPantry).push(item);
   }
   return sections;
+}
+
+/** A stable fingerprint of a Buy list, recorded with each push so the view can tell the list changed since. */
+export function buyFingerprint(buy: AggregatedItem[]): string {
+  return createHash("sha256").update(JSON.stringify(buy)).digest("hex");
 }
 
 function replaceItems(db: Database.Database, planId: number, { buy, checkPantry }: ShoppingSections): void {

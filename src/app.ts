@@ -13,6 +13,7 @@ import { agentBinaryFound, startupReport } from "./logging/startup.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
 import { planRoutes } from "./plan/routes.js";
+import { swapRoutes } from "./swap/routes.js";
 import type { Env, FetchLike } from "./sinks/types.js";
 import { shoppingRoutes } from "./shopping/routes.js";
 import { dishRoutes } from "./dishes/routes.js";
@@ -23,6 +24,8 @@ import { langRoutes } from "./i18n/routes.js";
 import { logsRoutes } from "./logs/routes.js";
 import { createPlanRunRegistry, type PlanRunRegistry } from "./plan-run/registry.js";
 import { planRunRoutes } from "./plan-run/routes.js";
+import { moreRoutes } from "./more/routes.js";
+import { assetRoutes } from "./ui/assets.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -100,7 +103,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, swapRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes, moreRoutes, assetRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);

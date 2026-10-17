@@ -1,31 +1,31 @@
 /**
- * Plan view (FR-17): the Weekly Plan for one Monday–Sunday week with each day's lunch
- * context (FR-5) and each Planned Dinner's rationale (FR-8), plus the plan lifecycle (FR-9/9a):
+ * Plan view (FR-17) as the almanac review page (spec #71): the ISO week landmark, week
+ * navigation, status and controls, then the Weekly Plan's seven days as open almanac rows with
+ * each day's lunch (FR-5) and each Planned Dinner's rationale (FR-8). Plus the plan lifecycle (FR-9/9a):
  * generate, confirm (lock from automatic changes), and regenerate (re-check menus, warn when a
  * stored Lunch Entry changed, ask again before replacing a confirmed plan).
  */
 import type Database from "better-sqlite3";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
-import { getDish } from "../dishes/repo.js";
-import { suggestedBadge } from "../dishes/suggested-badge.js";
-import { addDays, resolveWeek, weekDates, weekdayOf } from "../week.js";
+import { almanac } from "../almanac/day.js";
+import { addDays, isIsoDate, mondayOf, resolveWeek, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
-import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
-import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
+import { listLunchForDate } from "../lunch/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
 import { runLogger, type Logger } from "../logging/logger.js";
 import type { OnProgress } from "../plan-run/phase.js";
 import { launchPlanRun } from "../plan-run/launch.js";
 import { planRunBanner } from "../plan-run/routes.js";
 import { logPlanSummary } from "../planner/summary.js";
-import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
+import { confirmPlan, getPlanForWeek, type WeeklyPlan } from "../planner/repo.js";
+import { describeDegraded, type DegradedReason } from "../planner/degraded.js";
 import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
-import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
-import { escapeHtml, NAV, page } from "../ui/layout.js";
-
-NAV.push({ href: "/plan", label: "nav.plan" });
+import { langOf, t, type Lang } from "../i18n/index.js";
+import { weekHead, weekNav } from "../ui/almanac.js";
+import { swapControl } from "../swap/routes.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
 
 interface PlanQuery {
   week?: string;
@@ -39,40 +39,6 @@ interface GenerateForm {
 interface RegenerateForm extends GenerateForm {
   /** FR-9a: set when the user confirmed replacing a confirmed plan. */
   confirmed_override?: string;
-}
-
-function renderLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
-  const body = entry
-    ? `<ul>${entry.rawText
-        .split("\n")
-        .filter((line) => line.trim() !== "")
-        .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
-        .join("")}</ul>`
-    : notice(lang, date, school);
-  return `<article class="school-lunch"><h4>${escapeHtml(school.name)}</h4>${body}</article>`;
-}
-
-function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner | undefined): string {
-  if (!dinner) return `<p class="notice">${t(lang, "plan.noDinner")}</p>`;
-  const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
-  const name = dish ? `<strong>${escapeHtml(dish.name)}</strong>` : `<span class="notice">${t(lang, "common.noEligibleDish")}</span>`;
-  return `<p class="dinner">${name}${suggestedBadge(lang, dish)}</p>
-<p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
-}
-
-function renderDay(db: Database.Database, notice: NoLunchNotice, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
-  const weekday = weekdayName(lang, weekdayOf(date));
-  const quick = dinner?.isQuickDay ? ` <span class="quick-day">${t(lang, "plan.quickDay")}</span>` : "";
-  const lunches = listLunchForDate(db, date);
-  const lunch =
-    lunches.length === 0
-      ? notice(lang, date)
-      : lunches.map((l) => renderLunch(notice, lang, date, l)).join("\n");
-  return `<article class="plan-day">
-  <h3>${weekday} <time datetime="${date}">${date}</time>${quick}</h3>
-  <section class="lunch"><h4>${t(lang, "common.lunch")}</h4>${lunch}</section>
-  <section class="dinner"><h4>${t(lang, "common.dinner")}</h4>${renderDinner(db, lang, dinner)}</section>
-</article>`;
 }
 
 /**
@@ -92,46 +58,89 @@ function datesWithChangedLunch(db: Database.Database, plan: WeeklyPlan): string[
     .map((dinner) => dinner.date);
 }
 
-function renderPlan(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan, runInFlight: boolean): string {
-  const byDate = new Map(plan.dinners.map((d) => [d.date, d]));
-  const notice = noLunchNotice(db);
-  const degraded =
-    plan.degradedReasons.length === 0
-      ? ""
-      : `<p class="notice">${t(lang, "plan.degraded")}: ${plan.degradedReasons.map(escapeHtml).join("; ")}</p>`;
+/**
+ * The week `/plan` shows: the requested one, or with no (valid) `week`, next week once a Weekly
+ * Plan exists for it (the Sunday review), else this week.
+ */
+function defaultWeek(db: Database.Database, raw: string | undefined, today: string): string {
+  if (isIsoDate(raw)) return resolveWeek(raw, today);
+  const next = addDays(mondayOf(today), 7);
+  return getPlanForWeek(db, next) ? next : mondayOf(today);
+}
+
+/**
+ * Status, Bekräfta and Generera igen at the top of the page, then the plan-wide notices. The
+ * buttons hide while the week's Plan Run is in flight.
+ */
+function renderPlanTop(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan, runInFlight: boolean): string {
+  // Only week-wide reasons (no agent, agent failed) sit here; the rest go on their day.
+  const degraded = degradedNotices(lang, plan.degradedReasons, null);
   const changedDates = datesWithChangedLunch(db, plan);
   const lunchChanged =
-    changedDates.length === 0 ? "" : `<p class="notice">${t(lang, "plan.notice.lunch-changed")}: ${changedDates.join(", ")}</p>`;
-  return `<p>${t(lang, "plan.status")}: ${escapeHtml(t(lang, `plan.status.${plan.status}`))}</p>
-${plan.status === "generated" && !runInFlight ? weekForm(weekStart, "/plan/confirm", t(lang, "plan.confirm")) : ""}
-${runInFlight ? "" : weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
+    changedDates.length === 0 ? "" : notice({ text: `${t(lang, "plan.notice.lunch-changed")}: ${changedDates.join(", ")}` });
+  const buttons = runInFlight
+    ? ""
+    : `${plan.status === "generated" ? weekForm(weekStart, "/plan/confirm", t(lang, "plan.confirm"), {}, "primary") : ""}${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}`;
+  return `<section class="plan-status">
+<p>${t(lang, "plan.status")}: ${escapeHtml(t(lang, `plan.status.${plan.status}`))}</p>
+${buttons ? `<div class="actions">${buttons}</div>` : ""}
+</section>
 ${degraded}
-${lunchChanged}
-${weekDates(weekStart)
-  .map((date) => renderDay(db, notice, lang, date, byDate.get(date)))
-  .join("\n")}`;
+${lunchChanged}`;
+}
+
+function renderNoPlanTop(lang: Lang, weekStart: string, runInFlight: boolean): string {
+  return `<section class="plan-status">
+<p>${t(lang, "plan.none")}</p>
+${runInFlight ? "" : `<div class="actions">${weekForm(weekStart, "/plan/generate", t(lang, "plan.generate"), {}, "primary")}</div>`}
+</section>`;
+}
+
+/**
+ * The seven almanac rows, all open (density `full`). Per-day hooks for later tickets:
+ * `swapHtml` takes the Swap control (#81; empty when Swap is unavailable) and
+ * `extraHtml` the day's degraded reasons (#80).
+ */
+function renderDays(ctx: AppContext, lang: Lang, weekStart: string, today: string): string {
+  const days = almanac(ctx.db, lang);
+  const reasons = getPlanForWeek(ctx.db, weekStart)?.degradedReasons ?? [];
+  const next = `/plan?week=${weekStart}`;
+  return weekDates(weekStart)
+    .map((date) =>
+      days.day({
+        date,
+        density: "full",
+        today: date === today,
+        swapHtml: swapControl(ctx, lang, date, next),
+        extraHtml: degradedNotices(lang, reasons, date),
+      }),
+    )
+    .join("\n");
+}
+
+/** The degraded reasons for `date` (`null`: the whole week) as inverted notices in household language. */
+function degradedNotices(lang: Lang, reasons: DegradedReason[], date: string | null): string {
+  return reasons
+    .filter((r) => r.date === date)
+    .map((r) => notice({ label: t(lang, date === null ? "plan.degraded" : "day.degraded"), text: describeDegraded(lang, r) }))
+    .join("\n");
 }
 
 /** A one-button form posting the week to `action`; `hidden` adds extra hidden fields. */
-function weekForm(weekStart: string, action: string, label: string, hidden: Record<string, string> = {}): string {
+function weekForm(weekStart: string, action: string, label: string, hidden: Record<string, string> = {}, buttonClass = ""): string {
   const extra = Object.entries(hidden)
     .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`)
     .join("\n  ");
   return `<form method="post" action="${action}">
   <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  ${extra}<button type="submit">${escapeHtml(label)}</button>
+  ${extra}<button type="submit"${buttonClass ? ` class="${buttonClass}"` : ""}>${escapeHtml(label)}</button>
 </form>`;
-}
-
-function renderNoPlan(lang: Lang, weekStart: string, runInFlight: boolean): string {
-  return `<p class="notice">${t(lang, "plan.none")}</p>
-${runInFlight ? "" : weekForm(weekStart, "/plan/generate", t(lang, "plan.generate"))}`;
 }
 
 /** FR-9a: a confirmed plan is only replaced after the user says so again. */
 function renderConfirmRegenerate(lang: Lang, weekStart: string): string {
-  return `<h1>${t(lang, "plan.regenerate")}</h1>
-<p class="notice">${t(lang, "plan.confirmedIntro")} <time datetime="${weekStart}">${weekStart}</time>.</p>
+  return `<header class="page-head"><h1>${t(lang, "plan.regenerate")}</h1></header>
+<p>${t(lang, "plan.confirmedIntro")} <time datetime="${weekStart}">${weekStart}</time>.</p>
 ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.replaceConfirmed"), { confirmed_override: "1" })}
 <p><a href="/plan?week=${weekStart}">${t(lang, "plan.keepConfirmed")}</a></p>`;
 }
@@ -155,9 +164,10 @@ async function finishPlan(
   ctx: AppContext,
   log: Logger,
   onProgress: OnProgress,
+  language: Lang,
   result: { planId: number; degradedReasons: string[] },
 ): Promise<void> {
-  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress }, result.planId);
+  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress, language }, result.planId);
   logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
 }
 
@@ -167,21 +177,19 @@ export const planRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
-    const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
+    const today = householdToday(ctx.db, ctx.now());
+    const weekStart = defaultWeek(ctx.db, req.query.week, today);
     const plan = getPlanForWeek(ctx.db, weekStart);
     const runInFlight = ctx.planRuns.isInFlight(weekStart);
-    const notice = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
-    const body = `<h1>${t(lang, "plan.heading")}</h1>
-<p>
-  <a href="/plan?week=${addDays(weekStart, -7)}">${t(lang, "week.prev")}</a>
-  ${t(lang, "week.of")} <time datetime="${weekStart}">${weekStart}</time>
-  <a href="/plan?week=${addDays(weekStart, 7)}">${t(lang, "week.next")}</a>
-</p>
-${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
+    const message = isNotice(req.query.notice) ? t(lang, NOTICES[req.query.notice]) : undefined;
+    const body = `${weekHead(lang, weekStart)}
+${weekNav(lang, weekStart, "/plan")}
+${message ? notice({ text: message, role: "status" }) : ""}
+${plan ? renderPlanTop(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlanTop(lang, weekStart, runInFlight)}
 ${planRunBanner(ctx, lang, weekStart)}
-${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(lang, weekStart, runInFlight)}`;
+${renderDays(ctx, lang, weekStart, today)}`;
     reply.type("text/html; charset=utf-8");
-    return page({ title: t(lang, "plan.title"), body, lang });
+    return page({ title: t(lang, "plan.title"), body, lang, tab: "plan" });
   });
 
   /**
@@ -191,6 +199,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
    */
   const startRun = (req: FastifyRequest, reply: FastifyReply, weekStart: string, trigger: "generate" | "regenerate") => {
     const log = runLogger(ctx.log, req, "plan");
+    const language = langOf(req);
     const started = Date.now();
     const launched = launchPlanRun({ planRuns: ctx.planRuns, now: ctx.now, log }, { weekStart, runId: req.id }, async (onProgress) => {
       log.info({ weekStart, trigger }, "run started");
@@ -198,12 +207,12 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
       // FR-9 / Q17: regenerate re-checks the school menus (forced ingest) and reports changed entries.
       const { changed } = await ingestWeek({ ...ingestDeps(), log, onProgress }, weekStart, { force: trigger === "regenerate" });
       const result = await generatePlan(
-        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress },
+        { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log, onProgress, language },
         weekStart,
         { replace: trigger === "regenerate" },
       );
       logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
-      if ("planId" in result) await finishPlan(ctx, log, onProgress, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
+      if ("planId" in result) await finishPlan(ctx, log, onProgress, language, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
       return { lunchChanged: trigger === "regenerate" ? changed : [] };
     });
     const notice = launched ? "" : "&notice=run-in-progress";
@@ -226,7 +235,7 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan, runInFlight) : renderNoPlan(l
     if (getPlanForWeek(ctx.db, weekStart)?.status === "confirmed" && !req.body.confirmed_override) {
       const lang = langOf(req);
       reply.type("text/html; charset=utf-8");
-      return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang });
+      return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang, tab: "plan" });
     }
     return startRun(req, reply, weekStart, "regenerate");
   });
