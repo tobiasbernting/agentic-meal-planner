@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls, replayOrder, replayRequest } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
@@ -319,5 +319,27 @@ describe("replayOrder", () => {
     replayOrder(queue);
 
     expect(queue.map((e) => e.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("replayRequest", () => {
+  const stored = { ...entry("p1", "2026-10-17T07:00:00.000Z"), url: `${ORIGIN}/dishes/7`, body: "name=Pasta+bake&tags=quick", key: "3b2f1c9e-0000-4000-8000-000000000001" };
+
+  it("rebuilds the stored POST with its form body, content type and Idempotency-Key, following redirects", async () => {
+    const { url, init } = replayRequest(stored);
+    const request = new Request(url, init);
+
+    expect(request.url).toBe(`${ORIGIN}/dishes/7`);
+    expect(request.method).toBe("POST");
+    expect(request.redirect).toBe("follow");
+    expect(request.headers.get("content-type")).toBe("application/x-www-form-urlencoded");
+    expect(request.headers.get("Idempotency-Key")).toBe("3b2f1c9e-0000-4000-8000-000000000001");
+    expect(await request.text()).toBe("name=Pasta+bake&tags=quick");
+  });
+
+  it("carries the same stored Idempotency-Key on every replay attempt", () => {
+    const keys = [1, 2, 3].map(() => new Headers(replayRequest(stored).init.headers).get("Idempotency-Key"));
+
+    expect(keys).toEqual([stored.key, stored.key, stored.key]);
   });
 });

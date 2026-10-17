@@ -237,3 +237,21 @@ export function offlineResponseFor(classification, context) {
 export function replayOrder(queue) {
   return queue.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
+
+/**
+ * The fetch that replays a Pending Change. Always the stored Idempotency-Key, so the server
+ * applies the change once however often it is replayed (src/offline/idempotency.ts).
+ * @param {PendingChange} entry
+ * @returns {{ url: string, init: RequestInit }}
+ */
+export function replayRequest(entry) {
+  return {
+    url: entry.url,
+    init: {
+      method: entry.method,
+      headers: { "content-type": entry.contentType, "Idempotency-Key": entry.key },
+      body: entry.body,
+      redirect: "follow",
+    },
+  };
+}
