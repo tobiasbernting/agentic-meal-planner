@@ -244,6 +244,57 @@ describe("a Plan Run that throws", () => {
     const sv = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: { cookie: "lang=sv" } });
     expect(sv.body).toContain("Planeringen misslyckades 18:30: agent exploded");
   });
+  it("leaves the week's stored plan and Shopping List as they were", async () => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        throw new Error("agent exploded");
+      },
+    });
+    const app = await start({ llm });
+    const pasta = createDish(app.ctx.db, { name: "Pasta", prepTimeMinutes: 20, ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(pasta), degradedReasons: [] }, NOW.toISOString());
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<strong>[^<]*<\/strong>/g);
+    const shoppingList = async () => (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body.match(/<section id="(buy|check-pantry)">[\s\S]*?<\/section>/g);
+    const before = { dinners: await dinners(), shoppingList: await shoppingList() };
+
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    await planRunSettled(app, WEEK);
+
+    expect(before.dinners).toHaveLength(7);
+    expect(before.shoppingList?.join("")).toContain("<li>400 g pasta</li>");
+    expect({ dinners: await dinners(), shoppingList: await shoppingList() }).toEqual(before);
+  });
+
+  it("offers Regenerate again after a failure, and the next run replaces the failed outcome", async () => {
+    let fail = true;
+    const held = deferred<LlmResult<SelectedDish[]>>();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        if (fail) throw new Error("agent exploded");
+        return held.promise;
+      },
+    });
+    const app = await start({ llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(burgers), degradedReasons: [] }, NOW.toISOString());
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    await planRunSettled(app, WEEK);
+
+    const failed = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(failed.body).toContain('action="/plan/regenerate"');
+
+    fail = false;
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    const during = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(during.body).toContain("Plan Run in progress");
+    expect(during.body).not.toContain("Plan Run failed");
+    held.resolve({ ok: false, reason: "released" });
+    await planRunSettled(app, WEEK);
+    const after = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(after.body).toContain("Plan Run finished 18:30");
+    expect(after.body).not.toContain("Plan Run failed");
+  });
 });
 
 describe("Plan Run banner polling", () => {
