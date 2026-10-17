@@ -78,6 +78,15 @@ export function resolveSuggestion(
   const wanted = normaliseName(suggestion.name);
   const match = dishes.find((d) => normaliseName(d.name) === wanted);
   if (match === undefined) return { kind: "new", suggestion };
+  return resolveExistingDish(match, day, options);
+}
+
+/**
+ * Decides whether an existing Dish, matched by name or returned by id, lands on a date with no
+ * eligible Favorite Dish. A Favorite Dish was excluded by the filter that day, so it is dropped;
+ * any other Dish is reused once it passes the hard rules itself.
+ */
+export function resolveExistingDish(match: Dish, day: DayInput, options: FilterOptions): Exclude<SuggestionOutcome, { kind: "new" }> {
   if (match.inRotation) {
     const rule = exclusionRule(match, day, options) ?? undefined;
     const reason = rule ? describeExclusion(rule) : "not eligible that day";

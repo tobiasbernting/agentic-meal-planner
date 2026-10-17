@@ -344,6 +344,50 @@ describe("planWeek", () => {
       expect(result.degradedReasons.find((r) => r.date === "2026-10-13" && !r.logOnly)).toMatchObject({ code: "once-a-week" });
     });
 
+    it("hands the agent every Favorite and Suggested Dish by id and name, and each day's Quick Day limit", async () => {
+      const favorite = dish({ name: "Tacos", mainCategory: "tacos", weekendOnly: true });
+      const suggested = dish({ name: "Ärtsoppa", mainCategory: "soup", inRotation: false, suggested: true });
+      const shelved = dish({ name: "Gammal gryta", inRotation: false, suggested: false });
+      const llm = new ScriptedLlmAgent({ selectDishes: { ok: true, value: [] } });
+
+      await planWeek(input({ dishes: [favorite, suggested, shelved], settings: { ...DEFAULT_PLANNER_SETTINGS, quickDayTemplate: { tue: 30 } }, llm }));
+
+      const req = llm.calls[0]?.args[0] as SelectDishesInput;
+      expect(req.existingDishes).toEqual([
+        { id: String(favorite.id), name: "Tacos", kind: "favorite", mainCategory: "tacos", prepTimeMinutes: 20, weekendOnly: true },
+        { id: String(suggested.id), name: "Ärtsoppa", kind: "suggested", mainCategory: "soup", prepTimeMinutes: 20, weekendOnly: false },
+      ]);
+      expect(req.days.map((d) => d.quickDayLimitMinutes)).toEqual([null, 30, null, null, null, null, null]);
+    });
+
+    it("reuses the existing Dish whose id the agent returns for a day with no candidates, and creates no new one", async () => {
+      const soup = dish({ name: "Ärtsoppa", mainCategory: "soup", prepTimeMinutes: 45, inRotation: false, suggested: true });
+      const llm = new ScriptedLlmAgent({
+        selectDishes: { ok: true, value: [{ date: "2026-10-12", dishId: String(soup.id), rationale: "Ärtsoppa again, it is Monday" }] },
+      });
+
+      const result = await planWeek(input({ dishes: [soup], llm }));
+
+      expect(result.dinners[0]).toMatchObject({ dishId: soup.id, suggestion: null, rationale: "Ärtsoppa again, it is Monday" });
+      expect(result.degradedReasons.filter((r) => r.date === "2026-10-12")).toEqual([]);
+    });
+
+    it("drops an existing Dish id that breaks a hard rule that day, and falls back to the seed list", async () => {
+      const slow = dish({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90, inRotation: false, suggested: true });
+      const settings = { ...DEFAULT_PLANNER_SETTINGS, quickDayTemplate: { mon: 30 } };
+      const llm = new ScriptedLlmAgent({
+        selectDishes: { ok: true, value: [{ date: "2026-10-12", dishId: String(slow.id), rationale: "x" }] },
+      });
+
+      const result = await planWeek(input({ dishes: [slow], settings, llm }));
+
+      expect(result.dinners[0]?.dishId).toBeNull();
+      expect(result.dinners[0]?.suggestion).not.toBeNull();
+      expect(result.degradedReasons.filter((r) => r.date === "2026-10-12" && !r.logOnly)).toEqual([
+        expect.objectContaining({ code: "quick-day", params: { name: "Kalops", limit: 30 } }),
+      ]);
+    });
+
     it("drops a suggestion matching a Favorite Dish the filter excluded that day", async () => {
       const fishSticks = dish({ name: "Fiskpinnar", mainCategory: "fish" });
       const lunch = { "2026-10-12": [{ date: "2026-10-12", rawText: "Fiskgratäng", mainCategory: "fish" }] };
