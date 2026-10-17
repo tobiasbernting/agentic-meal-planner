@@ -5,6 +5,7 @@ import type { LlmAgent } from "../llm/index.js";
 import { createSchoolPlugins, findPlugin, type FetchPage } from "../plugins/schools/index.js";
 import { listActiveSchools, type School } from "../schools/repo.js";
 import type { LunchEntry, SchoolPlugin } from "../types.js";
+import { recordIngestOutcome } from "./outcome.js";
 import { listLunchEntries, upsertLunchEntry } from "./repo.js";
 import { weekDates, weekdayDates } from "../week.js";
 
@@ -49,14 +50,23 @@ export interface IngestResult {
  * Lunch ingest for one week (FR-4): for each active School, the first School Plugin claiming
  * its URL scrapes it; otherwise the page is fetched and `llm.extractLunchMenu` extracts the
  * menu. Results are cached per School and date: a School whose five weekdays (Mon-Fri) are
- * already stored is not fetched again unless `force` is set. Dates a scrape does not return
+ * already stored is not fetched again unless `force` is set. Every attempt records the
+ * School's Ingest Outcome, replacing the previous one. Dates a scrape does not return
  * keep their stored entry.
  */
 export async function ingestWeek(deps: IngestDeps, weekStart: string, options: IngestOptions = {}): Promise<IngestResult> {
   const plugins = deps.plugins ?? createSchoolPlugins(deps.fetchPage);
   const results: SchoolIngestResult[] = [];
   for (const school of listActiveSchools(deps.db)) {
-    results.push(await ingestSchool(deps, plugins, school, weekStart, options.force === true));
+    const result = await ingestSchool(deps, plugins, school, weekStart, options.force === true);
+    recordIngestOutcome(deps.db, {
+      schoolId: school.id,
+      weekStart,
+      status: result.status === "ok" ? "fetched" : result.status,
+      reason: result.reason ?? null,
+      recordedAt: deps.now().toISOString(),
+    });
+    results.push(result);
   }
   return { results, changed: results.flatMap((r) => r.changed) };
 }

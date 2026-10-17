@@ -10,6 +10,7 @@ import { getDish } from "../dishes/repo.js";
 import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
+import { renderNoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
@@ -62,14 +63,14 @@ function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
-function renderLunch(lang: Lang, { school, entry }: SchoolLunch): string {
+function renderLunch(db: Database.Database, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
+    : renderNoLunchNotice(db, lang, date, school);
   return `<article class="school-lunch"><h4>${escapeHtml(school.name)}</h4>${body}</article>`;
 }
 
@@ -87,8 +88,8 @@ function renderDay(db: Database.Database, lang: Lang, date: string, dinner: Plan
   const lunches = listLunchForDate(db, date);
   const lunch =
     lunches.length === 0
-      ? `<p class="notice">${t(lang, "common.noLunchData")}</p>`
-      : lunches.map((l) => renderLunch(lang, l)).join("\n");
+      ? renderNoLunchNotice(db, lang, date)
+      : lunches.map((l) => renderLunch(db, lang, date, l)).join("\n");
   return `<article class="plan-day">
   <h3>${weekday} <time datetime="${date}">${date}</time>${quick}</h3>
   <section class="lunch"><h4>${t(lang, "common.lunch")}</h4>${lunch}</section>
@@ -202,14 +203,19 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
     const started = Date.now();
     log.info({ weekStart, trigger: "generate" }, "run started");
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
-    await ingestWeek({ ...ingestDeps(), log }, weekStart);
+    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart);
     const result = await generatePlan(
       { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log },
       weekStart,
       { replace: false },
     );
-    logRunFinished(log, weekStart, result, started);
-    const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
+    logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
+    const notice =
+      "skipped" in result
+        ? `&notice=${result.skipped}`
+        : changed.length === 0
+          ? ""
+          : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });

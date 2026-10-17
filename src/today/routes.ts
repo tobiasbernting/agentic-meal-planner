@@ -1,6 +1,7 @@
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { runLogger } from "../logging/logger.js";
+import { renderNoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
@@ -9,14 +10,14 @@ import { householdToday } from "../planner/settings.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
-function renderSchoolLunch(lang: Lang, { school, entry }: SchoolLunch): string {
+function renderSchoolLunch(ctx: AppContext, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
+    : renderNoLunchNotice(ctx.db, lang, date, school);
   return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
 }
 
@@ -48,7 +49,7 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
     const schools =
       lunches.length === 0
         ? `<p>${t(lang, "today.noSchools")} <a href="/schools">${t(lang, "today.addSchool")}</a> ${t(lang, "today.toSeeLunch")}</p>`
-        : lunches.map((l) => renderSchoolLunch(lang, l)).join("\n");
+        : lunches.map((l) => renderSchoolLunch(ctx, lang, today, l)).join("\n");
     const body = `<h1>${t(lang, "app.name")}</h1>
 <p><time datetime="${today}">${today}</time></p>
 <section id="lunch">
