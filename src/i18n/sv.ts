@@ -103,6 +103,8 @@ export const sv: Dictionary = {
   "shopping.noPlan": "Ingen plan för den här veckan.",
   "shopping.goToPlan": "Gå till planen",
   "shopping.toGenerate": "för att skapa en.",
+  "shopping.missing": "Ingredienser saknas för {dishes}",
+  "shopping.retry": "Försök igen",
   "shopping.none": "Ingen inköpslista ännu.",
   "shopping.build": "Skapa inköpslista",
   "shopping.rebuild": "Skapa inköpslistan igen",

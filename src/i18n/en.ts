@@ -101,6 +101,8 @@ export const en = {
   "shopping.noPlan": "No plan for this week.",
   "shopping.goToPlan": "Go to the plan",
   "shopping.toGenerate": "to generate one.",
+  "shopping.missing": "Ingredients missing for {dishes}",
+  "shopping.retry": "Try again",
   "shopping.none": "No Shopping List yet.",
   "shopping.build": "Build shopping list",
   "shopping.rebuild": "Rebuild shopping list",
