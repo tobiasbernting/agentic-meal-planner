@@ -5,7 +5,11 @@
  */
 import type Database from "better-sqlite3";
 import type { LlmAgent } from "../llm/index.js";
-import type { Logger } from "../logging/logger.js";
+import { silentLogger, type Logger } from "../logging/logger.js";
+import { currentRunId } from "../logging/run-context.js";
+import type { OnProgress } from "../plan-run/phase.js";
+import { logPlanRunProgress } from "../plan-run/progress-log.js";
+import type { PlanRunRegistry } from "../plan-run/registry.js";
 import { ingestWeek, type IngestResult } from "../lunch/ingest.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { readTimezone } from "../planner/settings.js";
@@ -23,18 +27,25 @@ export interface WeeklyRunDeps {
   /**
    * Chained after a plan is stored (not when the week was skipped). The Shopping List build
    * (#31) and sink push (#32) hook in here without touching this file. Receives the run logger
-   * and may return how many sinks accepted the list (for the plan summary).
+   * and the Plan Run progress callback (it reports the shopping Phases), and may return how
+   * many sinks accepted the list (for the plan summary).
    */
-  afterPlan?: (planId: number, log?: Logger) => Promise<number | void>;
+  afterPlan?: (planId: number, log: Logger | undefined, onProgress: OnProgress) => Promise<number | void>;
   /** Run logger bound to `runId: cron-<ISO>`; the scheduler sets it per tick. */
   log?: Logger;
+  /**
+   * The Plan Run registry (spec #61). When set, the run registers for the coming week and
+   * reports its Phases there, so the Plan page banner shows it; a week already in flight is skipped.
+   */
+  planRuns?: PlanRunRegistry;
 }
 
 export interface WeeklyRunResult {
   /** Monday of the planned (coming) week. */
   weekStart: string;
   ingest: IngestResult;
-  plan: GeneratePlanResult;
+  /** `{ skipped: "in-flight" }` when another Plan Run of the week was in flight; nothing ran. */
+  plan: GeneratePlanResult | { skipped: "in-flight" };
 }
 
 export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunResult> {
@@ -43,12 +54,35 @@ export async function runWeeklyPlanning(deps: WeeklyRunDeps): Promise<WeeklyRunR
   if (getPlanForWeek(deps.db, weekStart)?.status === "confirmed") {
     return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "confirmed" } };
   }
-  const ingest = await ingestWeek(deps, weekStart);
-  const plan = await generatePlan({ db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}) }, weekStart, {
-    replace: false,
-  });
+  if (deps.planRuns && !deps.planRuns.start(weekStart, { runId: currentRunId() ?? "cron", startedAt: deps.now() })) {
+    (deps.log ?? silentLogger).child({ component: "plan-run" }).info({ weekStart, reason: "in-flight" }, "weekly run skipped: Plan Run already in flight");
+    return { weekStart, ingest: { results: [], changed: [] }, plan: { skipped: "in-flight" } };
+  }
+  const planRuns = deps.planRuns;
+  const logProgress = logPlanRunProgress(deps.log ?? silentLogger, weekStart);
+  const onProgress: OnProgress = (event) => {
+    planRuns?.report(weekStart, event);
+    logProgress(event);
+  };
+  try {
+    const result = await planWeek(deps, weekStart, onProgress);
+    planRuns?.finish(weekStart, deps.now());
+    return result;
+  } catch (error) {
+    planRuns?.fail(weekStart, deps.now(), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function planWeek(deps: WeeklyRunDeps, weekStart: string, onProgress: OnProgress): Promise<WeeklyRunResult> {
+  const ingest = await ingestWeek({ ...deps, onProgress }, weekStart);
+  const plan = await generatePlan(
+    { db: deps.db, llm: deps.llm, now: () => deps.now().toISOString(), ...(deps.log ? { log: deps.log } : {}), onProgress },
+    weekStart,
+    { replace: false },
+  );
   if ("planId" in plan) {
-    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log) : undefined;
+    const sinksPushed = deps.afterPlan ? await deps.afterPlan(plan.planId, deps.log, onProgress) : undefined;
     logPlanSummary(deps.log, deps.db, plan.planId, plan.degradedReasons, sinksPushed ?? 0);
   }
   return { weekStart, ingest, plan };

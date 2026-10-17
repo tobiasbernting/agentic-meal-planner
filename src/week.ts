@@ -42,6 +42,13 @@ export function localDate(d: Date, timezone?: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** `HH:MM` (24-hour) of `d`, in `timezone` when given, else the process time zone. */
+export function localTime(d: Date, timezone?: string): string {
+  if (timezone) return new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** The Monday of the week after the one containing `now` (the week the Sunday run plans). */
 export function comingWeekStart(now: Date, timezone?: string): string {
   return addDays(mondayOf(localDate(now, timezone)), 7);

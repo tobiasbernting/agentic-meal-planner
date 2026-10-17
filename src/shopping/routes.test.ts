@@ -8,6 +8,7 @@ import { createDish } from "../dishes/repo.js";
 import { NoAgent } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
+import { postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -78,7 +79,7 @@ describe("GET /shopping", () => {
     const app = await start();
     createDish(app.ctx.db, { name: "Toast", prepTimeMinutes: 10, ingredients: [{ name: "bröd", quantity: null, unit: null }] });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
     expect(res.body).toMatch(/<section id="buy">[\s\S]*<li>bröd<\/li>/);

@@ -18,6 +18,7 @@ import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
 import { weekDates } from "../week.js";
 import { createSchool } from "../schools/repo.js";
 import { createCapturingLogger, type LogRecord } from "../logging/logger.js";
+import { postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -175,7 +176,7 @@ describe("POST /plan/generate", () => {
     const app = await start({ llm: new NoAgent() });
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
 
-    const res = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const res = await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
@@ -192,7 +193,7 @@ describe("POST /plan/generate", () => {
     const fish = createDish(app.ctx.db, { name: "Fish and chips", mainCategory: "fish", prepTimeMinutes: 20 });
     createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const dinners = getPlanForWeek(app.ctx.db, WEEK)!.dinners;
     const tuesday = dinners.find((d) => d.date === "2026-10-20")!.dishId;
@@ -206,7 +207,7 @@ describe("POST /plan/generate", () => {
     const north = createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
     upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
 
-    const res = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const res = await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
   });
@@ -217,7 +218,7 @@ describe("POST /plan/generate", () => {
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
     confirmPlan(app.ctx.db, WEEK);
 
-    const res = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const res = await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     expect(res.statusCode).toBe(303);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
@@ -241,7 +242,7 @@ describe("POST /plan/generate with Suggested Dishes", () => {
   it("stores a suggestion on an empty rotation as a Suggested Dish the Planned Dinners point at", async () => {
     const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const dishes = listDishes(app.ctx.db);
     expect(dishes).toEqual([
@@ -260,10 +261,10 @@ describe("POST /plan/generate with Suggested Dishes", () => {
 
   it("reuses the Suggested Dish on a second generate with the same suggestion name", async () => {
     const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
     const [kalops] = listDishes(app.ctx.db);
 
-    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
     expect(listDishes(app.ctx.db).map((d) => d.id)).toEqual([kalops!.id]);
     expect(getPlanForWeek(app.ctx.db, WEEK)!.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(kalops!.id));
@@ -273,7 +274,7 @@ describe("POST /plan/generate with Suggested Dishes", () => {
     const { logger, records } = createCapturingLogger();
     const app = await start({ logger, llm: suggestEveryDay({ name: "Mystery", mainCategory: "not-a-category" }) });
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const warn = records.find((r) => r.level === "warn" && r.component === "planner");
     const reasons = warn?.degradedReasons as string[];
@@ -290,10 +291,10 @@ describe("POST /plan/generate with Suggested Dishes", () => {
   it("passes last week's Suggested Dish to the next generate as recently planned (variety)", async () => {
     const llm = suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 });
     const app = await start({ llm });
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
     const [kalops] = listDishes(app.ctx.db);
 
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-26" } });
+    await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-26" });
 
     const requests = llm.calls.filter((c) => c.method === "selectDishes").map((c) => c.args[0] as SelectDishesInput);
     expect(requests).toHaveLength(2);
@@ -335,7 +336,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(before.body).toMatch(/<form method="post" action="\/plan\/regenerate">[\s\S]*name="weekStart" value="2026-10-19"/);
 
-    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    const res = await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
@@ -351,7 +352,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
 
-    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    const res = await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
     expect(res.statusCode).toBe(303);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
@@ -364,7 +365,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
     confirmPlan(app.ctx.db, WEEK);
 
-    const ask = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+    const ask = await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
     expect(ask.statusCode).toBe(200);
     expect(ask.body).toContain("This plan is confirmed");
@@ -373,7 +374,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     expect(untouched.body).not.toContain("Burgers");
     expect(untouched.body).toContain("Status: confirmed");
 
-    const res = await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK, confirmed_override: "1" } });
+    const res = await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK, confirmed_override: "1" });
 
     expect(res.statusCode).toBe(303);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
@@ -404,10 +405,50 @@ describe("run logging", () => {
     const { logger, records } = createCapturingLogger();
     const app = await start({ logger, llm: new NoAgent() });
 
-    await app.inject({ method: "POST", url, payload: { weekStart: WEEK } });
+    await postPlanRun(app, url, { weekStart: WEEK });
 
     const run = runRecords(records, url);
     expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run started", component: "plan", weekStart: WEEK }));
     expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run finished", component: "plan", weekStart: WEEK }));
+  });
+
+  it.each(["/plan/generate", "/plan/regenerate"])("%s logs each Phase of the Plan Run in order, with per-Dish progress during Ingredient resolution", async (url) => {
+    const { logger, records } = createCapturingLogger();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({
+        ok: true,
+        value: input.days.map((d, i) => ({ date: d.date, dishId: String(i % 2 === 0 ? burgers : kalops), rationale: "r" })),
+      }),
+      findRecipe: { ok: true, value: { url: "https://recipes.example/x", ingredients: [{ name: "Beef" }] } },
+    });
+    const app = await start({ logger, llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+    const kalops = createDish(app.ctx.db, { name: "Kalops", prepTimeMinutes: 20 });
+
+    await postPlanRun(app, url, { weekStart: WEEK });
+
+    const planRun = runRecords(records, url).filter((r) => r.component === "plan-run");
+    expect(planRun.every((r) => r.level === "info" && r.weekStart === WEEK)).toBe(true);
+    expect(planRun.filter((r) => r.msg === "phase").map((r) => r.phase)).toEqual([
+      "lunch-ingest",
+      "dish-selection",
+      "ingredient-resolution",
+      "pantry-matching",
+      "shopping-list-push",
+    ]);
+    const progress = planRun.filter((r) => r.msg === "phase progress");
+    expect(progress.map((r) => [r.phase, r.done, r.total, r.dish])).toEqual([
+      ["ingredient-resolution", 0, 7, "Burgers"],
+      ["ingredient-resolution", 1, 7, "Kalops"],
+      ["ingredient-resolution", 2, 7, "Burgers"],
+      ["ingredient-resolution", 3, 7, "Kalops"],
+      ["ingredient-resolution", 4, 7, "Burgers"],
+      ["ingredient-resolution", 5, 7, "Kalops"],
+      ["ingredient-resolution", 6, 7, "Burgers"],
+    ]);
+    // Progress belongs between its Phase record and the next one.
+    const order = planRun.map((r) => (r.msg === "phase" ? r.phase : "progress"));
+    expect(order.indexOf("ingredient-resolution")).toBeLessThan(order.indexOf("progress"));
+    expect(order.lastIndexOf("progress")).toBeLessThan(order.indexOf("pantry-matching"));
   });
 });
