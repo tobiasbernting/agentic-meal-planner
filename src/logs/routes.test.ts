@@ -5,6 +5,7 @@ import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
+import { createCapturingLogger } from "../logging/logger.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -138,5 +139,22 @@ describe("GET /logs", () => {
     const res = await app.inject({ method: "GET", url: "/settings" });
 
     expect(res.body).toContain('<a href="/logs">Logs</a>');
+  });
+});
+
+describe("with an injected logger", () => {
+  it("buffers the same records in pino's shape and honours the live level", async () => {
+    const { logger, records } = createCapturingLogger();
+    const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-logs-")), logger }));
+    apps.push(app);
+    app.ctx.log.child({ component: "probe" }).error({ err: new Error("boom") }, "failed");
+
+    await app.inject({ method: "POST", url: "/logs/level", payload: { level: "warn" } });
+    await app.inject({ method: "GET", url: "/health" });
+
+    const streamed = sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+    expect(streamed).toContainEqual(expect.objectContaining({ level: 50, component: "probe", msg: "failed", err: expect.objectContaining({ message: "boom" }) }));
+    expect(streamed.some((r) => r.url === "/health")).toBe(false);
+    expect(records.some((r) => r.url === "/health")).toBe(false);
   });
 });
