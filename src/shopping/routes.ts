@@ -19,6 +19,7 @@ import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, buyFingerprint, getShoppingList } from "./build.js";
+import { checkLine, uncheckLine, type ShoppingLine } from "./edits.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
@@ -46,6 +47,9 @@ interface PantryForm extends BuildForm {
   name?: string;
 }
 
+/** Check, uncheck, remove and restore post the week and the line's name. */
+type LineForm = PantryForm;
+
 /** "pasta" / "400 g pasta" as the row's main text. */
 function itemLabel(item: AggregatedItem): string {
   const amount = item.quantity === null ? "" : `${item.quantity}${item.unit ? ` ${item.unit}` : ""} `;
@@ -61,15 +65,33 @@ function alwaysHomeForm(lang: Lang, weekStart: string, item: AggregatedItem): st
 </form>`;
 }
 
-function renderItem(lang: Lang, dishName: (id: number) => string | undefined, item: AggregatedItem, alwaysHome?: string): string {
-  const dishes = item.sourceDishIds.flatMap((id) => dishName(id) ?? []);
-  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
-  return `<li class="row"><span class="row-label">${escapeHtml(itemLabel(item))}</span>${till}${alwaysHome ? `\n<div class="row-actions">${alwaysHome}</div>` : ""}</li>`;
+/** A one-button form posting the week and a line's name to a Shopping List edit route. */
+function lineForm(action: string, weekStart: string, name: string, button: string): string {
+  return `<form method="post" action="${action}">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <input type="hidden" name="name" value="${escapeHtml(name)}" />
+  ${button}
+</form>`;
 }
 
-function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, items: AggregatedItem[], alwaysHome?: (item: AggregatedItem) => string): string {
-  const list = items.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${items.map((i) => renderItem(lang, dishName, i, alwaysHome?.(i))).join("\n")}\n</ul>`;
-  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
+/** The tick: checks an open line, unchecks a Checked Off one. */
+function tickForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
+  const key = line.checked ? "shopping.uncheck" : "shopping.check";
+  const button = `<button type="submit" class="tick" aria-label="${escapeHtml(t(lang, key, { name: line.name }))}" aria-pressed="${line.checked}"></button>`;
+  return lineForm(line.checked ? "/shopping/uncheck" : "/shopping/check", weekStart, line.name, button);
+}
+
+function renderLine(lang: Lang, dishName: (id: number) => string | undefined, weekStart: string, line: ShoppingLine, actions: string[]): string {
+  const dishes = line.sourceDishIds.flatMap((id) => dishName(id) ?? []);
+  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
+  const label = line.checked ? `<s class="row-label">${escapeHtml(itemLabel(line))}</s>` : `<span class="row-label">${escapeHtml(itemLabel(line))}</span>`;
+  const rowActions = actions.length ? `\n<div class="row-actions">${actions.join("\n")}</div>` : "";
+  return `<li class="row line${line.checked ? " line-checked" : ""}">${tickForm(lang, weekStart, line)}<div class="line-body">${label}${till}${rowActions}</div></li>`;
+}
+
+function renderSection(lang: Lang, dishName: (id: number) => string | undefined, weekStart: string, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[], tail = ""): string {
+  const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, weekStart, l, actions(l))).join("\n")}\n</ul>`;
+  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}${tail}</section>`;
 }
 
 function buildForm(weekStart: string, label: string): string {
@@ -88,7 +110,7 @@ function sinkName(sinkId: string): string {
  * Skicka igen once. When a rebuild (Swap, Har alltid hemma) changed the Buy list after a
  * successful push, a line says so, since the sink no longer holds the current list.
  */
-function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string, buy: AggregatedItem[]): string {
+function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string, buy: ShoppingLine[]): string {
   const timezone = readTimezone(ctx.db);
   const pushes = latestPushes(ctx.db, planId);
   const again = (quiet: boolean) => `<form method="post" action="/shopping/push">
@@ -132,12 +154,13 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
       const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
+      const buyActions = (line: ShoppingLine) => (alwaysHome ? [alwaysHome(line)] : []);
       content =
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, alwaysHome)}
-${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
+          : `${renderSection(lang, dishName, weekStart, "buy", t(lang, "shopping.buy"), buy, buyActions)}
+${renderSection(lang, dishName, weekStart, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, () => [])}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
     }
@@ -174,6 +197,18 @@ ${content}`;
     }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });
+
+  // The week's own edits (ADR-0007) touch no list rows, so they are allowed while a Plan Run is in flight.
+  const lineEdit = (action: string, edit: (weekStart: string, name: string) => void) => {
+    app.post<{ Body: LineForm }>(action, async (req, reply) => {
+      const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+      const name = req.body.name?.trim();
+      if (name) edit(weekStart, name);
+      return reply.redirect(`/shopping?week=${weekStart}`, 303);
+    });
+  };
+  lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
+  lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
 
   app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));

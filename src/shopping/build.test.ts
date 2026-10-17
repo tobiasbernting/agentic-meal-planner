@@ -64,7 +64,8 @@ describe("buildShoppingList", () => {
       { name: "ägg", quantity: "3", unit: null, sourceDishIds: [pancakes] },
     ]);
     expect(list.degradedReasons).toEqual([]);
-    expect(getShoppingList(db, planId)).toEqual({ buy: list.buy, checkPantry: list.checkPantry });
+    const open = (items: typeof list.buy) => items.map((item) => ({ ...item, checked: false }));
+    expect(getShoppingList(db, planId)).toEqual({ buy: open(list.buy), checkPantry: open(list.checkPantry), removed: [] });
   });
 
   it("replaces the stored list on rebuild and reports degraded resolution without an agent", async () => {
@@ -140,6 +141,6 @@ describe("buildShoppingList", () => {
 
   it("is empty for a plan that has not been built", () => {
     const db = freshDb();
-    expect(getShoppingList(db, 999)).toEqual({ buy: [], checkPantry: [] });
+    expect(getShoppingList(db, 999)).toEqual({ buy: [], checkPantry: [], removed: [] });
   });
 });

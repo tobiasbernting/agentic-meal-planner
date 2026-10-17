@@ -115,6 +115,8 @@ export const sv: Dictionary = {
   "shopping.notPushed": "Inte skickad någonstans",
   "shopping.unknownError": "okänt fel",
   "shopping.notice.run-in-progress": "En planering pågår för den här veckan. Inköpslistan ändrades inte.",
+  "shopping.check": "Bocka av {name}",
+  "shopping.uncheck": "Ångra avbockning av {name}",
 
   "dishes.title": "Rätter",
   "dishes.add": "Lägg till rätt",

@@ -113,6 +113,8 @@ export const en = {
   "shopping.notPushed": "Not pushed anywhere",
   "shopping.unknownError": "unknown error",
   "shopping.notice.run-in-progress": "A Plan Run is in progress for this week. The Shopping List was not changed.",
+  "shopping.check": "Check off {name}",
+  "shopping.uncheck": "Uncheck {name}",
 
   "dishes.title": "Dishes",
   "dishes.add": "Add dish",
