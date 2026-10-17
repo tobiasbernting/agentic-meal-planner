@@ -21,6 +21,17 @@ describe("truncateFields", () => {
     expect(out.agent).toEqual({ stderr: "zz…[truncated 5 chars]" });
   });
 
+  it("truncates strings at any depth, through arrays and nested objects", () => {
+    const out = truncateFields({ run: { attempts: [{ stderr: "z".repeat(7) }, "w".repeat(3)] } }, 2);
+    expect(out.run).toEqual({ attempts: [{ stderr: "zz…[truncated 5 chars]" }, "ww…[truncated 1 chars]"] });
+  });
+
+  it("stops descending past a bounded depth, so a cycle cannot loop", () => {
+    const cyclic: Record<string, unknown> = { s: "abc" };
+    cyclic.self = cyclic;
+    expect(() => truncateFields({ cyclic }, 2)).not.toThrow();
+  });
+
   it("keeps Error objects intact", () => {
     const err = new Error("boom");
     expect(truncateFields({ err }).err).toBe(err);

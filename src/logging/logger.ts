@@ -22,10 +22,8 @@ export const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"
 
 export const MAX_FIELD_CHARS = 8192;
 
-function truncateValue(value: unknown, max: number): unknown {
-  if (typeof value !== "string" || value.length <= max) return value;
-  return `${value.slice(0, max)}…[truncated ${value.length - max} chars]`;
-}
+/** How deep truncation descends into nested objects and arrays; deeper values pass as-is (cycles stop here). */
+const MAX_TRUNCATE_DEPTH = 8;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -33,19 +31,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/** Strings longer than `max` chars are cut with a `…[truncated N chars]` suffix, top level and one level down. */
-export function truncateFields(fields: LogFields, max = MAX_FIELD_CHARS): LogFields {
+function truncateValue(value: unknown, max: number, depth: number): unknown {
+  if (typeof value === "string") return value.length <= max ? value : `${value.slice(0, max)}…[truncated ${value.length - max} chars]`;
+  if (depth >= MAX_TRUNCATE_DEPTH) return value;
+  if (Array.isArray(value)) return value.map((v) => truncateValue(v, max, depth + 1));
+  if (isPlainObject(value)) return truncateObject(value, max, depth + 1);
+  return value;
+}
+
+function truncateObject(fields: LogFields, max: number, depth: number): LogFields {
   const out: LogFields = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (isPlainObject(value)) {
-      const inner: LogFields = {};
-      for (const [k, v] of Object.entries(value)) inner[k] = truncateValue(v, max);
-      out[key] = inner;
-    } else {
-      out[key] = truncateValue(value, max);
-    }
-  }
+  for (const [key, value] of Object.entries(fields)) out[key] = truncateValue(value, max, depth);
   return out;
+}
+
+/**
+ * Strings longer than `max` chars are cut with a `…[truncated N chars]` suffix, through plain
+ * objects and arrays down to a bounded depth. Errors and other class instances are untouched.
+ */
+export function truncateFields(fields: LogFields, max = MAX_FIELD_CHARS): LogFields {
+  return truncateObject(fields, max, 0);
 }
 
 /** The slice of a pino logger this adapter uses (Fastify's `app.log` fits). */
