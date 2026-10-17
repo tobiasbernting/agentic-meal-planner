@@ -11,6 +11,7 @@ import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
 import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
 import { weekDates } from "../week.js";
 import { createSchool } from "../schools/repo.js";
+import { createCapturingLogger, type LogRecord } from "../logging/logger.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -259,3 +260,23 @@ function emptyDinners() {
     rationale: NO_ELIGIBLE_DISH_RATIONALE,
   }));
 }
+
+describe("run logging", () => {
+  /** The records of the one request to `url`, found by the runId on its "request completed" line. */
+  function runRecords(records: LogRecord[], url: string): LogRecord[] {
+    const runId = records.find((r) => r.msg === "request completed" && r.url === url)?.runId;
+    expect(runId).toEqual(expect.any(String));
+    return records.filter((r) => r.runId === runId);
+  }
+
+  it.each(["/plan/generate", "/plan/regenerate"])("%s logs run started and finished with runId = request id", async (url) => {
+    const { logger, records } = createCapturingLogger();
+    const app = await start({ logger, llm: new NoAgent() });
+
+    await app.inject({ method: "POST", url, payload: { weekStart: WEEK } });
+
+    const run = runRecords(records, url);
+    expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run started", component: "plan", weekStart: WEEK }));
+    expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run finished", component: "plan", weekStart: WEEK }));
+  });
+});

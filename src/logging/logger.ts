@@ -77,6 +77,14 @@ function bindingLogger(emit: (level: LogLevel, fields: LogFields, msg: string) =
   };
 }
 
+/**
+ * The logger for one HTTP-triggered run: binds `runId` to Fastify's request id and the
+ * `component` doing the work. Pass the result down as `log` in the run's deps.
+ */
+export function runLogger(log: Logger, req: { id: string }, component: string): Logger {
+  return log.child({ runId: req.id, component });
+}
+
 /** Drops everything. The default where a module's deps omit `log`. */
 export const silentLogger: Logger = bindingLogger(() => {});
 

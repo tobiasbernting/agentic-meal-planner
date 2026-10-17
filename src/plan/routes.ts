@@ -12,7 +12,8 @@ import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
-import { generatePlan } from "../planner/generate.js";
+import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
+import { runLogger, type Logger } from "../logging/logger.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { pushShoppingList } from "../sinks/push.js";
@@ -165,7 +166,15 @@ function isNotice(key: string | undefined): key is keyof typeof NOTICES {
   return key !== undefined && Object.hasOwn(NOTICES, key);
 }
 
+function logRunFinished(log: Logger, weekStart: string, result: GeneratePlanResult, started: number, extra: Record<string, unknown> = {}): void {
+  const outcome = "planId" in result ? { planId: result.planId, degradedReasons: result.degradedReasons.length } : { skipped: result.skipped };
+  log.info({ weekStart, ...outcome, ...extra, durationMs: Date.now() - started }, "run finished");
+}
+
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
+  // Read the ports at run time: `ctx.llm` follows the Settings agent command.
+  const ingestDeps = () => ({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now });
+
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
@@ -189,13 +198,17 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    const log = runLogger(ctx.log, req, "plan");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "generate" }, "run started");
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
-    await ingestWeek(ctx, weekStart);
+    await ingestWeek({ ...ingestDeps(), log }, weekStart);
     const result = await generatePlan(
-      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() },
+      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log },
       weekStart,
       { replace: false },
     );
+    logRunFinished(log, weekStart, result, started);
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
     if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
@@ -210,8 +223,12 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
       reply.type("text/html; charset=utf-8");
       return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang });
     }
-    const { changed } = await ingestWeek(ctx, weekStart, { force: true });
-    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });
+    const log = runLogger(ctx.log, req, "plan");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "regenerate" }, "run started");
+    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart, { force: true });
+    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log }, weekStart, { replace: true });
+    logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
     if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: fresh Shopping List, pushed
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);

@@ -3,6 +3,7 @@
  * stores the Weekly Plan (FR-9). It reads already-stored Lunch Entries but neither ingests
  * lunch menus nor pushes shopping sinks; those compositions belong to #33/#34.
  */
+import type { Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
 import { listDishes } from "../dishes/repo.js";
 import type { LlmAgent } from "../llm/index.js";
@@ -23,6 +24,8 @@ export interface GeneratePlanDeps {
   now: () => string;
   /** Loads the week's Lunch Entries keyed by date. Defaults to `loadStoredLunch` (the lunch repo). */
   loadLunch?: LunchLoader;
+  /** Run logger (bound to `runId`); defaults to `silentLogger`. */
+  log?: Logger;
 }
 
 /**
