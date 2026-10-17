@@ -13,12 +13,13 @@ import {
   SEED_DISHES,
   type Dish as LlmDish,
   type DishSuggestion,
+  type ExistingDish,
   type LlmAgent,
   type SelectDishesInput,
   type SelectedDish,
 } from "../llm/index.js";
 import type { LunchEntry } from "../types.js";
-import { createSeedPicker, resolveSuggestion, type SuggestionOutcome } from "./suggestions.js";
+import { createSeedPicker, resolveExistingDish, resolveSuggestion, type SuggestionOutcome } from "./suggestions.js";
 import { quickDayLimitFor, type PlannerSettings } from "./settings.js";
 import { weekDates, weekdayOf } from "../week.js";
 import { DEFAULT_LANG, t, type Lang } from "../i18n/index.js";
@@ -79,6 +80,21 @@ function toCandidate(dish: Dish): CandidateDish {
   };
 }
 
+/** Favorite and Suggested Dishes only: a Dish that is neither is kept but never planned. */
+function toExistingDish(dish: Dish): ExistingDish[] {
+  if (!dish.inRotation && !dish.suggested) return [];
+  return [
+    {
+      id: String(dish.id),
+      name: dish.name,
+      kind: dish.inRotation ? "favorite" : "suggested",
+      mainCategory: dish.mainCategory ?? undefined,
+      prepTimeMinutes: dish.prepTimeMinutes ?? undefined,
+      weekendOnly: dish.weekendOnly,
+    },
+  ];
+}
+
 function toDayInputs(input: PlanWeekInput): DayInput[] {
   return weekDates(input.weekStart).map((date) => {
     const weekday = weekdayOf(date);
@@ -111,8 +127,14 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     categoryCollisionEnabled: input.settings.categoryCollisionEnabled,
   });
   const request: SelectDishesInput = {
-    days: days.map((d) => ({ date: d.date, isQuickDay: d.quickDayLimitMinutes !== null, lunch: d.lunch })),
+    days: days.map((d) => ({
+      date: d.date,
+      isQuickDay: d.quickDayLimitMinutes !== null,
+      quickDayLimitMinutes: d.quickDayLimitMinutes,
+      lunch: d.lunch,
+    })),
     candidates: candidates.map((c) => c.eligible.map(toCandidate)),
+    existingDishes: input.dishes.flatMap(toExistingDish),
     recentlyPlanned: input.recentlyPlanned,
     suggestionStyle: input.settings.suggestionStyle,
     seedDishes: SEED_DISHES,
@@ -136,11 +158,14 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
 
   // Once a Week: the dinners planned so far, so a later date never repeats one.
   const planned: PlannedElsewhere[] = [];
-  const nameOf = (draft: PlannedDinnerDraft) =>
-    draft.suggestion?.name ?? input.dishes.find((d) => d.id === draft.dishId)?.name ?? "";
+  const asPlanned = (draft: PlannedDinnerDraft): PlannedElsewhere => {
+    if (draft.suggestion !== null) return { date: draft.date, dishId: null, name: draft.suggestion.name, mainCategory: draft.suggestion.mainCategory };
+    const reused = input.dishes.find((d) => d.id === draft.dishId);
+    return { date: draft.date, dishId: draft.dishId, name: reused?.name ?? "", mainCategory: reused?.mainCategory ?? null };
+  };
   const dinners = days.map((weekDay, i): PlannedDinnerDraft => {
     const draft = planDay({ ...weekDay, plannedElsewhere: [...planned] }, i);
-    if (draft.dishId !== null || draft.suggestion !== null) planned.push({ date: draft.date, dishId: draft.dishId, name: nameOf(draft) });
+    if (draft.dishId !== null || draft.suggestion !== null) planned.push(asPlanned(draft));
     return draft;
   });
 
@@ -175,13 +200,17 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
 
     if (eligible.length === 0) {
       if (pick !== undefined && !fromNoAgent) {
+        // The agent may return an existing Dish's id instead of suggesting its twin.
+        const existing = "dishId" in pick ? input.dishes.find((d) => String(d.id) === pick.dishId) : undefined;
         const outcome: SuggestionOutcome =
           "suggestion" in pick
             ? resolveSuggestion(pick.suggestion, day, input.dishes, filterOptions)
-            : ({ kind: "dropped", why: `agent picked dish ${pick.dishId} instead of suggesting one` } as const);
+            : existing !== undefined
+              ? resolveExistingDish(existing, day, filterOptions)
+              : ({ kind: "dropped", why: `agent picked unknown dish ${pick.dishId}` } as const);
         if (outcome.kind !== "dropped") return landed(outcome, pick.rationale);
-        const name = "suggestion" in pick ? String((pick.suggestion as { name?: unknown } | null)?.name ?? "") : "";
-        const detail = `${day.date}: suggestion "${name}" dropped: ${outcome.why}`;
+        const name = "suggestion" in pick ? String((pick.suggestion as { name?: unknown } | null)?.name ?? "") : (existing?.name ?? "");
+        const detail = "suggestion" in pick ? `${day.date}: suggestion "${name}" dropped: ${outcome.why}` : `${day.date}: dish ${pick.dishId} dropped: ${outcome.why}`;
         const { code, params } = droppedCode("suggestion" in pick, outcome.rule);
         degradedReasons.push({ code, date: day.date, params: { name, ...params }, detail });
         dropped = true;
@@ -214,10 +243,9 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
   return { weekStart: input.weekStart, dinners, degradedReasons };
 }
 
-/** The household-facing code for a dropped agent pick on a day with no eligible Favorite Dish. */
+/** The household-facing code for a dropped suggestion or existing-Dish pick on a day with no eligible Favorite Dish. */
 function droppedCode(wasSuggestion: boolean, rule: ExclusionRule | undefined): Pick<DegradedReasonDraft, "code" | "params"> {
-  if (!wasSuggestion) return { code: "pick-not-eligible" };
-  if (rule === undefined || rule.code === "not-in-rotation") return { code: "suggestion-invalid" };
+  if (rule === undefined || rule.code === "not-in-rotation") return { code: wasSuggestion ? "suggestion-invalid" : "pick-not-eligible" };
   const params = exclusionParams(rule);
   return params ? { code: rule.code, params } : { code: rule.code };
 }

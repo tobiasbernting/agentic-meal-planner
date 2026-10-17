@@ -78,6 +78,15 @@ export function resolveSuggestion(
   const wanted = normaliseName(suggestion.name);
   const match = dishes.find((d) => normaliseName(d.name) === wanted);
   if (match === undefined) return { kind: "new", suggestion };
+  return resolveExistingDish(match, day, options);
+}
+
+/**
+ * Decides whether an existing Dish, matched by name or returned by id, lands on a date with no
+ * eligible Favorite Dish. A Favorite Dish was excluded by the filter that day, so it is dropped;
+ * any other Dish is reused once it passes the hard rules itself.
+ */
+export function resolveExistingDish(match: Dish, day: DayInput, options: FilterOptions): Exclude<SuggestionOutcome, { kind: "new" }> {
   if (match.inRotation) {
     const rule = exclusionRule(match, day, options) ?? undefined;
     const reason = rule ? describeExclusion(rule) : "not eligible that day";
@@ -96,16 +105,24 @@ export function resolveSuggestion(
 
 /**
  * Round-robin over the seed list across the week: each call starts after the previous pick and
- * takes the first seed that resolves to a Dish for that day, preferring seeds whose name is not
- * in `recentNames` (Variety Preference). Returns `undefined` when none resolves.
+ * takes the first seed that resolves to a Dish for that day. It prefers, in order, seeds whose
+ * Main Category is not already planned on another date of the week (`day.plannedElsewhere`), then
+ * seeds whose name is not in `recentNames` (Variety Preference); each preference is relaxed in turn
+ * when no seed is left. A Dish already planned that week is never taken: the hard rules (Once a
+ * Week) exclude it. Returns `undefined` when none resolves.
  */
 export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: FilterOptions, recentNames: string[] = []) {
   const recent = new Set(recentNames.map(normaliseName));
   let next = 0;
-  const pass = (day: DayInput, skipRecent: boolean) => {
+  const pass = (day: DayInput, skipWeekCategories: boolean, skipRecent: boolean) => {
+    // "other" is uncategorised and never counts as a repeat, as with the lunch collision rule.
+    const weekCategories = new Set(
+      (day.plannedElsewhere ?? []).flatMap((p) => (p.mainCategory && p.mainCategory !== "other" ? [p.mainCategory] : [])),
+    );
     for (let k = 0; k < seeds.length; k++) {
       const index = (next + k) % seeds.length;
       const seed = seeds[index]!;
+      if (skipWeekCategories && weekCategories.has(seed.mainCategory)) continue;
       if (skipRecent && recent.has(normaliseName(seed.name))) continue;
       const outcome = resolveSuggestion({ ...seed }, day, dishes, options);
       if (outcome.kind !== "dropped") {
@@ -115,5 +132,6 @@ export function createSeedPicker(seeds: SeedDish[], dishes: Dish[], options: Fil
     }
     return undefined;
   };
-  return (day: DayInput): Exclude<SuggestionOutcome, { kind: "dropped" }> | undefined => pass(day, true) ?? pass(day, false);
+  return (day: DayInput): Exclude<SuggestionOutcome, { kind: "dropped" }> | undefined =>
+    pass(day, true, true) ?? pass(day, true, false) ?? pass(day, false, true) ?? pass(day, false, false);
 }
