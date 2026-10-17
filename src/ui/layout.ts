@@ -4,6 +4,7 @@
  * and component classes live in public/app.css (see `ASSET_PATHS`). Keep feature logic out.
  */
 import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
+import { markOnlineOnlyForms } from "../offline/online-only.js";
 import { ASSET_PATHS } from "./assets.js";
 
 export function escapeHtml(value: unknown): string {
@@ -82,7 +83,7 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
 ${offlineBannerMarker()}
-${body}
+${markOnlineOnlyForms(body, lang)}
     </main>
     ${tabBar(lang, tab)}
   </body>
