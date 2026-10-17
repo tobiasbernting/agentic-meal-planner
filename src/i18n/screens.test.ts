@@ -8,6 +8,7 @@ import { savePlan } from "../planner/repo.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { createSchool } from "../schools/repo.js";
 import { MAIN_CATEGORIES, MAIN_CATEGORY_KEYS } from "../dishes/categories.js";
+import { postPlanRun } from "../plan-run/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -66,7 +67,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
 
   it("localises the nav and weekday names", async () => {
     const app = await makeApp();
-    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-26" } });
+    await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-26" });
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-10-26" });
     expect(res.body).toContain('<a href="/">Idag</a>');
     expect(res.body).toContain("Måndag");
