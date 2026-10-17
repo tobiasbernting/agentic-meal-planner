@@ -99,7 +99,7 @@ describe("every screen renders in English with the lang=en cookie", () => {
     const item = createPantryItem(app.ctx.db, { name: "Salt", aliases: [] });
     const screens: [string, string][] = [
       ["/", "Refresh lunch menus"],
-      ["/plan", "Weekly Plan"],
+      ["/plan", "No plan for this week"],
       ["/shopping", "Shopping List"],
       ["/dishes", "Dishes"],
       ["/dishes/new", "Main Category"],

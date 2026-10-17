@@ -37,19 +37,29 @@ afterEach(async () => {
   while (apps.length) await apps.pop()!.close();
 });
 
+/** The almanac row for `date`, or a thrown error when the page has none. */
+function row(body: string, date: string): string {
+  const m = body.match(new RegExp(`<article[^>]*id="day-${date}"[\\s\\S]*?</article>`));
+  if (!m) throw new Error(`no row for ${date}`);
+  return m[0];
+}
+
+/** The page up to the first almanac row: week head, navigation, status and controls. */
+const top = (body: string) => body.slice(0, body.indexOf("<article"));
+
 describe("GET /plan", () => {
-  it("says there is no plan for the current week and offers to generate one", async () => {
+  it("says there is no plan for the week and offers to generate one, above the week's rows", async () => {
     const app = await start();
 
     const res = await app.inject({ method: "GET", url: "/plan" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain(WEEK);
-    expect(res.body).toContain("No plan for this week");
-    expect(res.body).toMatch(/<form method="post" action="\/plan\/generate">[\s\S]*name="weekStart" value="2026-10-19"/);
+    expect(top(res.body)).toContain("No plan for this week");
+    expect(top(res.body)).toMatch(/<form method="post" action="\/plan\/generate">[\s\S]*name="weekStart" value="2026-10-19"/);
+    for (const date of weekDates(WEEK)) expect(row(res.body, date)).toContain("No plan");
   });
 
-  it("shows all seven days with the dinner's Dish name and rationale, or the no-eligible-dish notice", async () => {
+  it("opens all seven days with Dish, minutes, Quick Day tag, rationale and a Swap placeholder, or the no-eligible-dish notice", async () => {
     const app = await start();
     const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
     const dinners = weekDates(WEEK).map((date) => ({
@@ -64,17 +74,29 @@ describe("GET /plan", () => {
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 
     expect(res.statusCode).toBe(200);
-    const days = res.body.match(/<article class="plan-day">/g);
-    expect(days).toHaveLength(7);
-    for (const date of weekDates(WEEK)) expect(res.body).toContain(`<time datetime="${date}">`);
-    expect(res.body).toMatch(/Monday[\s\S]*Tuesday[\s\S]*Wednesday[\s\S]*Thursday[\s\S]*Friday[\s\S]*Saturday[\s\S]*Sunday/);
-    expect(res.body.match(/Burgers/g)).toHaveLength(6);
-    expect(res.body).toContain("burgers on 2026-10-19");
-    expect(res.body).toContain("burgers on 2026-10-25");
-    expect(res.body).toContain("No eligible dish, pick one");
+    expect(res.body.match(/<article class="day day-full/g)).toHaveLength(7);
+    const monday = row(res.body, "2026-10-19");
+    expect(monday).toContain("Mon");
+    expect(monday).toContain('<div class="day-dinner">Burgers</div>');
+    expect(monday).toContain("20 min");
+    expect(monday).toContain('<p class="why">burgers on 2026-10-19</p>');
+    expect(monday).toMatch(/<button type="button" disabled>Swap dish<\/button>/);
+    expect(row(res.body, "2026-10-25")).toContain("burgers on 2026-10-25");
+    expect(row(res.body, "2026-10-20")).toContain("Quick Day");
     expect(res.body.match(/Quick Day/g)).toHaveLength(1);
-    expect(res.body).toContain("Status: generated");
+    expect(row(res.body, "2026-10-22")).toContain("No eligible dish, pick one");
+    expect(top(res.body)).toContain("Status: generated");
     expect(res.body).not.toContain("No plan for this week");
+  });
+
+  it("marks today's row when the shown week holds today", async () => {
+    const app = await start();
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+
+    expect(row(res.body, "2026-10-21")).toMatch(/^<article[^>]*aria-current="date"/);
+    expect(res.body.match(/aria-current="date"/g)).toHaveLength(1);
   });
 
   it("marks only Suggested Dishes and promotes from Plan, returning to Plan with the badge gone", async () => {
@@ -92,6 +114,7 @@ describe("GET /plan", () => {
 
     const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(before.body.match(/Suggested/g)).toHaveLength(1);
+    expect(row(before.body, "2026-10-21")).toContain("Add to favorites");
     expect(before.body.match(/Add to favorites/g)).toHaveLength(1);
     expect(before.body).toContain(`action="/dishes/${stew}/promote"`);
 
@@ -104,19 +127,30 @@ describe("GET /plan", () => {
     expect(after.body).not.toContain("Add to favorites");
   });
 
-  it("renders the badge and button in Swedish", async () => {
+  it("renders the review page in Swedish", async () => {
     const app = await start();
-    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
-    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: stew, isQuickDay: false, lunchThatDay: null, rationale: "r" }));
+    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true, prepTimeMinutes: 25 });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: stew, isQuickDay: date === "2026-10-20", lunchThatDay: null, rationale: "r" }));
     savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=sv" } });
 
-    expect(res.body).toContain("Föreslagen");
-    expect(res.body).toContain("Lägg till i favoriter");
+    expect(res.body).toContain('aria-label="Vecka 43"');
+    expect(top(res.body)).toMatch(/v\. 42 <span aria-hidden="true">‹<\/span>/);
+    expect(top(res.body)).toMatch(/<span aria-hidden="true">›<\/span> v\. 44/);
+    expect(top(res.body)).toContain("Status: genererad");
+    expect(top(res.body)).toContain("Bekräfta planen");
+    expect(top(res.body)).toContain("Generera planen igen");
+    const tuesday = row(res.body, "2026-10-20");
+    expect(tuesday).toContain("Tis");
+    expect(tuesday).toContain("Middag");
+    expect(tuesday).toContain("Snabbdag");
+    expect(tuesday).toContain("Byt rätt");
+    expect(tuesday).toContain("Föreslagen");
+    expect(tuesday).toContain("Lägg till i favoriter");
   });
 
-  it("shows each School's Lunch Entry for the day, or the no-lunch-data notice (FR-5)", async () => {
+  it("shows each School's Lunch Entry for the day, or the no-lunch-data block (FR-5)", async () => {
     const app = await start();
     const north = createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
     createSchool(app.ctx.db, { name: "Southside", url: "https://south.example/menu" });
@@ -125,21 +159,25 @@ describe("GET /plan", () => {
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 
-    expect(res.body).toContain("Northside");
-    expect(res.body).toMatch(/<li>Pasta bolognese<\/li>\s*<li>Fiskgratäng<\/li>/);
-    // Northside has lunch only on Monday; Southside never: 6 + 7 notices.
-    expect(res.body.match(/No lunch data/g)).toHaveLength(13);
+    const monday = row(res.body, WEEK);
+    expect(monday).toContain("Lunch · Northside");
+    expect(monday).toMatch(/<li>Pasta bolognese<\/li>\s*<li>Fiskgratäng<\/li>/);
+    expect(monday).toContain("Lunch · Southside");
+    expect(monday).toMatch(/class="notice"[^>]*>[\s\S]*No lunch data/);
+    // Northside has lunch only on Monday, Southside never: 1 + 2 × 4 weekday blocks. The weekend says so.
+    expect(res.body.match(/No lunch data/g)).toHaveLength(9);
+    expect(row(res.body, "2026-10-24")).toContain("No school lunch");
   });
 
-  it("shows the plan status and degraded reasons as a notice", async () => {
+  it("shows the plan status and degraded reasons as a notice above the days", async () => {
     const app = await start();
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [NO_AGENT_REASON] }, NOW.toISOString());
     confirmPlan(app.ctx.db, WEEK);
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 
-    expect(res.body).toContain("Status: confirmed");
-    expect(res.body).toMatch(/<p class="notice">[^<]*no agent configured/);
+    expect(top(res.body)).toContain("Status: confirmed");
+    expect(top(res.body)).toMatch(/<div class="notice" role="alert">[\s\S]*no agent configured/);
   });
 
   it("warns when a day's Lunch Entry no longer matches what the plan was made with (Q17)", async () => {
@@ -155,19 +193,63 @@ describe("GET /plan", () => {
 
     const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
 
-    expect(res.body).toMatch(/<p class="notice">Lunch menu changed since this plan was made: 2026-10-20<\/p>/);
+    expect(top(res.body)).toContain('<span class="notice-text">Lunch menu changed since this plan was made: 2026-10-20</span>');
     expect(res.body.match(/Lunch menu changed/g)).toHaveLength(1);
   });
 
-  it("links to the previous and next week and defaults to the week of today", async () => {
+  it("navigates by ISO week number to the previous and next week", async () => {
     const app = await start();
 
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-10-28" });
 
-    expect(res.body).toContain('<time datetime="2026-10-26">');
-    expect(res.body).toContain('href="/plan?week=2026-10-19"');
-    expect(res.body).toContain('href="/plan?week=2026-11-02"');
-    expect((await app.inject({ method: "GET", url: "/plan?week=garbage" })).body).toContain(`<time datetime="${WEEK}">`);
+    expect(res.body).toContain('aria-label="Week 44"');
+    expect(row(res.body, "2026-10-26")).toContain('<time datetime="2026-10-26">');
+    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-10-19" rel="prev"[^>]*>wk 43 <span aria-hidden="true">‹<\/span><\/a>/);
+    expect(top(res.body)).toMatch(/<a href="\/plan\?week=2026-11-02" rel="next"[^>]*><span aria-hidden="true">›<\/span> wk 45<\/a>/);
+    expect((await app.inject({ method: "GET", url: "/plan?week=garbage" })).body).toContain(`id="day-${WEEK}"`);
+  });
+
+  it("numbers the weeks across a year boundary", async () => {
+    const app = await start();
+
+    const res = await app.inject({ method: "GET", url: "/plan?week=2026-12-28" });
+
+    expect(res.body).toContain('aria-label="Week 53"');
+    expect(top(res.body)).toContain("wk 52 ");
+    expect(top(res.body)).toContain("</span> wk 1</a>");
+  });
+});
+
+describe("GET /plan default week", () => {
+  const NEXT = "2026-10-26";
+
+  it("opens on next week once a Weekly Plan exists for it", async () => {
+    const app = await start();
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners: emptyDinners(), degradedReasons: [] }, NOW.toISOString());
+    savePlan(app.ctx.db, { weekStart: NEXT, dinners: [], degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: "/plan" });
+
+    expect(res.body).toContain('id="day-2026-10-26"');
+    expect(res.body).not.toContain('id="day-2026-10-19"');
+  });
+
+  it("opens on this week while next week has no plan", async () => {
+    const app = await start();
+
+    const res = await app.inject({ method: "GET", url: "/plan" });
+
+    expect(res.body).toContain('id="day-2026-10-19"');
+    expect(res.body).not.toContain('id="day-2026-10-26"');
+  });
+
+  it("keeps an explicit week even when next week has a plan", async () => {
+    const app = await start();
+    savePlan(app.ctx.db, { weekStart: NEXT, dinners: [], degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+
+    expect(res.body).toContain('id="day-2026-10-21"');
   });
 });
 

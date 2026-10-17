@@ -102,6 +102,14 @@ main > :not(.page-head, .week-head, .rows, .day, .notice) { margin-inline: var(-
 .week-num small { font-size: 1.125rem; font-weight: 600; letter-spacing: 0; margin-right: 4px; vertical-align: top; }
 .week-month { text-align: right; font-size: 0.9375rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 
+/* Plan: "v. 41 ‹ › v. 43" under the week landmark, then status and its buttons above the days. */
+.week-nav { display: flex; justify-content: space-between; border-bottom: 1px solid var(--rule); }
+.week-nav a { display: inline-flex; align-items: center; min-height: var(--tap); font-weight: 600; color: var(--ink); text-decoration: none; }
+.week-nav a:hover { text-decoration: underline; }
+.plan-status { padding: 12px 0 16px; }
+.plan-status p { font-weight: 600; }
+.plan-status .actions form { margin: 0; }
+
 /* Almanac day row: date numeral and weekday in a fixed left column, content to the right. */
 .day { display: grid; grid-template-columns: var(--date-col) 1fr; border-bottom: 1px solid var(--rule); }
 .day-date { padding: 12px 0 0 var(--gutter); }

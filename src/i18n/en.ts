@@ -47,7 +47,6 @@ export const en = {
   "today.planThisWeek": "Plan this week",
 
   "plan.title": "Plan",
-  "plan.heading": "Weekly Plan",
   "plan.status": "Status",
   "plan.status.generated": "generated",
   "plan.status.confirmed": "confirmed",
@@ -232,6 +231,7 @@ export const en = {
   "settings.language": "Language",
   "week.abbr": "wk",
   "week.label": "Week {n}",
+  "week.nav": "Other weeks",
   "day.lunchAt": "Lunch · {school}",
   "day.noPlan": "No plan",
   "day.noSchoolLunch": "No school lunch",

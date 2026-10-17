@@ -49,7 +49,6 @@ export const sv: Dictionary = {
   "today.planThisWeek": "Planera veckan",
 
   "plan.title": "Plan",
-  "plan.heading": "Veckoplan",
   "plan.status": "Status",
   "plan.status.generated": "genererad",
   "plan.status.confirmed": "bekräftad",
@@ -234,6 +233,7 @@ export const sv: Dictionary = {
   "settings.language": "Språk",
   "week.abbr": "v.",
   "week.label": "Vecka {n}",
+  "week.nav": "Andra veckor",
   "day.lunchAt": "Lunch · {school}",
   "day.noPlan": "Ingen plan",
   "day.noSchoolLunch": "Ingen skollunch",

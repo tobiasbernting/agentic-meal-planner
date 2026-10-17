@@ -85,7 +85,7 @@ describe("Plan Run started from the Plan page", () => {
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body).toContain("Ingredient resolution");
     expect(view.body).toContain("Ingredients 0 of 7: Köttbullar");
-    expect(view.body.match(/<strong>Köttbullar<\/strong>/g)).toHaveLength(7);
+    expect(view.body.match(/<div class="day-dinner">Köttbullar<\/div>/g)).toHaveLength(7);
     held.resolve({ ok: false, reason: "released" });
     await planRunSettled(app, WEEK);
   });
@@ -100,12 +100,12 @@ describe("Plan Run started from the Plan page", () => {
     await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
 
     const during = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(during.body.match(/<strong>Burgers<\/strong>/g)).toHaveLength(7);
+    expect(during.body.match(/<div class="day-dinner">Burgers<\/div>/g)).toHaveLength(7);
     held.resolve({ ok: true, value: weekDates(WEEK).map((date) => ({ date, dishId: String(stew), rationale: "r" })) });
     await planRunSettled(app, WEEK);
     const after = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(after.body.match(/<strong>Stew<\/strong>/g)).toHaveLength(7);
-    expect(after.body).not.toContain("<strong>Burgers</strong>");
+    expect(after.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(7);
+    expect(after.body).not.toContain('<div class="day-dinner">Burgers</div>');
   });
 
   it("hides Generate and Regenerate while the run is in flight and offers them again when it has finished", async () => {
@@ -254,7 +254,7 @@ describe("a Plan Run that throws", () => {
     const pasta = createDish(app.ctx.db, { name: "Pasta", prepTimeMinutes: 20, ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
     savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(pasta), degradedReasons: [] }, NOW.toISOString());
     await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
-    const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<strong>[^<]*<\/strong>/g);
+    const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<div class="day-dinner">[^<]*<\/div>/g);
     const shoppingList = async () => (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body.match(/<section id="(buy|check-pantry)">[\s\S]*?<\/section>/g);
     const before = { dinners: await dinners(), shoppingList: await shoppingList() };
 

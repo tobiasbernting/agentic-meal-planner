@@ -44,7 +44,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
 
     const screens: [string, string][] = [
       ["/", "Uppdatera lunchmenyer"],
-      ["/plan", "Veckoplan"],
+      ["/plan", "Ingen plan för den här veckan"],
       ["/shopping", "Inköpslista"],
       ["/dishes", "Rätter"],
       ["/dishes/new", "Ny rätt"],
@@ -70,7 +70,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-26" });
     const res = await app.inject({ method: "GET", url: "/plan?week=2026-10-26" });
     expect(res.body).toContain('<a href="/">Idag</a>');
-    expect(res.body).toContain("Måndag");
+    expect(res.body).toContain("<span>Mån</span>");
   });
   it("localises the sinks section of the Shopping List (#32, #37)", async () => {
     const app = await makeApp();
