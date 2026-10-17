@@ -52,6 +52,19 @@ function findRoute(patterns, path) {
 }
 
 /**
+ * The human label of a queued write, in the UI language: the label of the queueable route it
+ * matches, else the generic "Change". Never blank.
+ * @param {string} method
+ * @param {string} path
+ * @param {{ queueable: string[], labels: Record<string, Record<string, string>>, texts: Record<string, { unknownChange: string }> }} config
+ * @param {string} lang
+ */
+export function routeLabel(method, path, config, lang) {
+  const route = method === "POST" ? findRoute(config.queueable, path) : undefined;
+  return (route && config.labels[lang]?.[route]) || config.texts[lang].unknownChange;
+}
+
+/**
  * What the worker should do with a request.
  * @param {Request} request
  * @param {{ queueable: string[], onlineOnly: string[], pages: string[] }} config

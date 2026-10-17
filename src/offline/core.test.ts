@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backPath, cacheKeysFor, classify, extractLang, injectBanner, newPendingChange, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, newPendingChange, offlineResponseFor, prewarmUrls, replayOrder, replayOutcome, replayRequest, routeLabel } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { notice, page } from "../ui/layout.js";
 import { workerConfig } from "./routes.js";
@@ -397,5 +397,29 @@ describe("replayOutcome", () => {
 
   it("keeps a Pending Change for next time when the server failed", () => {
     for (const status of [500, 502, 503]) expect(replayOutcome(status, notice({ text: "oops" })), String(status)).toEqual({ kind: "keep" });
+  });
+});
+
+describe("routeLabel", () => {
+  it("labels every queueable route in both languages", () => {
+    for (const lang of ["sv", "en"] as const) {
+      for (const pattern of config.queueable) {
+        const path = pattern.replace(/:[^/]+/g, "12");
+        const label = routeLabel("POST", path, config, lang);
+        expect(label, `${lang} ${pattern}`).not.toBe("");
+        expect(label, `${lang} ${pattern}`).not.toBe(config.texts[lang].unknownChange);
+      }
+    }
+  });
+
+  it("resolves a dish edit and a dish delete to their own labels", () => {
+    expect(routeLabel("POST", "/dishes/12", config, "en")).toBe("Edit dish");
+    expect(routeLabel("POST", "/dishes/12/delete", config, "en")).toBe("Delete dish");
+    expect(routeLabel("POST", "/dishes/12/delete", config, "sv")).toBe(config.labels.sv["/dishes/:id/delete"]);
+  });
+
+  it("falls back to the generic label for an unknown route or a non-POST", () => {
+    expect(routeLabel("POST", "/nowhere", config, "en")).toBe("Change");
+    expect(routeLabel("GET", "/dishes/12", config, "sv")).toBe("Ändring");
   });
 });
