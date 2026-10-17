@@ -44,7 +44,7 @@ function today() {
  * since a Dish save may wait on the LLM; a write that timed out but did reach the server is
  * deduped on replay by its Idempotency-Key.
  */
-const TIMEOUT_MS = { page: 4000, write: 10000, passthrough: 4000, background: 15000 };
+const TIMEOUT_MS = { page: 3000, write: 6000, passthrough: 3000, background: 15000 };
 
 /** `fetch` that rejects after `ms`, like a network error, so every caller's offline path runs. */
 function fetchWithin(ms, input, init = {}) {
@@ -58,25 +58,38 @@ async function tellClients(message) {
 }
 
 /**
- * After a failed attempt the worker treats the device as offline for this long: pages answer from
- * the Offline Copy at once and writes become Pending Changes at once, instead of each tap waiting
- * out the timeout again. The page's health ping and a background probe end it early on success.
+ * After a failed attempt the worker treats the device as offline for a whole outing: pages answer
+ * from the Offline Copy at once and writes become Pending Changes at once, so only the first tap
+ * of a trip waits out a timeout. The state is kept in the meta cache because the browser stops an
+ * idle worker (iOS does so within seconds) and a fresh one would otherwise wait again. The grace
+ * never delays getting back: the page's health ping and a background probe end it on first success.
  */
-const OFFLINE_GRACE_MS = 20000;
-let offlineUntil = 0;
+const OFFLINE_GRACE_MS = 3 * 60 * 60 * 1000;
+const OFFLINE_KEY = "/__offline/until";
+let offlineUntil = loadOfflineUntil();
 let probing = false;
 
-function knownOffline() {
-  return Date.now() < offlineUntil;
+async function loadOfflineUntil() {
+  const stored = await (await caches.open(META_CACHE)).match(OFFLINE_KEY);
+  return stored ? Number(await stored.text()) || 0 : 0;
+}
+
+async function knownOffline() {
+  return Date.now() < (await offlineUntil);
+}
+
+function rememberOffline(until) {
+  offlineUntil = Promise.resolve(until);
+  void caches.open(META_CACHE).then((meta) => meta.put(OFFLINE_KEY, new Response(String(until))));
 }
 
 function noteOnline() {
-  offlineUntil = 0;
+  rememberOffline(0);
   void tellClients({ type: "connectivity", online: true });
 }
 
 function noteOffline() {
-  offlineUntil = Date.now() + OFFLINE_GRACE_MS;
+  rememberOffline(Date.now() + OFFLINE_GRACE_MS);
   void tellClients({ type: "connectivity", online: false });
 }
 
@@ -249,7 +262,7 @@ async function offlinePage(request, classification) {
 
 async function handlePage(event, classification) {
   const { request } = event;
-  if (knownOffline()) {
+  if (await knownOffline()) {
     event.waitUntil(probe());
     return offlinePage(request, classification);
   }
@@ -288,7 +301,7 @@ async function handleWrite(event, request, classification) {
     const back = backPath(request.referrer, self.location.origin);
     return offlineResponseFor(classification, { config, lang: await lastLang(), back, htmx: request.headers.has("HX-Request") });
   };
-  if (knownOffline()) {
+  if (await knownOffline()) {
     event.waitUntil(probe());
     return offline();
   }
@@ -310,7 +323,7 @@ async function handleWrite(event, request, classification) {
 async function handlePassthrough(request) {
   try {
     const response = await fetchWithin(TIMEOUT_MS.passthrough, request);
-    if (response.ok && knownOffline()) noteOnline();
+    if (response.ok && (await knownOffline())) noteOnline();
     return response;
   } catch {
     noteOffline();
