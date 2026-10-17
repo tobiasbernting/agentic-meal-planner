@@ -18,6 +18,7 @@ import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
+import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
 const WEEK_START = /^\d{4}-\d{2}-\d{2}$/;
@@ -30,6 +31,10 @@ interface BuildForm {
   weekStart?: string;
 }
 
+interface PantryForm extends BuildForm {
+  name?: string;
+}
+
 function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
@@ -40,14 +45,23 @@ function itemLabel(item: AggregatedItem): string {
   return `${amount}${item.name}`;
 }
 
-function renderItem(lang: Lang, dishName: (id: number) => string | undefined, item: AggregatedItem): string {
-  const dishes = item.sourceDishIds.flatMap((id) => dishName(id) ?? []);
-  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
-  return `<li class="row"><span class="row-label">${escapeHtml(itemLabel(item))}</span>${till}</li>`;
+/** Quiet "har alltid hemma" form on a Buy line: makes a Pantry Item of the line's name. */
+function alwaysHomeForm(lang: Lang, weekStart: string, item: AggregatedItem): string {
+  return `<form method="post" action="/shopping/pantry">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <input type="hidden" name="name" value="${escapeHtml(item.name)}" />
+  <button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.alwaysHomeFor", { name: item.name }))}">${t(lang, "shopping.alwaysHome")}</button>
+</form>`;
 }
 
-function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, items: AggregatedItem[]): string {
-  const list = items.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${items.map((i) => renderItem(lang, dishName, i)).join("\n")}\n</ul>`;
+function renderItem(lang: Lang, dishName: (id: number) => string | undefined, item: AggregatedItem, alwaysHome?: string): string {
+  const dishes = item.sourceDishIds.flatMap((id) => dishName(id) ?? []);
+  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
+  return `<li class="row"><span class="row-label">${escapeHtml(itemLabel(item))}</span>${till}${alwaysHome ? `\n<div class="row-actions">${alwaysHome}</div>` : ""}</li>`;
+}
+
+function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, items: AggregatedItem[], alwaysHome?: (item: AggregatedItem) => string): string {
+  const list = items.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${items.map((i) => renderItem(lang, dishName, i, alwaysHome?.(i))).join("\n")}\n</ul>`;
   return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
 }
 
@@ -116,7 +130,7 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
         buy.length + checkPantry.length === 0
           ? `<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy)}
+          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, (item) => alwaysHomeForm(lang, weekStart, item))}
 ${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart)}`;
@@ -136,6 +150,17 @@ ${content}`;
       const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping") };
       await buildShoppingList(deps, plan.id);
       await pushShoppingList(deps, plan.id);
+    }
+    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  });
+
+  app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
+    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    const name = req.body.name?.trim();
+    if (name) {
+      if (!listPantryItems(ctx.db).some((p) => p.name.toLowerCase() === name.toLowerCase())) createPantryItem(ctx.db, { name, aliases: [] });
+      const plan = getPlanForWeek(ctx.db, weekStart);
+      if (plan) await buildShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping") }, plan.id);
     }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
   });

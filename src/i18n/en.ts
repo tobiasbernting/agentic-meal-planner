@@ -78,6 +78,8 @@ export const en = {
   "planRun.phase.shopping-list-push": "Shopping List push",
 
   "shopping.title": "Shopping List",
+  "shopping.alwaysHome": "Always at home",
+  "shopping.alwaysHomeFor": "Always at home: {name}",
   "shopping.buy": "Buy",
   "shopping.checkPantry": "Check pantry",
   "shopping.nothing": "Nothing here",

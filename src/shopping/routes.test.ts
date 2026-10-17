@@ -6,7 +6,7 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent, type FoundRecipe, type LlmResult } from "../llm/index.js";
-import { createPantryItem } from "../pantry/repo.js";
+import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { planRunSettled, postPlanRun } from "../plan-run/test-helpers.js";
 
@@ -44,6 +44,28 @@ function planWith(app: Awaited<ReturnType<typeof buildApp>>, dishIds: number[]) 
     NOW.toISOString(),
   );
 }
+
+describe("POST /shopping/pantry", () => {
+  it("creates a Pantry Item from a Buy line and moves it to Check pantry", async () => {
+    const app = await start();
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "tomat", quantity: 2, unit: null }] });
+    planWith(app, [pasta]);
+    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    const before = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(before.body).toMatch(/<section id="buy">[\s\S]*action="\/shopping\/pantry"[\s\S]*name="name" value="pasta"/);
+    expect(before.body).not.toMatch(/<section id="check-pantry">[\s\S]*pasta/);
+
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry", payload: { weekStart: WEEK, name: "pasta" } });
+
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(`/shopping?week=${WEEK}`);
+    expect(listPantryItems(app.ctx.db).map((p) => p.name)).toEqual(["pasta"]);
+    const after = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+    expect(after.body).toMatch(/<section id="check-pantry">[\s\S]*400 g pasta/);
+    expect(after.body).not.toMatch(/<section id="buy">[\s\S]*pasta[\s\S]*<section id="check-pantry">/);
+    expect(after.body).toMatch(/<section id="buy">[\s\S]*tomat/);
+  });
+});
 
 describe("GET /shopping", () => {
   it("says there is no plan for the week and links to the Plan view", async () => {

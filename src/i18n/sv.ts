@@ -80,6 +80,8 @@ export const sv: Dictionary = {
   "planRun.phase.shopping-list-push": "Skickar inköpslistan",
 
   "shopping.title": "Inköpslista",
+  "shopping.alwaysHome": "Har alltid hemma",
+  "shopping.alwaysHomeFor": "Har alltid hemma: {name}",
   "shopping.buy": "Köp",
   "shopping.checkPantry": "Kolla skafferiet",
   "shopping.nothing": "Inget här",
