@@ -56,6 +56,10 @@ _Avoid_: lunch dish, menu item
 A scraper implementation that turns one School's published menu format into Lunch Entries.
 _Avoid_: parser, adapter
 
+**Ingest Outcome**:
+The result of the most recent attempt to obtain a School's Lunch Menu for a week: fetched, cached, or no data with a reason. One per School, replaced on every attempt.
+_Avoid_: scrape status, sync result
+
 ### Planning
 
 **Weekly Plan**:
