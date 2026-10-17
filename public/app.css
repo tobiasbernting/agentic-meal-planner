@@ -263,3 +263,4 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
   align-items: flex-start; text-align: left; padding-inline: 0;
 }
 .swap-list button.row:hover { background: var(--raised); }
+.tag-favorited { font-size: var(--fs-small); font-weight: 600; border: 1.5px solid var(--ink); padding: 2px 8px; }
