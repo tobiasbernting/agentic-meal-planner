@@ -78,6 +78,25 @@ describe("degraded reasons on the day they affect", () => {
   });
 
   it.each([
+    ["sv", "Burgers finns redan i veckans plan, så den valdes bort."],
+    ["en", "Burgers is already planned this week, so it was left out."],
+  ] as const)("shows a Dish the agent picked twice on the second date, in household language (%s)", async (lang, text) => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input: SelectDishesInput) => ({ ok: true, value: input.days.slice(0, 2).map((d) => ({ date: d.date, dishId: String(burgers), rationale: "r" })) }),
+    });
+    const app = await start({ llm });
+    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK }, headers: cookie(lang) });
+    await planRunSettled(app, WEEK);
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: cookie(lang) });
+
+    expect(row(res.body, WEEK)).toContain('<div class="day-dinner">Burgers</div>');
+    expect(row(res.body, TUESDAY)).toMatch(new RegExp(`class="notice"[\\s\\S]*${text}`));
+    expect(row(res.body, TUESDAY)).not.toContain('<div class="day-dinner">Burgers</div>');
+  });
+
+  it.each([
     ["sv", "Agenten svarade inte, så rätterna valdes automatiskt."],
     ["en", "The agent did not answer, so the dishes were picked automatically."],
   ] as const)("says once, in household language, that the agent failed for the week (%s)", async (lang, text) => {

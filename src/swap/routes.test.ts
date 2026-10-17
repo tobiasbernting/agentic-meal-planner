@@ -63,6 +63,26 @@ describe("GET /plan/swap", () => {
   });
 });
 
+describe("GET /plan/swap Once a Week", () => {
+  it("leaves out a Dish planned on another date of the week", async () => {
+    const app = withEnglish(await start());
+    const db = app.ctx.db;
+    const burgers = createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    const pizza = createDish(db, { name: "Pizza", prepTimeMinutes: 20 });
+    createDish(db, { name: "Pancakes", prepTimeMinutes: 15 });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: date === TUESDAY ? pizza : burgers, isQuickDay: false, lunchThatDay: null, rationale: "planned" }));
+    savePlan(db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const monday = await app.inject({ method: "GET", url: `/plan/swap?date=${MONDAY}`, headers: { "hx-request": "true" } });
+
+    expect(monday.body).toContain("Pancakes");
+    expect(monday.body).not.toContain("Pizza"); // planned on Tuesday
+    const refused = await app.inject({ method: "POST", url: "/plan/swap", payload: { date: MONDAY, dishId: String(pizza) } });
+    expect(refused.statusCode).not.toBe(303);
+    expect(getPlanForWeek(db, WEEK)?.dinners.find((d) => d.date === MONDAY)?.dishId).toBe(burgers);
+  });
+});
+
 /** The almanac row for `date`, or a thrown error when the page has none. */
 function row(body: string, date: string): string {
   const m = body.match(new RegExp(`<article[^>]*id="day-${date}"[\\s\\S]*?</article>`));
