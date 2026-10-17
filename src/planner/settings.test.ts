@@ -55,6 +55,7 @@ describe("readPlannerSettings", () => {
       quickDayTemplate: { tue: 20, thu: 45 },
       quickDayOverrides: { "2026-10-12": { tue: null, fri: 25 } },
       defaultPrepLimitMinutes: 40,
+      suggestionStyle: DEFAULT_SUGGESTION_STYLE,
     });
   });
 
