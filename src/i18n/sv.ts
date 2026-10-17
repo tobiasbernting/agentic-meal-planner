@@ -120,6 +120,10 @@ export const sv: Dictionary = {
   "schools.editTitle": "Redigera skola",
   "schools.back": "Tillbaka till skolor",
   "schools.notFound": "Skolan hittades inte",
+  "schools.outcome.fetched": "Hämtad",
+  "schools.outcome.cached": "Redan sparad",
+  "schools.outcome.no-data": "Ingen menydata",
+  "schools.outcome.none": "Inget hämtningsförsök än",
 
   "pantry.title": "Skafferi",
   "pantry.invalid": "En skafferivara behöver ett namn.",

@@ -118,6 +118,10 @@ export const en = {
   "schools.editTitle": "Edit School",
   "schools.back": "Back to Schools",
   "schools.notFound": "School not found",
+  "schools.outcome.fetched": "Menu fetched",
+  "schools.outcome.cached": "Menu already stored",
+  "schools.outcome.no-data": "No menu data",
+  "schools.outcome.none": "No ingest attempt yet",
 
   "pantry.title": "Pantry",
   "pantry.invalid": "A Pantry Item needs a name.",
