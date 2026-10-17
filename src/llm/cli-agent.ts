@@ -203,7 +203,8 @@ export class CliAgent implements LlmAgent {
       try {
         last = await this.run(this.cmd, [...this.baseArgs, text], text);
       } catch (err) {
-        return this.failSpawn(err, fail, attempt);
+        const { cause, reason, out } = spawnFailure(err, this.cmd);
+        return fail(cause, reason, out, attempt);
       }
       this.log.debug({ operation, attempt, exitCode: last.exitCode, stdout: last.stdout, stderr: last.stderr }, "agent output");
       if (last.exitCode !== 0) {
@@ -218,19 +219,13 @@ export class CliAgent implements LlmAgent {
     return fail("invalid-json", `invalid JSON after retry: ${reasonTail(last.stdout)}`, last, attempts.length);
   }
 
-  private failSpawn<T>(
-    err: unknown,
-    fail: (cause: FailureCause, reason: string, out: Partial<ProcessResult>, attempt: number) => LlmResult<T>,
-    attempt: number,
-  ): LlmResult<T> {
-    if (err instanceof AgentTimeoutError) {
-      return fail("timeout", err.message, { stdout: err.stdout, stderr: err.stderr }, attempt);
-    }
-    if (isRecord(err) && err.code === "ENOENT") {
-      return fail("not-found", `agent binary not found: ${this.cmd}`, {}, attempt);
-    }
-    return fail("spawn-error", `agent failed: ${errorMessage(err)}`, {}, attempt);
-  }
+}
+
+/** Why running the agent process threw: a timeout (with its partial output), a missing binary, or another spawn error. */
+function spawnFailure(err: unknown, cmd: string): { cause: FailureCause; reason: string; out: Partial<ProcessResult> } {
+  if (err instanceof AgentTimeoutError) return { cause: "timeout", reason: err.message, out: { stdout: err.stdout, stderr: err.stderr } };
+  if (isRecord(err) && err.code === "ENOENT") return { cause: "not-found", reason: `agent binary not found: ${cmd}`, out: {} };
+  return { cause: "spawn-error", reason: `agent failed: ${errorMessage(err)}`, out: {} };
 }
 
 /** A stream's tail for a `reason`: trimmed, at most `REASON_TAIL_CHARS`. */
