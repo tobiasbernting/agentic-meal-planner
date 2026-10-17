@@ -10,7 +10,7 @@ import { addDays, mondayOf, weekDates } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, type DayDensity } from "../ui/almanac.js";
-import { page } from "../ui/layout.js";
+import { escapeHtml, page } from "../ui/layout.js";
 
 /** First visit: one block linking to whatever is missing (a School, Dishes). Empty once both exist. */
 function firstRun(db: Database.Database, lang: Lang): string {
@@ -56,7 +56,7 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
       .join("\n");
     const refresh =
       listSchools(ctx.db).length > 0
-        ? `<form method="post" action="/lunch/refresh"><button type="submit" class="quiet">${t(lang, "today.refresh")}</button></form>`
+        ? `<form method="post" action="/lunch/refresh"><button type="submit" class="quiet" data-working-label="${escapeHtml(t(lang, "today.refreshing"))}">${t(lang, "today.refresh")}</button></form>`
         : "";
     const body = `${weekHead(lang, today)}
 ${firstRun(ctx.db, lang)}

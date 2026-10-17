@@ -54,6 +54,14 @@ describe("GET /dishes/new", () => {
     expect(options).toEqual(["", ...MAIN_CATEGORY_KEYS]);
   });
 
+  it("labels the save button with its working label in sv and en", async () => {
+    const app = await start();
+    const sv = await app.inject({ method: "GET", url: "/dishes/new", headers: { cookie: "lang=sv" } });
+    expect(sv.body).toMatch(/<button type="submit" class="primary" data-working-label="Sparar…">Spara<\/button>/);
+    const en = await app.inject({ method: "GET", url: "/dishes/new", headers: { cookie: "lang=en" } });
+    expect(en.body).toMatch(/<button type="submit" class="primary" data-working-label="Saving…">Save<\/button>/);
+  });
+
   it("starts a new dish in rotation", async () => {
     const app = await start();
 
