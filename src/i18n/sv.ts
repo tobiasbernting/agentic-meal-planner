@@ -168,7 +168,7 @@ export const sv: Dictionary = {
   "logs.runId": "Körning",
   "logs.component": "Komponent",
   "logs.clearFilter": "Rensa",
-  "logs.help": "Visar de senaste 2000 posterna och sedan nya i realtid. Klicka på en posts körning eller komponent för att filtrera på den.",
+  "logs.help": "Visar de senaste {n} posterna och sedan nya i realtid. Klicka på en posts körning eller komponent för att filtrera på den.",
   "logs.connecting": "Ansluter…",
   "logs.live": "Live",
   "logs.disconnected": "Frånkopplad, ansluter igen…",

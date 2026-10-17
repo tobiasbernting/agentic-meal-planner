@@ -26,17 +26,12 @@ export interface LogControl {
 export const PINO_LEVELS: Record<LogLevel, number> = { debug: 20, info: 30, warn: 40, error: 50 };
 
 /** The live threshold for an injected Logger (tests), shared by its children. */
-export class LevelGate {
-  constructor(private threshold: LogThreshold) {}
-  get level(): LogThreshold {
-    return this.threshold;
-  }
-  set level(level: LogThreshold) {
-    this.threshold = level;
-  }
-  enabled(level: LogLevel): boolean {
-    return this.threshold !== "silent" && PINO_LEVELS[level] >= PINO_LEVELS[this.threshold];
-  }
+export interface LevelGate {
+  level: LogThreshold;
+}
+
+function enabled(gate: LevelGate, level: LogLevel): boolean {
+  return gate.level !== "silent" && PINO_LEVELS[level] >= PINO_LEVELS[gate.level];
 }
 
 /** A stream that JSON-parses each pino line into the buffer. */
@@ -77,7 +72,7 @@ function serialisable(fields: LogFields): LogFields {
  */
 export function teeLogger(inner: Logger, buffer: LogBuffer, gate: LevelGate, bindings: LogFields = {}): Logger {
   const at = (level: LogLevel) => (fields: LogFields, msg: string) => {
-    if (!gate.enabled(level)) return;
+    if (!enabled(gate, level)) return;
     inner[level](fields, msg);
     buffer.push({ level: PINO_LEVELS[level], time: Date.now(), ...serialisable(withRunId({ ...bindings, ...truncateFields(fields) })), msg });
   };
