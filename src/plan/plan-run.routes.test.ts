@@ -226,6 +226,24 @@ describe("a Plan Run that throws", () => {
     );
     expect((await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body).toContain('action="/plan/generate"');
   });
+
+  it("shows the failure with its reason in the banner, without polling, in English and Swedish", async () => {
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        throw new Error("agent exploded");
+      },
+    });
+    const app = await start({ llm });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    await planRunSettled(app, WEEK);
+
+    const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(view.body).toContain("Plan Run failed 18:30: agent exploded");
+    expect((await banner(app, WEEK)).body).not.toMatch(/hx-(get|trigger|swap)/);
+    const sv = await app.inject({ method: "GET", url: `/plan-run/banner?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+    expect(sv.body).toContain("Planeringen misslyckades 18:30: agent exploded");
+  });
 });
 
 describe("Plan Run banner polling", () => {

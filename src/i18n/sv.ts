@@ -70,6 +70,7 @@ export const sv: Dictionary = {
   "plan.notice.run-in-progress": "En planering pågår redan för den här veckan. Ingen ny startades.",
   "planRun.inProgress": "Planering pågår sedan {time}",
   "planRun.finished": "Planeringen klar {time}",
+  "planRun.failed": "Planeringen misslyckades {time}: {reason}",
   "planRun.phase": "Fas",
   "planRun.starting": "Startar",
   "planRun.progress": "Ingredienser {done} av {total}: {dish}",
