@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase, writeSetting } from "../db.js";
-import { createDish } from "../dishes/repo.js";
+import { createDish, listDishes } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { createCapturingLogger } from "../logging/logger.js";
 import { listLunchEntries } from "../lunch/repo.js";
@@ -109,5 +109,21 @@ describe("runWeeklyPlanning", () => {
     expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "lunch-ingest", msg: "menu fetch failed" }));
     expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "planner" }));
     expect(records).toContainEqual(expect.objectContaining({ level: "info", runId, msg: "plan summary", dinners: 7, degraded: true, sinksPushed: 2 }));
+  });
+
+  it("stores an agent suggestion as a Suggested Dish the coming week's plan points at", async () => {
+    const db = freshDb();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({
+        ok: true,
+        value: input.days.map((d) => ({ date: d.date, suggestion: { name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }, rationale: "new" })),
+      }),
+    });
+
+    await runWeeklyPlanning({ db, llm, fetchPage: async () => "", now: () => SUNDAY });
+
+    const dishes = listDishes(db);
+    expect(dishes).toEqual([expect.objectContaining({ name: "Kalops", inRotation: false, suggested: true })]);
+    expect(getPlanForWeek(db, NEXT_MONDAY)?.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(dishes[0]!.id));
   });
 });
