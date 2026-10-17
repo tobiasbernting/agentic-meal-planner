@@ -555,7 +555,14 @@ describe("planWeek", () => {
       expect(new Set(favorites.map((d) => d.dishId)).size).toBe(3);
       // Once a Week: with the rotation used up, the rest of the week falls back to the seed list.
       for (const dinner of rest) expect(dinner).toMatchObject({ dishId: null, rationale: t("sv", "rationale.seedFallback") });
-      expect(result.degradedReasons.filter((r) => !r.logOnly).map((r) => r.code)).toEqual(["no-agent", "seed-fallback", "seed-fallback", "seed-fallback", "seed-fallback"]);
+      // Each repeat the round-robin would make is the household's news, like an agent's repeat.
+      expect(result.degradedReasons.filter((r) => !r.logOnly).map((r) => [r.code, r.date, r.params])).toEqual([
+        ["no-agent", null, undefined],
+        ["once-a-week", "2026-10-15", { name: "Burgers" }],
+        ["once-a-week", "2026-10-16", { name: "Pasta" }],
+        ["once-a-week", "2026-10-17", { name: "Soup" }],
+        ["once-a-week", "2026-10-18", { name: "Burgers" }],
+      ]);
     });
 
     it("falls back to round-robin when the agent fails", async () => {

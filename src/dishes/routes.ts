@@ -1,5 +1,6 @@
 import type { FeaturePlugin } from "../app.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
+import { isHtmx } from "../ui/htmx.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { MAIN_CATEGORY_KEYS, categoryLabel, isMainCategory, type MainCategory } from "./categories.js";
 import { clearDishFromUnconfirmedPlans, listPlannedDatesForDish } from "../planner/repo.js";
@@ -293,7 +294,7 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.post<{ Params: { id: string } }>("/dishes/:id/promote", async (req, reply) => {
     if (!promoteDishToFavorite(db, Number(req.params.id))) return reply.code(404).send(t(langOf(req), "dishes.notFound"));
-    if (req.headers["hx-request"] === "true") {
+    if (isHtmx(req)) {
       html(reply);
       return `<span class="tag-favorited">${t(langOf(req), "dishes.inFavorites")}</span>`;
     }

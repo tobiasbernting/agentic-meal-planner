@@ -261,7 +261,8 @@ describe("POST /plan/generate", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
+    expect(view.body.match(/Burgers(?! is already planned this week)/g)).toHaveLength(1); // Once a Week
+    expect(view.body).toContain("Burgers is already planned this week, so it was left out.");
     expect(view.body).toContain("Picked automatically; no agent is set up.");
   });
 
@@ -440,7 +441,8 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
-    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
+    expect(view.body.match(/Burgers(?! is already planned this week)/g)).toHaveLength(1); // Once a Week
+    expect(view.body).toContain("Burgers is already planned this week, so it was left out.");
     expect(view.body).toContain("<li>Fiskgratäng</li>");
     expect(view.body).not.toContain("Lunch menu changed");
   });
@@ -477,7 +479,8 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
 
     expect(res.statusCode).toBe(303);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
-    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
+    expect(view.body.match(/Burgers(?! is already planned this week)/g)).toHaveLength(1); // Once a Week
+    expect(view.body).toContain("Burgers is already planned this week, so it was left out.");
     expect(view.body).toContain("Status: generated");
   });
 });
