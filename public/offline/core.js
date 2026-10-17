@@ -152,6 +152,26 @@ function htmlResponse(body, status) {
   return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+/** The worker's own saved page, served from config.frames, which htmx writes redirect to. */
+const SAVED_PATH = "/offline/saved";
+
+/**
+ * Where a back link may point: the path and query of a same-origin URL or path, else home.
+ * Used for a write's referrer and for the `?back=` of the worker's own pages.
+ * @param {string | null | undefined} value an absolute URL or a path
+ * @param {string} origin the app's origin
+ */
+export function backPath(value, origin) {
+  if (!value) return "/";
+  let url;
+  try {
+    url = new URL(value, origin);
+  } catch {
+    return "/";
+  }
+  return url.origin === new URL(origin).origin ? url.pathname + url.search : "/";
+}
+
 /**
  * The response the worker gives when the network failed.
  * @param {ReturnType<typeof classify>} classification
@@ -178,7 +198,8 @@ export function offlineResponseFor(classification, context) {
     case "online-only-write":
       return htmx ? new Response(null, { status: 204 }) : requiresConnection();
     case "queueable-write":
-      return htmx ? new Response(null, { status: 204 }) : htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
+      if (htmx) return new Response(null, { status: 204, headers: { "HX-Redirect": `${SAVED_PATH}?back=${encodeURIComponent(back)}` } });
+      return htmlResponse(fillFrame(frames.saved, texts.saved, back), 200);
     case "asset":
       return new Response(null, { status: 404 });
     default:

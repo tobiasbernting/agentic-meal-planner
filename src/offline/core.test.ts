@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
+import { backPath, cacheKeysFor, classify, extractLang, injectBanner, offlineResponseFor, prewarmUrls } from "../../public/offline/core.js";
 import { buildApp } from "../app.js";
 import { workerConfig } from "./routes.js";
 
@@ -160,12 +160,37 @@ describe("offlineResponseFor", () => {
     expect(await res.text()).toContain("<p>Kräver uppkoppling</p>");
   });
 
-  it("answers a write sent by htmx with an empty 204, so no page lands in a fragment target", async () => {
-    for (const classification of [{ kind: "online-only-write", route: "/shopping/pantry" }, { kind: "queueable-write", route: "/dishes/:id/promote" }] as const) {
-      const res = offlineResponseFor(classification, { config, lang: "sv", htmx: true });
-      expect(res.status, classification.route).toBe(204);
-      expect(await res.text()).toBe("");
-    }
+  it("answers an online-only write sent by htmx with an empty 204, so no page lands in a fragment target", async () => {
+    const res = offlineResponseFor({ kind: "online-only-write", route: "/shopping/pantry" }, { config, lang: "sv", htmx: true, back: "/shopping" });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("HX-Redirect")).toBeNull();
+    expect(await res.text()).toBe("");
+  });
+
+  it("answers a queueable write sent by htmx with an empty 204 that sends the page to the saved page, linking back", async () => {
+    const res = offlineResponseFor({ kind: "queueable-write", route: "/dishes/:id/promote" }, { config, lang: "sv", htmx: true, back: "/dishes?q=a b" });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("HX-Redirect")).toBe("/offline/saved?back=%2Fdishes%3Fq%3Da%20b");
+    expect(await res.text()).toBe("");
+  });
+
+  it("answers a queueable write sent by htmx without a back path with a saved page linking home", () => {
+    const res = offlineResponseFor({ kind: "queueable-write", route: "/dishes/:id/promote" }, { config, lang: "sv", htmx: true });
+
+    expect(res.headers.get("HX-Redirect")).toBe("/offline/saved?back=%2F");
+  });
+
+  it("answers a queueable form post in Swedish with the Swedish saved page", async () => {
+    const res = offlineResponseFor({ kind: "queueable-write", route: "/dishes/:id" }, { config, lang: "sv", back: "/dishes/7/edit" });
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toMatch(/^<!doctype html>/);
+    expect(body).toContain("<p>Sparat, synkas nästa gång appen når hemmanätet</p>");
+    expect(body).toContain('<a href="/dishes/7/edit">Tillbaka</a>');
+    expect(body).not.toContain("{{");
   });
 
   it("answers a queueable form post with the saved page", async () => {
@@ -182,6 +207,23 @@ describe("offlineResponseFor", () => {
     expect(passthrough.status).toBe(204);
     expect(await passthrough.text()).toBe("");
     expect(offlineResponseFor({ kind: "asset" }, { config, lang: "sv" }).status).toBe(404);
+  });
+});
+
+describe("backPath", () => {
+  it("keeps the path and query of a same-origin referrer", () => {
+    expect(backPath(`${ORIGIN}/shopping?week=2026-10-19`, ORIGIN)).toBe("/shopping?week=2026-10-19");
+    expect(backPath(`${ORIGIN}/dishes/7/edit#top`, ORIGIN)).toBe("/dishes/7/edit");
+  });
+
+  it("keeps a plain path, as a ?back= query carries it", () => {
+    expect(backPath("/pantry", ORIGIN)).toBe("/pantry");
+  });
+
+  it("goes home for no referrer, another origin, a protocol-relative path or a non-http scheme", () => {
+    for (const value of [null, undefined, "", "https://evil.example/x", "//evil.example/x", "javascript:alert(1)"]) {
+      expect(backPath(value, ORIGIN), String(value)).toBe("/");
+    }
   });
 });
 
