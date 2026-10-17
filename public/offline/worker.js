@@ -58,37 +58,58 @@ async function tellClients(message) {
 }
 
 /**
- * Every page load and write first asks the server for /health with a short deadline. On the home
- * LAN that answers in a few milliseconds, so the real request follows at once; away from home the
- * deadline passes and the Offline Copy or the Pending Change answers instead, with no state to
- * remember and nothing to expire. The deadline leaves room for a phone's wifi radio waking from
- * power-save, which alone takes 100 to 200 ms.
+ * Online, requests go straight to the server. A failed attempt starts a one-minute offline period
+ * in which pages answer from the Offline Copy at once and writes become Pending Changes at once,
+ * with no network attempt. When the minute is up, the next tap asks /health with a short deadline:
+ * no answer extends the period by another minute, an answer ends it and the tap goes to the
+ * server. The period is kept in the meta cache because the browser stops an idle worker (iOS does
+ * so within seconds) and a fresh one must not forget it. The deadline leaves room for a phone's
+ * wifi radio waking from power-save, which alone takes 100 to 200 ms.
  */
+const OFFLINE_PERIOD_MS = 60 * 1000;
 const PROBE_MS = 250;
-/** One probe serves every request made within this window (a page and the assets it pulls). */
-const PROBE_MEMO_MS = 1000;
-let lastProbe = { at: 0, online: false };
+const OFFLINE_KEY = "/__offline/until";
+/** 0 when online; otherwise when the current offline period ends. */
+let offlineUntil = loadOfflineUntil();
 
-async function serverReachable() {
-  if (Date.now() - lastProbe.at < PROBE_MEMO_MS) return lastProbe.online;
-  let online = false;
-  try {
-    online = (await fetchWithin(PROBE_MS, new URL("/health", self.location.origin).href, { cache: "no-store" })).ok;
-  } catch {
-    online = false;
-  }
-  lastProbe = { at: Date.now(), online };
-  return online;
+async function loadOfflineUntil() {
+  const stored = await (await caches.open(META_CACHE)).match(OFFLINE_KEY);
+  return stored ? Number(await stored.text()) || 0 : 0;
+}
+
+function rememberOffline(until) {
+  offlineUntil = Promise.resolve(until);
+  void caches.open(META_CACHE).then((meta) => meta.put(OFFLINE_KEY, new Response(String(until))));
 }
 
 function noteOnline() {
-  lastProbe = { at: Date.now(), online: true };
+  rememberOffline(0);
   void tellClients({ type: "connectivity", online: true });
 }
 
 function noteOffline() {
-  lastProbe = { at: Date.now(), online: false };
+  rememberOffline(Date.now() + OFFLINE_PERIOD_MS);
   void tellClients({ type: "connectivity", online: false });
+}
+
+/**
+ * Whether this request should go to the server. Inside an offline period: no. After one has run
+ * out: only if a quick probe answers, which also ends the period and syncs. Online: yes.
+ */
+async function serverReachable(event) {
+  const until = await offlineUntil;
+  if (until === 0) return true;
+  if (Date.now() < until) return false;
+  try {
+    const response = await fetchWithin(PROBE_MS, new URL("/health", self.location.origin).href, { cache: "no-store" });
+    if (!response.ok) throw new Error(`health ${response.status}`);
+  } catch {
+    noteOffline();
+    return false;
+  }
+  noteOnline();
+  event.waitUntil(replayThenPrewarm());
+  return true;
 }
 
 function tellPendingChanged() {
@@ -243,10 +264,7 @@ async function offlinePage(request, classification) {
 
 async function handlePage(event, classification) {
   const { request } = event;
-  if (!(await serverReachable())) {
-    noteOffline();
-    return offlinePage(request, classification);
-  }
+  if (!(await serverReachable(event))) return offlinePage(request, classification);
   try {
     const response = await fetchWithin(TIMEOUT_MS.page, request);
     noteOnline();
@@ -282,10 +300,7 @@ async function handleWrite(event, request, classification) {
     const back = backPath(request.referrer, self.location.origin);
     return offlineResponseFor(classification, { config, lang: await lastLang(), back, htmx: request.headers.has("HX-Request") });
   };
-  if (!(await serverReachable())) {
-    noteOffline();
-    return offline();
-  }
+  if (!(await serverReachable(event))) return offline();
   try {
     const attempt = entry ? firstAttemptRequest(entry, request) : undefined;
     const response = await (attempt ? fetchWithin(TIMEOUT_MS.write, attempt.url, attempt.init) : fetchWithin(TIMEOUT_MS.write, request));
@@ -305,7 +320,7 @@ async function handleWrite(event, request, classification) {
 async function handlePassthrough(request) {
   try {
     const response = await fetchWithin(TIMEOUT_MS.passthrough, request);
-    if (response.ok && !lastProbe.online) noteOnline();
+    if (response.ok && (await offlineUntil) !== 0) noteOnline();
     return response;
   } catch {
     noteOffline();
