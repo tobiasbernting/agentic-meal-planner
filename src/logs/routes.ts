@@ -13,6 +13,11 @@ export function sseEvent(record: BufferedRecord): string {
 
 export const logsRoutes: FeaturePlugin = async (app, ctx) => {
   const { buffer } = ctx.logs;
+  // Live streams never end on their own; end them before shutdown so `app.close()` does not wait.
+  const open = new Set<() => void>();
+  app.addHook("preClose", async () => {
+    for (const end of open) end();
+  });
 
   /**
    * Replays the buffer, then pushes each new record until the client disconnects.
@@ -28,6 +33,12 @@ export const logsRoutes: FeaturePlugin = async (app, ctx) => {
       return;
     }
     const unsubscribe = buffer.subscribe((record) => res.write(sseEvent(record)));
-    req.raw.on("close", unsubscribe);
+    const end = () => {
+      unsubscribe();
+      open.delete(end);
+      res.end();
+    };
+    open.add(end);
+    req.raw.on("close", end);
   });
 };
