@@ -261,7 +261,7 @@ describe("POST /plan/generate", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(view.body.match(/Burgers/g)).toHaveLength(7);
+    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
     expect(view.body).toContain("Picked automatically; no agent is set up.");
   });
 
@@ -279,7 +279,7 @@ describe("POST /plan/generate", () => {
     const tuesday = dinners.find((d) => d.date === "2026-10-20")!.dishId;
     expect(tuesday).not.toBe(fish); // the seed fallback fills the colliding day instead
     expect(listDishes(app.ctx.db).find((d) => d.id === tuesday)?.mainCategory).not.toBe("fish");
-    expect(dinners.find((d) => d.date === "2026-10-21")?.dishId).toBe(fish);
+    expect(dinners.find((d) => d.date === "2026-10-19")?.dishId).toBe(fish);
   });
 
   it("does not raise the lunch-changed notice when its ingest overwrites a stored entry (regenerate only)", async () => {
@@ -326,23 +326,24 @@ describe("POST /plan/generate Ingredient language", () => {
 });
 
 describe("POST /plan/generate with Suggested Dishes", () => {
-  /** An agent that suggests the same new Dish for every date of the request. */
-  function suggestEveryDay(suggestion: DishSuggestion) {
+  /** An agent that suggests one new Dish, on the first date of the request; the seed list fills the rest (Once a Week). */
+  function suggestOnMonday(suggestion: DishSuggestion) {
     return new ScriptedLlmAgent({
       selectDishes: (input: SelectDishesInput) => ({
         ok: true,
-        value: input.days.map((d) => ({ date: d.date, suggestion, rationale: "something new" })),
+        value: input.days.slice(0, 1).map((d) => ({ date: d.date, suggestion, rationale: "something new" })),
       }),
     });
   }
 
   it("stores a suggestion on an empty rotation as a Suggested Dish the Planned Dinners point at", async () => {
-    const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
+    const app = await start({ llm: suggestOnMonday({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
 
     await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
     const dishes = listDishes(app.ctx.db);
-    expect(dishes).toEqual([
+    const kalops = dishes.find((d) => d.name === "Kalops");
+    expect(kalops).toEqual(
       expect.objectContaining({
         name: "Kalops",
         mainCategory: "beef",
@@ -351,25 +352,26 @@ describe("POST /plan/generate with Suggested Dishes", () => {
         inRotation: false,
         suggested: true,
       }),
-    ]);
+    );
     const dinners = getPlanForWeek(app.ctx.db, WEEK)!.dinners;
-    expect(dinners.map((d) => d.dishId)).toEqual(Array(7).fill(dishes[0]!.id));
+    expect(dinners[0]!.dishId).toBe(kalops!.id);
   });
 
   it("reuses the Suggested Dish on a second generate with the same suggestion name", async () => {
-    const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
+    const app = await start({ llm: suggestOnMonday({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
     await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
-    const [kalops] = listDishes(app.ctx.db);
+    const before = listDishes(app.ctx.db).map((d) => d.id);
+    const kalops = listDishes(app.ctx.db).find((d) => d.name === "Kalops");
 
     await postPlanRun(app, "/plan/regenerate", { weekStart: WEEK });
 
-    expect(listDishes(app.ctx.db).map((d) => d.id)).toEqual([kalops!.id]);
-    expect(getPlanForWeek(app.ctx.db, WEEK)!.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(kalops!.id));
+    expect(listDishes(app.ctx.db).map((d) => d.id)).toEqual(before);
+    expect(getPlanForWeek(app.ctx.db, WEEK)!.dinners[0]!.dishId).toBe(kalops!.id);
   });
 
   it("logs a dropped suggestion and the seed fallback in the planner warn record, storing the seed as a Suggested Dish", async () => {
     const { logger, records } = createCapturingLogger();
-    const app = await start({ logger, llm: suggestEveryDay({ name: "Mystery", mainCategory: "not-a-category" }) });
+    const app = await start({ logger, llm: suggestOnMonday({ name: "Mystery", mainCategory: "not-a-category" }) });
 
     await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
 
@@ -386,16 +388,16 @@ describe("POST /plan/generate with Suggested Dishes", () => {
   });
 
   it("passes last week's Suggested Dish to the next generate as recently planned (variety)", async () => {
-    const llm = suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 });
+    const llm = suggestOnMonday({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 });
     const app = await start({ llm });
     await postPlanRun(app, "/plan/generate", { weekStart: WEEK });
-    const [kalops] = listDishes(app.ctx.db);
+    const kalops = listDishes(app.ctx.db).find((d) => d.name === "Kalops");
 
     await postPlanRun(app, "/plan/generate", { weekStart: "2026-10-26" });
 
     const requests = llm.calls.filter((c) => c.method === "selectDishes").map((c) => c.args[0] as SelectDishesInput);
     expect(requests).toHaveLength(2);
-    expect(requests[1]!.recentlyPlanned).toEqual([{ dishId: String(kalops!.id), name: "Kalops", lastDate: "2026-10-25" }]);
+    expect(requests[1]!.recentlyPlanned).toContainEqual({ dishId: String(kalops!.id), name: "Kalops", lastDate: "2026-10-19" });
   });
 });
 
@@ -438,7 +440,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
-    expect(view.body.match(/Burgers/g)).toHaveLength(7);
+    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
     expect(view.body).toContain("<li>Fiskgratäng</li>");
     expect(view.body).not.toContain("Lunch menu changed");
   });
@@ -475,7 +477,7 @@ describe("POST /plan/regenerate (FR-9, Q17)", () => {
 
     expect(res.statusCode).toBe(303);
     const view = await app.inject({ method: "GET", url: res.headers.location as string });
-    expect(view.body.match(/Burgers/g)).toHaveLength(7);
+    expect(view.body.match(/Burgers/g)).toHaveLength(1); // Once a Week
     expect(view.body).toContain("Status: generated");
   });
 });
@@ -514,13 +516,13 @@ describe("run logging", () => {
     const llm = new ScriptedLlmAgent({
       selectDishes: (input) => ({
         ok: true,
-        value: input.days.map((d, i) => ({ date: d.date, dishId: String(i % 2 === 0 ? burgers : kalops), rationale: "r" })),
+        value: input.days.map((d, i) => ({ date: d.date, dishId: String(dishes[i]), rationale: "r" })),
       }),
       findRecipe: { ok: true, value: { url: "https://recipes.example/x", ingredients: [{ name: "Beef" }] } },
     });
     const app = await start({ logger, llm });
-    const burgers = createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
-    const kalops = createDish(app.ctx.db, { name: "Kalops", prepTimeMinutes: 20 });
+    const names = ["Burgers", "Kalops", "Pasta", "Soup", "Tacos", "Curry", "Stew"];
+    const dishes = names.map((name) => createDish(app.ctx.db, { name, prepTimeMinutes: 20 }));
 
     await postPlanRun(app, url, { weekStart: WEEK });
 
@@ -534,15 +536,7 @@ describe("run logging", () => {
       "shopping-list-push",
     ]);
     const progress = planRun.filter((r) => r.msg === "phase progress");
-    expect(progress.map((r) => [r.phase, r.done, r.total, r.dish])).toEqual([
-      ["ingredient-resolution", 0, 7, "Burgers"],
-      ["ingredient-resolution", 1, 7, "Kalops"],
-      ["ingredient-resolution", 2, 7, "Burgers"],
-      ["ingredient-resolution", 3, 7, "Kalops"],
-      ["ingredient-resolution", 4, 7, "Burgers"],
-      ["ingredient-resolution", 5, 7, "Kalops"],
-      ["ingredient-resolution", 6, 7, "Burgers"],
-    ]);
+    expect(progress.map((r) => [r.phase, r.done, r.total, r.dish])).toEqual(names.map((name, i) => ["ingredient-resolution", i, 7, name]));
     // Progress belongs between its Phase record and the next one.
     const order = planRun.map((r) => (r.msg === "phase" ? r.phase : "progress"));
     expect(order.indexOf("ingredient-resolution")).toBeLessThan(order.indexOf("progress"));

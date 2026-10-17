@@ -143,7 +143,8 @@ describe("runWeeklyPlanning", () => {
       "shopping-list-push",
     ]);
     const progress = planRun.filter((r) => r.msg === "phase progress");
-    expect(progress.map((r) => [r.done, r.total, r.dish])).toEqual([0, 1, 2, 3, 4, 5, 6].map((done) => [done, 7, "Burgers"]));
+    expect(progress.map((r) => [r.done, r.total])).toEqual([0, 1, 2, 3, 4, 5, 6].map((done) => [done, 7]));
+    expect(progress[0]?.dish).toBe("Burgers"); // Once a Week: seed fallbacks fill the other dates
   });
 
   it("stores an agent suggestion as a Suggested Dish the coming week's plan points at", async () => {
@@ -158,8 +159,9 @@ describe("runWeeklyPlanning", () => {
     await runWeeklyPlanning({ db, llm, fetchPage: async () => "", now: () => SUNDAY });
 
     const dishes = listDishes(db);
-    expect(dishes).toEqual([expect.objectContaining({ name: "Kalops", inRotation: false, suggested: true })]);
-    expect(getPlanForWeek(db, NEXT_MONDAY)?.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(dishes[0]!.id));
+    const kalops = dishes.find((d) => d.name === "Kalops");
+    expect(kalops).toEqual(expect.objectContaining({ name: "Kalops", inRotation: false, suggested: true }));
+    expect(getPlanForWeek(db, NEXT_MONDAY)?.dinners[0]?.dishId).toBe(kalops!.id);
   });
 
   it("skips a week whose Plan Run is in flight, with one log record and no agent call", async () => {

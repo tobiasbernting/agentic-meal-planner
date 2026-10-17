@@ -72,6 +72,7 @@ export const sv: Dictionary = {
   "degraded.pick-not-eligible": "Agentens val passade inte dagen, så det togs bort.",
   "degraded.seed-fallback": "Ingen favoriträtt passade dagen, så en föreslagen rätt valdes.",
   "degraded.suggestion-invalid": "Den föreslagna rätten {name} gick inte att använda, så den valdes bort.",
+  "degraded.once-a-week": "{name} finns redan i veckans plan, så den valdes bort.",
   "degraded.same-as-lunch": "Lunchen var samma rätt, så {name} valdes bort.",
   "degraded.lunch-category": "Lunchen var {category}, så {name} valdes bort.",
   "degraded.weekend-only": "{name} är en helgrätt, så den valdes bort.",

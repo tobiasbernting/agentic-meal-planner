@@ -70,6 +70,7 @@ export const en = {
   "degraded.pick-not-eligible": "The agent picked a dish that did not fit this day, so it was left out.",
   "degraded.seed-fallback": "No Favorite Dish fit this day, so a Suggested Dish was picked.",
   "degraded.suggestion-invalid": "The Suggested Dish {name} could not be used, so it was left out.",
+  "degraded.once-a-week": "{name} is already planned this week, so it was left out.",
   "degraded.same-as-lunch": "Lunch was the same dish, so {name} was left out.",
   "degraded.lunch-category": "Lunch was {category}, so {name} was left out.",
   "degraded.weekend-only": "{name} is a weekend dish, so it was left out.",

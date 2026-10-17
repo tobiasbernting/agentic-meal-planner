@@ -6,7 +6,7 @@
  * rationale (FR-8). With no agent, selection degrades to round-robin (FR-16).
  */
 import type { Dish, Weekday } from "../dishes/repo.js";
-import { buildCandidateSets, exclusionParams, type DayInput, type ExclusionRule } from "../engine/filter.js";
+import { buildCandidateSets, exclusionParams, exclusionRule, type DayInput, type ExclusionRule, type PlannedElsewhere } from "../engine/filter.js";
 import {
   NO_AGENT_REASON,
   NoAgent,
@@ -134,7 +134,17 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     input.recentlyPlanned.map((r) => r.name),
   );
 
-  const dinners = days.map((day, i): PlannedDinnerDraft => {
+  // Once a Week: the dinners planned so far, so a later date never repeats one.
+  const planned: PlannedElsewhere[] = [];
+  const nameOf = (draft: PlannedDinnerDraft) =>
+    draft.suggestion?.name ?? input.dishes.find((d) => d.id === draft.dishId)?.name ?? "";
+  const dinners = days.map((weekDay, i): PlannedDinnerDraft => {
+    const draft = planDay({ ...weekDay, plannedElsewhere: [...planned] }, i);
+    if (draft.dishId !== null || draft.suggestion !== null) planned.push({ date: draft.date, dishId: draft.dishId, name: nameOf(draft) });
+    return draft;
+  });
+
+  function planDay(day: DayInput, i: number): PlannedDinnerDraft {
     const eligible = candidates[i]?.eligible ?? [];
     const base = {
       date: day.date,
@@ -153,6 +163,16 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
     const pick = pickByDate.get(day.date);
     let dropped = false;
 
+    /** The seed fallback for the day; `dropped` when another reason already explains the day. */
+    const seedFallback = (dropped: boolean): PlannedDinnerDraft => {
+      const seed = pickSeed(day);
+      if (seed === undefined) return dinner(noEligibleRationale);
+      // A dropped pick already explains the day; the seed fallback only goes to Logs then.
+      const detail = `${day.date}: seed fallback used`;
+      degradedReasons.push(dropped ? { code: "unknown", date: day.date, detail, logOnly: true } : { code: "seed-fallback", date: day.date, detail });
+      return landed(seed, seedRationale);
+    };
+
     if (eligible.length === 0) {
       if (pick !== undefined && !fromNoAgent) {
         const outcome: SuggestionOutcome =
@@ -166,12 +186,7 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
         degradedReasons.push({ code, date: day.date, params: { name, ...params }, detail });
         dropped = true;
       }
-      const seed = pickSeed(day);
-      if (seed === undefined) return dinner(noEligibleRationale);
-      // A dropped suggestion already explains the day; the seed fallback only goes to Logs then.
-      const detail = `${day.date}: seed fallback used`;
-      degradedReasons.push(dropped ? { code: "unknown", date: day.date, detail, logOnly: true } : { code: "seed-fallback", date: day.date, detail });
-      return landed(seed, seedRationale);
+      return seedFallback(dropped);
     }
 
     if (pick === undefined) return dinner(noEligibleRationale);
@@ -182,8 +197,19 @@ export async function planWeek(input: PlanWeekInput): Promise<PlanWeekResult> {
       degradedReasons.push({ code: "pick-not-eligible", date: day.date, detail: reason });
       return dinner(t(lang, "rationale.pickDropped"));
     }
+    const repeat = exclusionRule(chosen, day, filterOptions);
+    if (repeat?.code === "once-a-week") {
+      const detail = `${day.date}: dish ${chosen.id} is already planned on ${repeat.date}; dropped (Once a Week)`;
+      // NoAgent's round-robin repeats by design once the rotation runs out: only the agent's repeat is news.
+      degradedReasons.push(
+        fromNoAgent
+          ? { code: "unknown", date: day.date, detail, logOnly: true }
+          : { code: "once-a-week", date: day.date, params: { name: chosen.name }, detail },
+      );
+      return seedFallback(!fromNoAgent);
+    }
     return dinner(rationaleOf(pick) || noEligibleRationale, chosen.id);
-  });
+  }
 
   return { weekStart: input.weekStart, dinners, degradedReasons };
 }

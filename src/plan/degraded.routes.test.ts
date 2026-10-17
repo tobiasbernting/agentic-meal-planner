@@ -35,7 +35,7 @@ function row(body: string, date: string): string {
 const top = (body: string) => body.slice(0, body.indexOf("<article"));
 const cookie = (lang: "sv" | "en") => ({ cookie: `lang=${lang}` });
 
-/** Tuesday's school lunch is fish; the agent suggests salmon pasta (fish) for every empty day. */
+/** Tuesday's school lunch is fish; the agent suggests salmon pasta (fish) there and a different beef stew on every other day. */
 function fishLunchSetup(seen: SelectDishesInput[] = []) {
   return new ScriptedLlmAgent({
     extractLunchMenu: { ok: true, value: [{ date: TUESDAY, rawText: "Fiskgratäng", mainCategory: "fish" }] },
@@ -43,7 +43,11 @@ function fishLunchSetup(seen: SelectDishesInput[] = []) {
       seen.push(input);
       return {
         ok: true,
-        value: input.days.map((d) => ({ date: d.date, suggestion: { name: "Laxpasta", mainCategory: "fish", prepTimeMinutes: 25 }, rationale: "r" })),
+        value: input.days.map((d, i) => ({
+          date: d.date,
+          suggestion: d.date === TUESDAY ? { name: "Laxpasta", mainCategory: "fish", prepTimeMinutes: 25 } : { name: `Kalops ${i}`, mainCategory: "beef", prepTimeMinutes: 25 },
+          rationale: "r",
+        })),
       };
     },
   });
@@ -89,7 +93,7 @@ describe("degraded reasons on the day they affect", () => {
     expect(top(res.body)).toContain(text);
     expect(res.body.split(text)).toHaveLength(2);
     expect(res.body).not.toContain("exited with code");
-    expect(records).toContainEqual(expect.objectContaining({ level: "warn", degradedReasons: ["agent exited with code 1"] }));
+    expect(records).toContainEqual(expect.objectContaining({ level: "warn", degradedReasons: expect.arrayContaining(["agent exited with code 1"]) }));
   });
 
   it.each([

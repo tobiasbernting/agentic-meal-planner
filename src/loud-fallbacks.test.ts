@@ -48,7 +48,7 @@ describe("loud fallbacks on POST /plan/generate", () => {
     await postPlanRun(app, "/plan/generate", form);
 
     expect(runRecords(records, "/plan/generate")).toContainEqual(
-      expect.objectContaining({ level: "warn", component: "planner", degradedReasons: ["agent exited with code 1"] }),
+      expect.objectContaining({ level: "warn", component: "planner", degradedReasons: expect.arrayContaining(["agent exited with code 1"]) }),
     );
   });
 
