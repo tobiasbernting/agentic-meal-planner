@@ -95,7 +95,10 @@ export function almanac(db: Database.Database, lang: Lang) {
     const dinner = plan.dinners.find((d) => d.date === date);
     if (!dinner) return `${label}<div class="day-dinner muted">${t(lang, "plan.noDinner")}</div>`;
     const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
-    if (!dish) return `${label}<div class="day-dinner">${t(lang, "common.noEligibleDish")}</div>`;
+    if (!dish) {
+      const pick = density === "full" && opts.swapHtml ? `<div class="actions">${opts.swapHtml}</div>` : "";
+      return `${label}<div class="day-dinner">${t(lang, "common.noEligibleDish")}</div>${pick}`;
+    }
     const name = `<div class="day-dinner">${escapeHtml(dish.name)}</div>`;
     if (density === "compact") return name;
     if (density === "half") return name + metaHtml(date, dinner, dish);
