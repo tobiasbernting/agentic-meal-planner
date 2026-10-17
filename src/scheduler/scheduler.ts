@@ -9,6 +9,7 @@ import { readSetting } from "../db.js";
 import { DEFAULT_CRON_EXPRESSION, SETTING_CRON_EXPRESSION, SETTING_TIMEZONE } from "../planner/settings.js";
 import { runWeeklyPlanning, type WeeklyRunDeps } from "./run-weekly.js";
 import { consoleLogger, type Logger } from "../logging/logger.js";
+import { runWithRunId } from "../logging/run-context.js";
 
 /** Sunday 18:00 in the scheduler's time zone. The single definition lives in src/planner/settings.ts. */
 export const DEFAULT_CRON = DEFAULT_CRON_EXPRESSION;
@@ -59,8 +60,12 @@ export function startScheduler(deps: WeeklyRunDeps, options: SchedulerOptions, o
   let job: ScheduledJob | undefined;
 
   // Each run gets its own `cron-<ISO>` runId, handed to the run as `deps.log`.
-  const tick = async () => {
-    const log = logger.child({ runId: `cron-${new Date().toISOString()}` });
+  // The run id is also the current run context, so shared loggers (the llm one) carry it too.
+  const tick = () => {
+    const runId = `cron-${new Date().toISOString()}`;
+    return runWithRunId(runId, () => runTick(logger.child({ runId })));
+  };
+  const runTick = async (log: Logger) => {
     const started = Date.now();
     log.info({}, "run started");
     try {

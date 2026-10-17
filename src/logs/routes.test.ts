@@ -183,4 +183,32 @@ describe("debug level and the agent's prompts", () => {
     expect(records.some((r) => r.component === "llm" && r.level === 20)).toBe(false);
     expect(records).toContainEqual(expect.objectContaining({ level: 30, component: "llm", msg: "agent call finished" }));
   });
+
+  it("tags the shared llm logger's records with the request's runId", async () => {
+    const { app, stdout } = await start({ logLevel: "info", now: () => new Date(2026, 9, 21, 18, 30) });
+    writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+
+    const runId = stdout.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
+    const finished = stdout.filter((r) => r.component === "llm" && r.msg === "agent call finished");
+    expect(finished.length).toBeGreaterThan(0);
+    expect(finished.every((r) => r.runId === runId)).toBe(true);
+  });
+
+  it("tags them through an injected logger too, in its records and in the buffer", async () => {
+    const { logger, records } = createCapturingLogger();
+    const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-logs-")), logger, now: () => new Date(2026, 9, 21, 18, 30) }));
+    apps.push(app);
+    writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+
+    const runId = records.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
+    expect(records.find((r) => r.msg === "agent call finished")?.runId).toBe(runId);
+    const streamed = sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+    expect(streamed.find((r) => r.msg === "agent call finished")?.runId).toBe(runId);
+  });
 });

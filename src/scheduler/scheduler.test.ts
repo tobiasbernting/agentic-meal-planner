@@ -109,6 +109,22 @@ describe("startScheduler", () => {
     expect(run).toEqual(["run started", "inside the run", "run finished"]);
   });
 
+  it("tags records from loggers outside the run's deps with the tick's runId", async () => {
+    const { schedule, registered } = fakeSchedule();
+    const { logger, records } = createCapturingLogger();
+    const shared = logger.child({ component: "llm" });
+    startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger }, async () => {
+      await Promise.resolve();
+      shared.info({}, "agent call finished");
+    });
+
+    await registered[0]!.fire();
+
+    const started = records.find((r) => r.msg === "run started");
+    expect(records.find((r) => r.msg === "agent call finished")).toMatchObject({ component: "llm", runId: started!.runId });
+    expect(started!.runId).toMatch(/^cron-/);
+  });
+
   it("uses node-cron by default and accepts the default expression", () => {
     const scheduler = startScheduler(deps, { cronExpression: DEFAULT_CRON, logger: silent });
     expect(scheduler.isScheduled()).toBe(true);

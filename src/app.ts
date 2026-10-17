@@ -8,6 +8,7 @@ import { prettyStdout, resolveLogLevel, type LogThreshold } from "./logging/conf
 import { LogBuffer } from "./logging/buffer.js";
 import { createPino, LevelGate, teeLogger, type LogControl, type LogDestination } from "./logging/destinations.js";
 import { pinoLogger, type Logger } from "./logging/logger.js";
+import { runWithRunId } from "./logging/run-context.js";
 import { agentBinaryFound, startupReport } from "./logging/startup.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
@@ -147,6 +148,8 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
   const app = pino
     ? Fastify({ loggerInstance: pino, logController: new LogController({ disableRequestLogging: true }) })
     : Fastify({ logger: false });
+  // The request's handlers, and everything they await, run under its id (shared loggers tag records with it).
+  app.addHook("onRequest", (req, _reply, done) => runWithRunId(req.id, done));
   app.addHook("onRequest", async (req) => {
     log.info({ runId: req.id, method: req.method, url: req.url }, "incoming request");
   });

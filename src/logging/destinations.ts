@@ -7,6 +7,7 @@ import { multistream, pino, type Logger as PinoLogger } from "pino";
 import { LogBuffer, type BufferedRecord } from "./buffer.js";
 import type { LogThreshold } from "./config.js";
 import { truncateFields, type LogFields, type Logger, type LogLevel } from "./logger.js";
+import { withRunId } from "./run-context.js";
 
 /** Where the stdout copy of each JSON line goes. Defaults to process.stdout; tests collect lines. */
 export interface LogDestination {
@@ -78,7 +79,7 @@ export function teeLogger(inner: Logger, buffer: LogBuffer, gate: LevelGate, bin
   const at = (level: LogLevel) => (fields: LogFields, msg: string) => {
     if (!gate.enabled(level)) return;
     inner[level](fields, msg);
-    buffer.push({ level: PINO_LEVELS[level], time: Date.now(), ...serialisable({ ...bindings, ...truncateFields(fields) }), msg });
+    buffer.push({ level: PINO_LEVELS[level], time: Date.now(), ...serialisable(withRunId({ ...bindings, ...truncateFields(fields) })), msg });
   };
   return {
     debug: at("debug"),

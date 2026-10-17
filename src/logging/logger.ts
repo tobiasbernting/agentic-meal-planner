@@ -4,6 +4,8 @@
  * Every emit truncates string fields over 8 KB first.
  */
 
+import { withRunId } from "./run-context.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, unknown>;
 
@@ -55,19 +57,23 @@ export interface PinoLike {
   child(bindings: Record<string, unknown>): PinoLike;
 }
 
-/** Wraps a pino instance as a `Logger`; fields are truncated before pino sees them. */
-export function pinoLogger(pino: PinoLike): Logger {
+/**
+ * Wraps a pino instance as a `Logger`; fields are truncated before pino sees them. Records
+ * without a bound or given `runId` get the current run's (see run-context.ts).
+ */
+export function pinoLogger(pino: PinoLike, runIdBound = false): Logger {
+  const fieldsOf = (fields: LogFields) => truncateFields(runIdBound ? fields : withRunId(fields));
   return {
-    debug: (fields, msg) => pino.debug(truncateFields(fields), msg),
-    info: (fields, msg) => pino.info(truncateFields(fields), msg),
-    warn: (fields, msg) => pino.warn(truncateFields(fields), msg),
-    error: (fields, msg) => pino.error(truncateFields(fields), msg),
-    child: (bindings) => pinoLogger(pino.child(truncateFields(bindings))),
+    debug: (fields, msg) => pino.debug(fieldsOf(fields), msg),
+    info: (fields, msg) => pino.info(fieldsOf(fields), msg),
+    warn: (fields, msg) => pino.warn(fieldsOf(fields), msg),
+    error: (fields, msg) => pino.error(fieldsOf(fields), msg),
+    child: (bindings) => pinoLogger(pino.child(truncateFields(bindings)), runIdBound || bindings.runId !== undefined),
   };
 }
 
 function bindingLogger(emit: (level: LogLevel, fields: LogFields, msg: string) => void, bindings: LogFields = {}): Logger {
-  const at = (level: LogLevel) => (fields: LogFields, msg: string) => emit(level, { ...bindings, ...truncateFields(fields) }, msg);
+  const at = (level: LogLevel) => (fields: LogFields, msg: string) => emit(level, withRunId({ ...bindings, ...truncateFields(fields) }), msg);
   return {
     debug: at("debug"),
     info: at("info"),
