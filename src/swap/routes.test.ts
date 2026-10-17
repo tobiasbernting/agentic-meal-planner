@@ -289,7 +289,7 @@ describe("Välj rätt on a day without a dinner", () => {
     const list = await app.inject({ method: "GET", url: `/plan/swap?date=${MONDAY}`, headers: { "hx-request": "true", cookie } });
     expect(list.statusCode).toBe(200);
     expect(list.body).toContain("Pizza");
-    expect(list.body).toContain("Burgers");
+    expect(list.body).not.toContain("Burgers"); // Once a Week: planned on the other days
 
     const res = await app.inject({ method: "POST", url: "/plan/swap", headers: { cookie }, payload: { date: MONDAY, dishId: String(pizza) } });
     expect(res.statusCode).toBe(303);
