@@ -223,3 +223,27 @@ describe("runWeeklyPlanning", () => {
     }
   });
 });
+
+describe("runWeeklyPlanning that throws", () => {
+  it("logs the error under the cron run id, marks the run failed, and rethrows", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    const planRuns = createPlanRunRegistry();
+    const { logger, records } = createCapturingLogger();
+    const runId = "cron-2026-10-11T16:00:00.000Z";
+    const llm = new ScriptedLlmAgent({
+      selectDishes: () => {
+        throw new Error("agent exploded");
+      },
+    });
+
+    await expect(runWeeklyPlanning({ db, llm, fetchPage: async () => "", now: () => SUNDAY, log: logger.child({ runId }), planRuns })).rejects.toThrow(
+      "agent exploded",
+    );
+
+    expect(records).toContainEqual(
+      expect.objectContaining({ level: "error", component: "plan-run", runId, weekStart: NEXT_MONDAY, err: "agent exploded" }),
+    );
+    expect(planRuns.get(NEXT_MONDAY)).toMatchObject({ outcome: { kind: "failed", message: "agent exploded" } });
+  });
+});

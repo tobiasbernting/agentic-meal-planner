@@ -20,6 +20,11 @@ export type PlanRunOutcome =
   | { kind: "finished"; runId: string; at: Date; lunchChanged: LunchChange[] }
   | { kind: "failed"; runId: string; at: Date; message: string };
 
+/** What a finished pipeline hands back for the outcome. */
+export interface PlanRunDetails {
+  lunchChanged?: LunchChange[];
+}
+
 export type PlanRunState = { inFlight: InFlightPlanRun } | { outcome: PlanRunOutcome };
 
 export interface PlanRunRegistry {
@@ -28,7 +33,7 @@ export interface PlanRunRegistry {
   /** Records a Phase transition or progress for the week's in-flight run. */
   report(weekStart: string, event: PlanRunEvent): void;
   /** Ends the week's in-flight run as finished. */
-  finish(weekStart: string, at: Date, details?: { lunchChanged?: LunchChange[] }): void;
+  finish(weekStart: string, at: Date, details?: PlanRunDetails): void;
   /** Ends the week's in-flight run as failed with the error message. */
   fail(weekStart: string, at: Date, message: string): void;
   /** The week's in-flight run, else its last outcome, else undefined. */
