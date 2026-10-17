@@ -5,6 +5,7 @@
  * Plan Run banner explains a half-built list; Build/Rebuild and Har alltid hemma are withheld
  * (and refused over HTTP) while that run is in flight.
  */
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
 import { resolveWeek } from "../week.js";
@@ -18,7 +19,7 @@ import { shortWhen } from "../ui/when.js";
 import type { AggregatedItem } from "./aggregate.js";
 import { pushShoppingList } from "../sinks/push.js";
 import { latestPushes } from "../sinks/repo.js";
-import { buildShoppingList, buyFingerprint, getShoppingList } from "./build.js";
+import { buildShoppingList, buyFingerprint, getMissingDishIds, getShoppingList } from "./build.js";
 import { createPantryItem, listPantryItems } from "../pantry/repo.js";
 import { planRunBanner } from "../plan-run/routes.js";
 
@@ -79,6 +80,18 @@ function buildForm(weekStart: string, label: string): string {
 </form>`;
 }
 
+/** Inverted status block naming the planned Dishes with no Ingredients; Försök igen unless a Plan Run is in flight. */
+function renderMissing(lang: Lang, weekStart: string, names: string[], retry: boolean): string {
+  if (names.length === 0) return "";
+  const actionsHtml = retry
+    ? `<form method="post" action="/shopping/retry">
+  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
+  <button type="submit">${t(lang, "shopping.retry")}</button>
+</form>`
+    : undefined;
+  return notice({ text: t(lang, "shopping.missing", { dishes: names.join(", ") }), role: "status", actionsHtml });
+}
+
 function sinkName(sinkId: string): string {
   return sinkId.charAt(0).toUpperCase() + sinkId.slice(1);
 }
@@ -132,11 +145,13 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
       content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
     } else {
       const { buy, checkPantry } = getShoppingList(ctx.db, plan.id);
+      const missing = renderMissing(lang, weekStart, getMissingDishIds(ctx.db, plan.id).flatMap((id) => dishName(id) ?? []), !runInFlight);
       content =
         buy.length + checkPantry.length === 0
-          ? `<p class="notice">${t(lang, "shopping.none")}</p>
+          ? `${missing}<p class="notice">${t(lang, "shopping.none")}</p>
 ${rebuild(t(lang, "shopping.build"))}`
-          : `${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, alwaysHome)}
+          : `${missing}
+${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, alwaysHome)}
 ${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry)}
 ${rebuild(t(lang, "shopping.rebuild"))}
 ${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
@@ -151,7 +166,8 @@ ${content}`;
   });
 
   // Build and Har alltid hemma rewrite the list the week's Plan Run is also writing, so both are refused in flight.
-  app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
+  // Försök igen: a rebuild. Dishes that resolved are cached, so only the ones without Ingredients reach the agent again.
+  const rebuild = async (req: FastifyRequest<{ Body: BuildForm }>, reply: FastifyReply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
     if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
     const plan = getPlanForWeek(ctx.db, weekStart);
@@ -161,7 +177,9 @@ ${content}`;
       await pushShoppingList(deps, plan.id);
     }
     return reply.redirect(`/shopping?week=${weekStart}`, 303);
-  });
+  };
+  app.post<{ Body: BuildForm }>("/shopping/build", rebuild);
+  app.post<{ Body: BuildForm }>("/shopping/retry", rebuild);
 
   app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
