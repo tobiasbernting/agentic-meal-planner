@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createCapturingLogger } from "../../logging/logger.js";
 import { exampleJsonPlugin } from "./example-json.js";
 
 const MENU = JSON.stringify({
@@ -37,5 +38,18 @@ describe("example JSON School Plugin", () => {
     const plugin = exampleJsonPlugin(async () => "<html>not json</html>");
 
     await expect(plugin.scrape("https://school.example/menu.lunch.json", "2026-10-19")).resolves.toEqual([]);
+  });
+
+  it("warns with the cause instead of silently returning nothing", async () => {
+    const { logger, records } = createCapturingLogger();
+    const url = "https://school.example/menu.lunch.json";
+
+    await exampleJsonPlugin(async () => "<html>not json</html>", logger).scrape(url, "2026-10-19");
+    await exampleJsonPlugin(async () => '{"menu": []}', logger).scrape(url, "2026-10-19");
+
+    expect(records).toEqual([
+      expect.objectContaining({ level: "warn", component: "school-plugin", pluginId: "example-json", url, reason: expect.stringContaining("not valid JSON") }),
+      expect.objectContaining({ level: "warn", component: "school-plugin", pluginId: "example-json", url, reason: expect.stringContaining("days") }),
+    ]);
   });
 });

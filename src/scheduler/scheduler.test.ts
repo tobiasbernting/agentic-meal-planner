@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CRON, startScheduler, type ScheduleFactory, type ScheduledJob } from "./scheduler.js";
 import type { WeeklyRunDeps } from "./run-weekly.js";
+import { createCapturingLogger, silentLogger } from "../logging/logger.js";
 
 /** A schedule factory that records registrations and lets the test fire the tick itself. */
 function fakeSchedule() {
@@ -15,8 +16,8 @@ function fakeSchedule() {
   return { schedule, registered };
 }
 
-const deps = {} as WeeklyRunDeps;
-const silent = { info() {}, warn() {}, error() {} };
+const deps = { now: () => new Date() } as WeeklyRunDeps;
+const silent = silentLogger;
 
 describe("startScheduler", () => {
   it("defaults to Sunday 18:00, a valid cron expression", () => {
@@ -37,7 +38,7 @@ describe("startScheduler", () => {
     expect(ticks).toHaveLength(0);
 
     await registered[0]!.fire();
-    expect(ticks).toEqual([deps]);
+    expect(ticks).toEqual([{ ...deps, log: expect.anything() }]);
 
     scheduler.stop();
     expect(registered[0]!.stopped).toBe(true);
@@ -45,12 +46,12 @@ describe("startScheduler", () => {
 
   it("logs and schedules nothing for an invalid expression instead of throwing", () => {
     const { schedule, registered } = fakeSchedule();
-    const errors: string[] = [];
+    const { logger, records } = createCapturingLogger();
 
-    const scheduler = startScheduler(deps, { cronExpression: "every sunday", schedule, logger: { ...silent, error: (m) => void errors.push(m) } });
+    const scheduler = startScheduler(deps, { cronExpression: "every sunday", schedule, logger });
 
     expect(registered).toEqual([]);
-    expect(errors[0]).toContain("every sunday");
+    expect(records).toContainEqual(expect.objectContaining({ level: "error", cronExpression: "every sunday" }));
     expect(() => scheduler.stop()).not.toThrow();
   });
 
@@ -77,16 +78,51 @@ describe("startScheduler", () => {
     expect(zones).toEqual([undefined, "Europe/Stockholm", undefined]);
   });
 
-  it("a failing run is logged and does not kill the scheduler", async () => {
+  it("a failing run is logged with the error stack and does not kill the scheduler", async () => {
     const { schedule, registered } = fakeSchedule();
-    const errors: string[] = [];
-    startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger: { ...silent, error: (m) => void errors.push(m) } }, async () => {
+    const { logger, records } = createCapturingLogger();
+    const scheduler = startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger }, async () => {
       throw new Error("agent exploded");
     });
 
     await registered[0]!.fire();
 
-    expect(errors[0]).toContain("agent exploded");
+    const failed = records.find((r) => r.msg === "run failed");
+    expect(failed).toMatchObject({ level: "error", runId: expect.stringMatching(/^cron-/) });
+    expect(failed!.err).toBeInstanceOf(Error);
+    expect((failed!.err as Error).stack).toContain("agent exploded");
+    expect(scheduler.isScheduled()).toBe(true);
+  });
+
+  it("each tick runs under its own cron-<ISO> runId, passed to the run as deps.log", async () => {
+    const { schedule, registered } = fakeSchedule();
+    const { logger, records } = createCapturingLogger();
+    startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger }, async (d) => {
+      d.log?.info({}, "inside the run");
+    });
+
+    await registered[0]!.fire();
+
+    const inside = records.find((r) => r.msg === "inside the run");
+    expect(inside?.runId).toMatch(/^cron-\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    const run = records.filter((r) => r.runId === inside!.runId).map((r) => r.msg);
+    expect(run).toEqual(["run started", "inside the run", "run finished"]);
+  });
+
+  it("tags records from loggers outside the run's deps with the tick's runId", async () => {
+    const { schedule, registered } = fakeSchedule();
+    const { logger, records } = createCapturingLogger();
+    const shared = logger.child({ component: "llm" });
+    startScheduler(deps, { cronExpression: DEFAULT_CRON, schedule, logger }, async () => {
+      await Promise.resolve();
+      shared.info({}, "agent call finished");
+    });
+
+    await registered[0]!.fire();
+
+    const started = records.find((r) => r.msg === "run started");
+    expect(records.find((r) => r.msg === "agent call finished")).toMatchObject({ component: "llm", runId: started!.runId });
+    expect(started!.runId).toMatch(/^cron-/);
   });
 
   it("uses node-cron by default and accepts the default expression", () => {

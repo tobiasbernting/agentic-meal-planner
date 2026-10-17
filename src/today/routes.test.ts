@@ -10,6 +10,7 @@ import { upsertLunchEntry } from "../lunch/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE, type PlannedDinnerDraft } from "../planner/plan-week.js";
 import { savePlan } from "../planner/repo.js";
 import { createSchool, setSchoolActive } from "../schools/repo.js";
+import { createCapturingLogger } from "../logging/logger.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -56,7 +57,7 @@ describe("GET / (Today view)", () => {
     expect(res.body).toContain(TODAY);
     expect(res.body).toContain("Northside");
     expect(res.body).toMatch(/<li>Pasta bolognese<\/li>\s*<li>Fiskgratäng<\/li>/);
-    expect(res.body).not.toContain("No lunch data");
+    expect(res.body).not.toContain("Northside: plugin example-json failed: offline");
   });
 
   it("shows the no-lunch-data notice for a School without an entry today (FR-5)", async () => {
@@ -176,7 +177,22 @@ describe("POST /lunch/refresh", () => {
     const res = await app.inject({ method: "POST", url: "/lunch/refresh" });
 
     expect(res.statusCode).toBe(303);
-    expect((await app.inject({ method: "GET", url: "/" })).body).toContain("No lunch data");
+    expect((await app.inject({ method: "GET", url: "/" })).body).toContain("Northside: plugin example-json failed: offline");
   });
 
+});
+
+describe("POST /lunch/refresh logging", () => {
+  it("logs the ingest run with runId = request id and component lunch", async () => {
+    const { logger, records } = createCapturingLogger();
+    const app = await start({ logger });
+
+    await app.inject({ method: "POST", url: "/lunch/refresh" });
+
+    const runId = records.find((r) => r.msg === "request completed" && r.url === "/lunch/refresh")?.runId;
+    expect(runId).toEqual(expect.any(String));
+    const run = records.filter((r) => r.runId === runId);
+    expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run started", component: "lunch", weekStart: "2026-10-19" }));
+    expect(run).toContainEqual(expect.objectContaining({ level: "info", msg: "run finished", component: "lunch" }));
+  });
 });

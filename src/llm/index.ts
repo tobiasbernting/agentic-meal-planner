@@ -15,7 +15,7 @@ export type {
   MatchPantryInput,
   PantryMatch,
 } from "./types.js";
-export { CliAgent, type CliAgentDeps, type ProcessRunner } from "./cli-agent.js";
+export { AgentTimeoutError, CliAgent, type CliAgentDeps, type ProcessResult, type ProcessRunner } from "./cli-agent.js";
 export { NoAgent, NO_AGENT_REASON } from "./no-agent.js";
 export { ScriptedLlmAgent, type ScriptedResponses } from "./fake.js";
 
@@ -33,6 +33,7 @@ export function createLlmAgent(agentCommand: string | undefined, deps?: CliAgent
  * An agent resolver that follows the configured command: each call re-reads it through
  * `readCommand` and rebuilds the agent only when the command changed, so a new
  * `agent_command` saved in Settings is used by the next run without a restart.
+ * `deps.log` receives every CliAgent call's records.
  */
 export function configuredLlmAgent(readCommand: () => string | undefined, deps?: CliAgentDeps): () => LlmAgent {
   let command: string | undefined;

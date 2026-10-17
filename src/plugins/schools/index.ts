@@ -1,3 +1,4 @@
+import type { Logger } from "../../logging/logger.js";
 import type { SchoolPlugin } from "../../types.js";
 import { exampleJsonPlugin, type FetchPage } from "./example-json.js";
 
@@ -8,8 +9,8 @@ export type { FetchPage } from "./example-json.js";
  * `claims(url)` is true wins, so put specific formats before generic ones. Plugins receive
  * the app's page fetcher so they stay network-free in tests.
  */
-export function createSchoolPlugins(fetchPage: FetchPage): SchoolPlugin[] {
-  return [exampleJsonPlugin(fetchPage)];
+export function createSchoolPlugins(fetchPage: FetchPage, log?: Logger): SchoolPlugin[] {
+  return [exampleJsonPlugin(fetchPage, log)];
 }
 
 /** The first plugin claiming `url`, or undefined when the LLM fallback should be used. */

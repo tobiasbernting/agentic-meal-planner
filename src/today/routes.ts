@@ -1,5 +1,7 @@
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { ingestWeek } from "../lunch/ingest.js";
+import { runLogger } from "../logging/logger.js";
+import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
@@ -8,14 +10,14 @@ import { householdToday } from "../planner/settings.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
-function renderSchoolLunch(lang: Lang, { school, entry }: SchoolLunch): string {
+function renderSchoolLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
+    : notice(lang, date, school);
   return `<article class="school-lunch"><h3>${escapeHtml(school.name)}</h3>${body}</article>`;
 }
 
@@ -44,10 +46,11 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const today = householdToday(ctx.db, ctx.now());
     const lunches = listLunchForDate(ctx.db, today);
+    const notice = noLunchNotice(ctx.db);
     const schools =
       lunches.length === 0
         ? `<p>${t(lang, "today.noSchools")} <a href="/schools">${t(lang, "today.addSchool")}</a> ${t(lang, "today.toSeeLunch")}</p>`
-        : lunches.map((l) => renderSchoolLunch(lang, l)).join("\n");
+        : lunches.map((l) => renderSchoolLunch(notice, lang, today, l)).join("\n");
     const body = `<h1>${t(lang, "app.name")}</h1>
 <p><time datetime="${today}">${today}</time></p>
 <section id="lunch">
@@ -65,8 +68,14 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
 
   // Manual lunch refresh (FR-4): ingest the current week for every active School, then back to Today.
   // Scrape failures are recorded as no-data by ingestWeek, so this never fails the request.
-  app.post("/lunch/refresh", async (_req, reply) => {
-    await ingestWeek(ctx, mondayOf(householdToday(ctx.db, ctx.now())), { force: true });
+  app.post("/lunch/refresh", async (req, reply) => {
+    const weekStart = mondayOf(householdToday(ctx.db, ctx.now()));
+    const log = runLogger(ctx.log, req, "lunch");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "refresh" }, "run started");
+    const { results, changed } = await ingestWeek({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log }, weekStart, { force: true });
+    const statuses = Object.fromEntries(["ok", "cached", "no-data"].map((s) => [s, results.filter((r) => r.status === s).length]));
+    log.info({ weekStart, schools: results.length, ...statuses, changed: changed.length, durationMs: Date.now() - started }, "run finished");
     return reply.redirect("/", 303);
   });
 };

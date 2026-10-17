@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase, writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent, ScriptedLlmAgent } from "../llm/index.js";
+import { createCapturingLogger } from "../logging/logger.js";
 import { listLunchEntries } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
@@ -90,5 +91,23 @@ describe("runWeeklyPlanning", () => {
 
     expect(first.plan).toMatchObject({ planId: seen[0] });
     expect(seen).toHaveLength(1);
+  });
+
+  it("warns on the cron run logger and logs a plan summary with the afterPlan push count", async () => {
+    const db = freshDb();
+    createDish(db, { name: "Burgers", prepTimeMinutes: 20 });
+    createSchool(db, { name: "Skolan", url: "https://example.test/menu" });
+    const { logger, records } = createCapturingLogger();
+    const log = logger.child({ runId: "cron-2026-10-11T16:00:00.000Z" });
+    const fetchPage = async () => {
+      throw new Error("HTTP 500 fetching https://example.test/menu");
+    };
+
+    await runWeeklyPlanning({ db, llm: new NoAgent(), fetchPage, now: () => SUNDAY, log, afterPlan: async () => 2 });
+
+    const runId = "cron-2026-10-11T16:00:00.000Z";
+    expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "lunch-ingest", msg: "menu fetch failed" }));
+    expect(records).toContainEqual(expect.objectContaining({ level: "warn", runId, component: "planner" }));
+    expect(records).toContainEqual(expect.objectContaining({ level: "info", runId, msg: "plan summary", dinners: 7, degraded: true, sinksPushed: 2 }));
   });
 });

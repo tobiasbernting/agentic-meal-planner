@@ -5,14 +5,17 @@
  * stored Lunch Entry changed, ask again before replacing a confirmed plan).
  */
 import type Database from "better-sqlite3";
-import type { FeaturePlugin } from "../app.js";
+import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
 import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
+import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getSchool } from "../schools/repo.js";
-import { generatePlan } from "../planner/generate.js";
+import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
+import { runLogger, type Logger } from "../logging/logger.js";
+import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { buildShoppingList } from "../shopping/build.js";
 import { pushShoppingList } from "../sinks/push.js";
@@ -61,14 +64,14 @@ function resolveWeek(raw: string | undefined, today: string): string {
   return mondayOf(raw && WEEK_START.test(raw) ? raw : today);
 }
 
-function renderLunch(lang: Lang, { school, entry }: SchoolLunch): string {
+function renderLunch(notice: NoLunchNotice, lang: Lang, date: string, { school, entry }: SchoolLunch): string {
   const body = entry
     ? `<ul>${entry.rawText
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => `<li>${escapeHtml(line.trim())}</li>`)
         .join("")}</ul>`
-    : `<p class="notice">${t(lang, "common.noLunchData")}</p>`;
+    : notice(lang, date, school);
   return `<article class="school-lunch"><h4>${escapeHtml(school.name)}</h4>${body}</article>`;
 }
 
@@ -80,14 +83,14 @@ function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner |
 <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 
-function renderDay(db: Database.Database, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
+function renderDay(db: Database.Database, notice: NoLunchNotice, lang: Lang, date: string, dinner: PlannedDinner | undefined): string {
   const weekday = weekdayName(lang, weekdayOf(date));
   const quick = dinner?.isQuickDay ? ` <span class="quick-day">${t(lang, "plan.quickDay")}</span>` : "";
   const lunches = listLunchForDate(db, date);
   const lunch =
     lunches.length === 0
-      ? `<p class="notice">${t(lang, "common.noLunchData")}</p>`
-      : lunches.map((l) => renderLunch(lang, l)).join("\n");
+      ? notice(lang, date)
+      : lunches.map((l) => renderLunch(notice, lang, date, l)).join("\n");
   return `<article class="plan-day">
   <h3>${weekday} <time datetime="${date}">${date}</time>${quick}</h3>
   <section class="lunch"><h4>${t(lang, "common.lunch")}</h4>${lunch}</section>
@@ -114,6 +117,7 @@ function datesWithChangedLunch(db: Database.Database, plan: WeeklyPlan): string[
 
 function renderPlan(db: Database.Database, lang: Lang, weekStart: string, plan: WeeklyPlan): string {
   const byDate = new Map(plan.dinners.map((d) => [d.date, d]));
+  const notice = noLunchNotice(db);
   const degraded =
     plan.degradedReasons.length === 0
       ? ""
@@ -127,7 +131,7 @@ ${weekForm(weekStart, "/plan/regenerate", t(lang, "plan.regenerate"))}
 ${degraded}
 ${lunchChanged}
 ${weekDates(weekStart)
-  .map((date) => renderDay(db, lang, date, byDate.get(date)))
+  .map((date) => renderDay(db, notice, lang, date, byDate.get(date)))
   .join("\n")}`;
 }
 
@@ -165,7 +169,22 @@ function isNotice(key: string | undefined): key is keyof typeof NOTICES {
   return key !== undefined && Object.hasOwn(NOTICES, key);
 }
 
+function logRunFinished(log: Logger, weekStart: string, result: GeneratePlanResult, started: number, extra: Record<string, unknown> = {}): void {
+  const outcome = "planId" in result ? { planId: result.planId, degradedReasons: result.degradedReasons.length } : { skipped: result.skipped };
+  log.info({ weekStart, ...outcome, ...extra, durationMs: Date.now() - started }, "run finished");
+}
+
+async function finishPlan(ctx: AppContext, log: Logger, result: { planId: number; degradedReasons: string[] }): Promise<void> {
+  const deps = { ...ctx, log };
+  await buildShoppingList(deps, result.planId);
+  const sinksPushed = await pushShoppingList(deps, result.planId);
+  logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
+}
+
 export const planRoutes: FeaturePlugin = async (app, ctx) => {
+  // Read the ports at run time: `ctx.llm` follows the Settings agent command.
+  const ingestDeps = () => ({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now });
+
   app.get<{ Querystring: PlanQuery }>("/plan", async (req, reply) => {
     const lang = langOf(req);
     const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
@@ -189,15 +208,19 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
 
   app.post<{ Body: GenerateForm }>("/plan/generate", async (req, reply) => {
     const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
+    const log = runLogger(ctx.log, req, "plan");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "generate" }, "run started");
     // Lunch must be stored before planning or the category collision rule (FR-6b) has nothing to check.
-    await ingestWeek(ctx, weekStart);
+    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart);
     const result = await generatePlan(
-      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() },
+      { db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log },
       weekStart,
       { replace: false },
     );
+    logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
     const notice = "skipped" in result ? `&notice=${result.skipped}` : "";
-    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: Shopping List follows the plan (FR-11), then sinks (FR-13)
+    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });
 
@@ -210,9 +233,13 @@ ${plan ? renderPlan(ctx.db, lang, weekStart, plan) : renderNoPlan(lang, weekStar
       reply.type("text/html; charset=utf-8");
       return page({ title: t(lang, "plan.regenerate"), body: renderConfirmRegenerate(lang, weekStart), lang });
     }
-    const { changed } = await ingestWeek(ctx, weekStart, { force: true });
-    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString() }, weekStart, { replace: true });
-    if ("planId" in result) { await buildShoppingList(ctx, result.planId); await pushShoppingList(ctx, result.planId); } // #31/#32: fresh Shopping List, pushed
+    const log = runLogger(ctx.log, req, "plan");
+    const started = Date.now();
+    log.info({ weekStart, trigger: "regenerate" }, "run started");
+    const { changed } = await ingestWeek({ ...ingestDeps(), log }, weekStart, { force: true });
+    const result = await generatePlan({ db: ctx.db, llm: ctx.llm, now: () => ctx.now().toISOString(), log }, weekStart, { replace: true });
+    logRunFinished(log, weekStart, result, started, { lunchChanged: changed.length });
+    if ("planId" in result) await finishPlan(ctx, log, result); // Shopping List follows the plan (FR-11), then sinks (FR-13)
     const notice = changed.length === 0 ? "" : `&notice=lunch-changed&changed=${encodeChanges(changed)}`;
     return reply.redirect(`/plan?week=${weekStart}${notice}`, 303);
   });

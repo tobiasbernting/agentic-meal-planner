@@ -12,6 +12,7 @@ const port = Number(process.env.PORT ?? 8080);
 // The Docker image sets DATA_DIR=/data; the default here is for local development.
 const dataDir = process.env.DATA_DIR ?? "./data";
 
+// buildApp logs the startup self-check (agent command, binary on PATH, TZ, DATA_DIR, cron).
 const app = await buildApp({ dataDir });
 await app.listen({ port, host: "0.0.0.0" });
 
@@ -32,12 +33,13 @@ const scheduler = startScheduler(
     get llm() {
       return app.ctx.llm;
     },
-    afterPlan: async (planId) => {
-      await buildShoppingList(app.ctx, planId);
-      await pushShoppingList(app.ctx, planId); // FR-13: Buy section to sinks; never throws
+    afterPlan: async (planId, log) => {
+      const deps = { ...app.ctx, ...(log ? { log } : {}) };
+      await buildShoppingList(deps, planId);
+      return pushShoppingList(deps, planId); // FR-13: Buy section to sinks; never throws
     },
   },
-  readSchedulerOptions(app.ctx.db),
+  { ...readSchedulerOptions(app.ctx.db), logger: app.ctx.log.child({ component: "scheduler" }) },
 );
 // Settings (#35) re-arms the schedule through this port when `cron_expression` is saved.
 app.ctx.scheduler = scheduler;
