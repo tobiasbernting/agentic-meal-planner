@@ -86,7 +86,8 @@ describe("Plan Run started from the Plan page", () => {
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
     expect(view.body).toContain("Ingredient resolution");
     expect(view.body).toContain("Ingredients 0 of 7: Köttbullar");
-    expect(view.body.match(/<div class="day-dinner">Köttbullar<\/div>/g)).toHaveLength(7);
+    expect(view.body.match(/<div class="day-dinner">/g)).toHaveLength(7);
+    expect(view.body.match(/<div class="day-dinner">Köttbullar<\/div>/g)).toHaveLength(1); // Once a Week
     held.resolve({ ok: false, reason: "released" });
     await planRunSettled(app, WEEK);
   });
@@ -131,7 +132,7 @@ describe("Plan Run started from the Plan page", () => {
     held.resolve({ ok: true, value: weekDates(WEEK).map((date) => ({ date, dishId: String(stew), rationale: "r" })) });
     await planRunSettled(app, WEEK);
     const after = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(after.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(7);
+    expect(after.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(1); // Once a Week
     expect(after.body).not.toContain('<div class="day-dinner">Burgers</div>');
   });
 
@@ -330,7 +331,7 @@ describe("a Plan Run that throws", () => {
     await planRunSettled(app, WEEK);
 
     const view = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
-    expect(view.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(7);
+    expect(view.body.match(/<div class="day-dinner">Stew<\/div>/g)).toHaveLength(1); // Once a Week
     expect(view.body).not.toContain('<div class="day-dinner">Burgers</div>');
     expect(view.body).toContain("Plan Run failed 18:30: recipe search exploded");
     expect(view.body).toContain('action="/plan/regenerate"');

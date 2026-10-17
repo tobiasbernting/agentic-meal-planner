@@ -16,6 +16,16 @@ export interface DayInput {
   quickDayLimitMinutes: number | null;
   /** That date's Lunch Entries across all active Schools. */
   lunch: LunchEntry[];
+  /** Once a Week: the dinners already planned on the Weekly Plan's other dates. */
+  plannedElsewhere?: PlannedElsewhere[];
+}
+
+/** A dinner planned on another date of the same Weekly Plan. */
+export interface PlannedElsewhere {
+  date: string;
+  /** `null` for a new Suggested Dish not yet stored; it is then matched by name. */
+  dishId: number | null;
+  name: string;
 }
 
 export interface FilterOptions {
@@ -43,6 +53,12 @@ function lunchNameMatch(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefined
   );
 }
 
+/** Once a Week: the other date `dish` is already planned on, matched by id or, failing that, by name. */
+function plannedOn(dish: Dish, planned: PlannedElsewhere[]): PlannedElsewhere | undefined {
+  const wanted = normaliseName(dish.name);
+  return planned.find((p) => (p.dishId !== null && p.dishId === dish.id) || normaliseName(p.name) === wanted);
+}
+
 /** FR-6b: `other` means uncategorised and never collides, on either side. */
 function categoryCollision(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefined {
   const category = dish.mainCategory;
@@ -53,6 +69,7 @@ function categoryCollision(dish: Dish, lunch: LunchEntry[]): LunchEntry | undefi
 /** Which hard rule excludes a Dish on a day, with what the household message needs. */
 export type ExclusionRule =
   | { code: "not-in-rotation" }
+  | { code: "once-a-week"; date: string }
   | { code: "same-as-lunch"; lunch: string }
   | { code: "lunch-category"; category: string; lunch: string }
   | { code: "weekend-only"; date: string; weekday: Weekday }
@@ -73,6 +90,9 @@ export function exclusionRule(dish: Dish, day: DayInput, options: FilterOptions)
   if (day.quickDayLimitMinutes !== null && (dish.prepTimeMinutes === null || dish.prepTimeMinutes > day.quickDayLimitMinutes)) {
     return { code: "quick-day", limit: day.quickDayLimitMinutes, minutes: dish.prepTimeMinutes };
   }
+  // Once a Week comes last: a rule about the day itself explains a drop better than a repeat does.
+  const elsewhere = plannedOn(dish, day.plannedElsewhere ?? []);
+  if (elsewhere) return { code: "once-a-week", date: elsewhere.date };
   return null;
 }
 
@@ -86,6 +106,7 @@ type Params = Record<string, string | number>;
  */
 const RULES: { [C in ExclusionCode]: { describe(rule: RuleOf<C>): string; params(rule: RuleOf<C>): Params | undefined } } = {
   "not-in-rotation": { describe: () => "not in rotation", params: () => undefined },
+  "once-a-week": { describe: (r) => `already planned on ${r.date} (Once a Week)`, params: () => undefined },
   "same-as-lunch": { describe: (r) => `same dish as lunch "${r.lunch}"`, params: () => undefined },
   "lunch-category": { describe: (r) => `same Main Category (${r.category}) as lunch "${r.lunch}"`, params: (r) => ({ category: r.category }) },
   "weekend-only": { describe: (r) => `Weekend Dish, and ${r.date} is a ${r.weekday}`, params: () => undefined },

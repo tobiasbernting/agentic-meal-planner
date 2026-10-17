@@ -50,19 +50,19 @@ function input(overrides: Partial<PlanWeekInput> = {}): PlanWeekInput {
 
 describe("planWeek", () => {
   it("stores the LLM's pick and rationale for each of the seven dates", async () => {
-    const [burgers, pasta] = input().dishes as [Dish, Dish];
+    const dishes = ["Burgers", "Pasta", "Soup", "Tacos", "Curry", "Stew", "Pie"].map((name) => dish({ name }));
     const llm = new ScriptedLlmAgent({
       selectDishes: (req) => ({
         ok: true,
         value: req.days.map((day, i) => ({
           date: day.date,
-          dishId: String(i % 2 === 0 ? burgers.id : pasta.id),
+          dishId: String(dishes[i]!.id),
           rationale: `scripted pick for ${day.date}`,
         })),
       }),
     });
 
-    const result = await planWeek(input({ dishes: [burgers, pasta], llm }));
+    const result = await planWeek(input({ dishes, llm }));
 
     expect(result.weekStart).toBe(WEEK);
     expect(result.dinners.map((d) => d.date)).toEqual([
@@ -74,15 +74,7 @@ describe("planWeek", () => {
       "2026-10-17",
       "2026-10-18",
     ]);
-    expect(result.dinners.map((d) => d.dishId)).toEqual([
-      burgers.id,
-      pasta.id,
-      burgers.id,
-      pasta.id,
-      burgers.id,
-      pasta.id,
-      burgers.id,
-    ]);
+    expect(result.dinners.map((d) => d.dishId)).toEqual(dishes.map((d) => d.id));
     expect(result.dinners[0]?.rationale).toBe("scripted pick for 2026-10-12");
     expect(details(result)).toEqual([]);
   });
@@ -126,6 +118,7 @@ describe("planWeek", () => {
 
   it("leaves a day empty, with a rationale asking for a manual pick, when neither a Dish nor a seed dish is eligible", async () => {
     const roast = dish({ name: "Roast", weekendOnly: true });
+    const ribs = dish({ name: "Ribs", weekendOnly: true });
     // Every weekday lunch collides with every seed dish: one entry per Main Category, plus Pannkakor by name.
     const categories = ["pasta", "rice", "potatoes", "fish", "chicken", "beef", "pork", "vegetarian", "soup", "tacos"];
     const lunchByDate = Object.fromEntries(
@@ -142,13 +135,13 @@ describe("planWeek", () => {
         ok: true,
         value: req.days.filter((_, i) => req.candidates[i]!.length > 0).map((day) => ({
           date: day.date,
-          dishId: String(roast.id),
+          dishId: String(day.date === "2026-10-17" ? roast.id : ribs.id),
           rationale: "weekend",
         })),
       }),
     });
 
-    const result = await planWeek(input({ dishes: [roast], lunchByDate, llm }));
+    const result = await planWeek(input({ dishes: [roast, ribs], lunchByDate, llm }));
 
     expect(result.dinners).toHaveLength(7);
     for (const dinner of result.dinners.slice(0, 5)) {
@@ -157,7 +150,7 @@ describe("planWeek", () => {
       expect(dinner.rationale).toBe("Ingen lämplig rätt, välj en.");
     }
     expect(result.dinners[5]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
-    expect(result.dinners[6]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
+    expect(result.dinners[6]).toMatchObject({ dishId: ribs.id, rationale: "weekend" });
     expect(details(result)).toEqual([]);
   });
 
@@ -179,6 +172,26 @@ describe("planWeek", () => {
     expect(result.dinners[5]).toMatchObject({ dishId: roast.id, rationale: "always roast" });
     expect(details(result).length).toBeGreaterThan(0);
     expect(details(result)[0]).toMatch(/2026-10-12/);
+  });
+
+  it("keeps a Dish the agent picks twice on its first date only (Once a Week); the second date gets a seed fallback", async () => {
+    const dishes = ["Burgers", "Pasta", "Soup", "Tacos", "Curry", "Stew", "Pie"].map((name) => dish({ name }));
+    const [burgers] = dishes as [Dish];
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (req) => ({
+        ok: true,
+        value: req.days.map((day, i) => ({ date: day.date, dishId: String(i === 1 ? burgers.id : dishes[i]!.id), rationale: `pick ${i}` })),
+      }),
+    });
+
+    const result = await planWeek(input({ dishes, llm }));
+
+    expect(result.dinners[0]).toMatchObject({ dishId: burgers.id, rationale: "pick 0" });
+    expect(result.dinners[1]).toMatchObject({ dishId: null, suggestion: { name: SEED_DISHES[0]!.name }, rationale: t("sv", "rationale.seedFallback") });
+    expect(result.dinners.filter((d) => d.dishId === burgers.id)).toHaveLength(1);
+    expect(result.degradedReasons.filter((r) => !r.logOnly)).toEqual([
+      expect.objectContaining({ code: "once-a-week", date: "2026-10-13", params: { name: "Burgers" } }),
+    ]);
   });
 
   it("records the lunch of the day on each Planned Dinner", async () => {
@@ -218,13 +231,13 @@ describe("planWeek", () => {
     }
 
     it("fills every date with the agent's suggestion when there are no Dishes", async () => {
-      const llm = suggesting(() => ({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90 }));
+      const llm = suggesting((_req, _date, i) => ({ name: `Kalops ${i}`, mainCategory: "beef", prepTimeMinutes: 90 }));
 
       const result = await planWeek(input({ dishes: [], llm }));
 
-      for (const dinner of result.dinners) {
+      for (const [i, dinner] of result.dinners.entries()) {
         expect(dinner.dishId).toBeNull();
-        expect(dinner.suggestion).toEqual({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90 });
+        expect(dinner.suggestion).toEqual({ name: `Kalops ${i}`, mainCategory: "beef", prepTimeMinutes: 90 });
         expect(dinner.rationale).toBe(`scripted suggestion ${dinner.date}`);
       }
       expect(details(result)).toEqual([]);
@@ -297,13 +310,13 @@ describe("planWeek", () => {
     });
 
     it("keeps six agent picks and drops only the malformed suggestion from a CLI agent reply", async () => {
-      const pasta = dish({ name: "Pasta", mainCategory: "pasta" });
+      const pastas = [1, 2, 3, 4, 5, 6].map((n) => dish({ name: `Pasta ${n}`, mainCategory: "pasta" }));
       const lunch = { "2026-10-12": [{ date: "2026-10-12", rawText: "Spagetti", mainCategory: "pasta" }] };
       const reply = [
         { date: "2026-10-12", suggestion: { name: "Sushi", mainCategory: "sushi" }, rationale: "new" },
-        ...["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"].map((date) => ({
+        ...["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"].map((date, i) => ({
           date,
-          dishId: pasta.id,
+          dishId: pastas[i]!.id,
           rationale: "favorite",
         })),
       ];
@@ -311,24 +324,24 @@ describe("planWeek", () => {
         run: async () => ({ stdout: JSON.stringify(reply), stderr: "", exitCode: 0 }),
       });
 
-      const result = await planWeek(input({ dishes: [pasta], lunchByDate: lunch, llm }));
+      const result = await planWeek(input({ dishes: pastas, lunchByDate: lunch, llm }));
 
-      expect(result.dinners.slice(1).every((d) => d.dishId === pasta.id && d.rationale === "favorite")).toBe(true);
+      expect(result.dinners.slice(1).map((d) => d.dishId)).toEqual(pastas.map((d) => d.id));
+      expect(result.dinners.slice(1).every((d) => d.rationale === "favorite")).toBe(true);
       expect(result.dinners[0]?.suggestion?.name).not.toBe("Sushi");
       expect(details(result)[0]).toMatch(/^2026-10-12: suggestion "Sushi" dropped: Main Category "sushi"/);
       expect(details(result)).toContain("2026-10-12: seed fallback used");
     });
 
-    it("reuses an existing out-of-rotation Dish whose name matches the suggestion", async () => {
+    it("reuses an existing out-of-rotation Dish whose name matches the suggestion, once a week", async () => {
       const shelved = dish({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 90, inRotation: false });
       const llm = suggesting(() => ({ name: " KALOPS ", mainCategory: "beef", prepTimeMinutes: 80 }));
 
       const result = await planWeek(input({ dishes: [shelved], llm }));
 
-      for (const dinner of result.dinners) {
-        expect(dinner).toMatchObject({ dishId: shelved.id, suggestion: null, rationale: `scripted suggestion ${dinner.date}` });
-      }
-      expect(details(result)).toEqual([]);
+      expect(result.dinners[0]).toMatchObject({ dishId: shelved.id, suggestion: null, rationale: "scripted suggestion 2026-10-12" });
+      expect(result.dinners.filter((d) => d.dishId === shelved.id)).toHaveLength(1);
+      expect(result.degradedReasons.find((r) => r.date === "2026-10-13" && !r.logOnly)).toMatchObject({ code: "once-a-week" });
     });
 
     it("drops a suggestion matching a Favorite Dish the filter excluded that day", async () => {
@@ -407,12 +420,15 @@ describe("planWeek", () => {
       const result = await planWeek(input({ llm: new NoAgent() }));
 
       expect(result.dinners).toHaveLength(7);
-      for (const dinner of result.dinners) {
+      const [favorites, rest] = [result.dinners.slice(0, 3), result.dinners.slice(3)];
+      for (const dinner of favorites) {
         expect(dinner.dishId).not.toBeNull();
         expect(dinner.rationale).toBe(t("sv", "rationale.noAgent"));
       }
-      expect(new Set(result.dinners.map((d) => d.dishId)).size).toBe(3);
-      expect(details(result)).toEqual([NO_AGENT_REASON]);
+      expect(new Set(favorites.map((d) => d.dishId)).size).toBe(3);
+      // Once a Week: with the rotation used up, the rest of the week falls back to the seed list.
+      for (const dinner of rest) expect(dinner).toMatchObject({ dishId: null, rationale: t("sv", "rationale.seedFallback") });
+      expect(result.degradedReasons.filter((r) => !r.logOnly).map((r) => r.code)).toEqual(["no-agent", "seed-fallback", "seed-fallback", "seed-fallback", "seed-fallback"]);
     });
 
     it("falls back to round-robin when the agent fails", async () => {
@@ -420,8 +436,8 @@ describe("planWeek", () => {
 
       const result = await planWeek(input({ llm }));
 
-      expect(result.dinners.every((d) => d.dishId !== null)).toBe(true);
-      expect(details(result)).toEqual(["agent exited with code 1"]);
+      expect(result.dinners.every((d) => d.dishId !== null || d.suggestion !== null)).toBe(true);
+      expect(details(result)[0]).toBe("agent exited with code 1");
     });
   });
 });
