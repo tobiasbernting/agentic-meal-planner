@@ -6,7 +6,6 @@ import { openDatabase } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
-import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
 import { generatePlan } from "../planner/generate.js";
 import { listPlannedDinners, savePlan } from "../planner/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
@@ -47,7 +46,7 @@ describe("buildShoppingList", () => {
         dinners: [
           { date: "2026-10-19", dishId: pasta, isQuickDay: false, lunchThatDay: null, rationale: "r" },
           { date: "2026-10-20", dishId: pancakes, isQuickDay: false, lunchThatDay: null, rationale: "r" },
-          { date: "2026-10-21", dishId: null, isQuickDay: false, lunchThatDay: null, rationale: NO_ELIGIBLE_DISH_RATIONALE },
+          { date: "2026-10-21", dishId: null, isQuickDay: false, lunchThatDay: null, rationale: "Ingen lämplig rätt, välj en." },
         ],
         degradedReasons: [],
       },

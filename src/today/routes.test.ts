@@ -7,7 +7,7 @@ import { withEnglish } from "../i18n/test-helpers.js";
 import { writeSetting } from "../db.js";
 import { createDish } from "../dishes/repo.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
-import { NO_ELIGIBLE_DISH_RATIONALE, type PlannedDinnerDraft } from "../planner/plan-week.js";
+import type { PlannedDinnerDraft } from "../planner/plan-week.js";
 import { savePlan, setPlannedDinnerSource } from "../planner/repo.js";
 import { createSchool, setSchoolActive } from "../schools/repo.js";
 import { createCapturingLogger } from "../logging/logger.js";
@@ -171,7 +171,7 @@ describe("GET / (Today as almanac page)", () => {
 
     it("tells the household to pick a dish when today's dinner has no eligible Dish", async () => {
       const app = await start();
-      plan(app, [dinner({ rationale: NO_ELIGIBLE_DISH_RATIONALE })]);
+      plan(app, [dinner({ rationale: "Ingen lämplig rätt, välj en." })]);
 
       const res = await app.inject({ method: "GET", url: "/" });
 

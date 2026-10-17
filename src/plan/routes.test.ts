@@ -12,7 +12,6 @@ import {
   type SelectDishesInput,
 } from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
-import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
 import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
 import { weekDates } from "../week.js";
 import { createSchool } from "../schools/repo.js";
@@ -66,7 +65,7 @@ describe("GET /plan", () => {
       dishId: date === "2026-10-22" ? null : burgers,
       isQuickDay: date === "2026-10-20",
       lunchThatDay: null,
-      rationale: date === "2026-10-22" ? NO_ELIGIBLE_DISH_RATIONALE : `burgers on ${date}`,
+      rationale: date === "2026-10-22" ? "Ingen lämplig rätt, välj en." : `burgers on ${date}`,
     }));
     savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
 
@@ -487,7 +486,7 @@ function emptyDinners() {
     dishId: null,
     isQuickDay: false,
     lunchThatDay: null,
-    rationale: NO_ELIGIBLE_DISH_RATIONALE,
+    rationale: "Ingen lämplig rätt, välj en.",
   }));
 }
 

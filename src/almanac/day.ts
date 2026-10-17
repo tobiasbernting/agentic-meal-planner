@@ -24,7 +24,7 @@ export interface AlmanacDayOptions {
   today?: boolean;
   /** Shown in a `full` row when the date's week has no Weekly Plan. Default: "No plan". */
   noPlanHtml?: string;
-  /** The swap control in a `full` row. Default: a disabled "Byt rätt" placeholder. */
+  /** The swap control in a `full` row (`swapControl`); nothing when absent. */
   swapHtml?: string;
   /** Extra HTML at the end of the cell (a degraded reason, say). Not escaped. */
   extraHtml?: string;
@@ -101,7 +101,7 @@ export function almanac(db: Database.Database, lang: Lang) {
     if (density === "half") return name + metaHtml(date, dinner, dish);
     const why = dinner.rationale.trim() ? `<p class="why">${escapeHtml(dinner.rationale)}</p>` : "";
     const recipe = dish.recipeUrl ?? dinner.sourceUrl;
-    const swap = opts.swapHtml ?? `<button type="button" disabled>${t(lang, "day.swap")}</button>`;
+    const swap = opts.swapHtml ?? "";
     const recipeLink = recipe ? `<a class="button" href="${escapeHtml(recipe)}">${t(lang, "day.recipe")}</a>` : "";
     const suggested = dish.suggested ? `<div class="suggested">${suggestedBadge(lang, dish)}</div>` : "";
     return `${label}${name}${metaHtml(date, dinner, dish)}${suggested}${why}<div class="actions">${swap}${recipeLink}</div>`;

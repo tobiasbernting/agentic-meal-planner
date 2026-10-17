@@ -24,11 +24,6 @@ import { weekDates, weekdayOf } from "../week.js";
 import { DEFAULT_LANG, t, type Lang } from "../i18n/index.js";
 import type { DegradedReasonDraft } from "./degraded.js";
 
-/** The no-eligible-dish rationale in the default language; `planWeek` writes it in `input.language`. */
-export const NO_ELIGIBLE_DISH_RATIONALE = t(DEFAULT_LANG, "rationale.noEligible");
-/** The seed-list rationale in the default language; `planWeek` writes it in `input.language`. */
-export const SEED_FALLBACK_RATIONALE = t(DEFAULT_LANG, "rationale.seedFallback");
-
 export interface RecentlyPlanned {
   dishId: string;
   name: string;

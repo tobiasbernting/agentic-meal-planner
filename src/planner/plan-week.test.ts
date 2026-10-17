@@ -9,7 +9,7 @@ import {
   type DishSuggestion,
   type SelectDishesInput,
 } from "../llm/index.js";
-import { planWeek, NO_ELIGIBLE_DISH_RATIONALE, type PlanWeekInput, type PlanWeekResult } from "./plan-week.js";
+import { planWeek, type PlanWeekInput, type PlanWeekResult } from "./plan-week.js";
 import { t } from "../i18n/index.js";
 
 /** The raw technical text of each degraded reason, as Logs get it. */
@@ -154,7 +154,7 @@ describe("planWeek", () => {
     for (const dinner of result.dinners.slice(0, 5)) {
       expect(dinner.dishId).toBeNull();
       expect(dinner.suggestion).toBeNull();
-      expect(dinner.rationale).toBe(NO_ELIGIBLE_DISH_RATIONALE);
+      expect(dinner.rationale).toBe("Ingen lämplig rätt, välj en.");
     }
     expect(result.dinners[5]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
     expect(result.dinners[6]).toMatchObject({ dishId: roast.id, rationale: "weekend" });
