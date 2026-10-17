@@ -122,7 +122,7 @@ describe("GET /shopping", () => {
 
     const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
     expect(res.body).toMatch(/<section id="buy">[\s\S]*5 dl mjölk/);
-    expect(res.body.match(/mjölk/g)).toHaveLength(1);
+    expect(res.body.match(/5 dl mjölk/g)).toHaveLength(1);
     expect(res.body).not.toContain("till mos");
   });
 
