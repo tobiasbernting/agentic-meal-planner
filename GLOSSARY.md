@@ -109,9 +109,31 @@ _Avoid_: step, stage
 ### Shopping
 
 **Shopping List**:
-The aggregated Ingredients for a Weekly Plan, split into a "Buy" section and a "Check pantry" section.
+The Ingredients aggregated for a Weekly Plan, plus the week's Extra Items, minus its Removed Lines, split into a "Buy" section and a "Check pantry" section. Each line may be Checked Off.
 _Avoid_: grocery list (fine informally, but Shopping List is canonical)
 
 **Pantry Item**:
 An Ingredient the household restocks ad hoc during the week (flour, milk, cream, …). Lands in "Check pantry", never in "Buy".
 _Avoid_: staple, basic
+
+**Checked Off**:
+A Shopping List line the household has marked as handled for the week. Keyed by week and ingredient name, so a rebuilt list keeps the ticks of lines that survive. Never pushed to a Shopping List Sink.
+_Avoid_: bought (pantry lines get checked too), done
+
+**Extra Item**:
+A Shopping List line the household adds by hand for one week, not derived from any Dish. Always in "Buy"; survives a rebuild; included in a push made after it was added.
+_Avoid_: custom item, manual ingredient
+
+**Removed Line**:
+A Dish-derived Shopping List line the household took off one week's list. Stays off through rebuilds, keyed by week and ingredient name; the Dish keeps its Ingredient.
+_Avoid_: hidden, deleted ingredient
+
+### Offline
+
+**Pending Change**:
+A household edit made while the device could not reach the server, kept on the device until it can. Only edits that need no Plan Run can become Pending Changes.
+_Avoid_: queued request, offline edit
+
+**Offline Copy**:
+The last version of a screen the device saw, shown with its timestamp when the server is unreachable.
+_Avoid_: cache, snapshot
