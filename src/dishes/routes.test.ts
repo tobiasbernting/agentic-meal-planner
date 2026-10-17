@@ -397,6 +397,30 @@ describe("Suggested Dishes", () => {
     expect(getDish(app.ctx.db, id)).toMatchObject({ inRotation: true, suggested: false });
   });
 
+  it("promotes in place and returns the \"I favoriter ✓\" fragment for an HTMX request", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+
+    const res = await app.inject({ method: "POST", url: `/dishes/${id}/promote`, headers: { "hx-request": "true", referer: "/plan", cookie: "lang=sv" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("I favoriter ✓");
+    expect(res.body).not.toContain("<html");
+    expect(getDish(app.ctx.db, id)).toMatchObject({ inRotation: true, suggested: false });
+    const en = await app.inject({ method: "POST", url: `/dishes/${createDish(app.ctx.db, { name: "Y", inRotation: false, suggested: true })}/promote`, headers: { "hx-request": "true", cookie: "lang=en" } });
+    expect(en.body).toContain("In favorites ✓");
+  });
+
+  it("gives the promote button an HTMX post and a working label in sv and en", async () => {
+    const app = await start();
+    const id = createDish(app.ctx.db, { name: "Köttbullar", inRotation: false, suggested: true });
+    const sv = (await app.inject({ method: "GET", url: "/dishes", headers: { cookie: "lang=sv" } })).body;
+    expect(sv).toContain(`hx-post="/dishes/${id}/promote"`);
+    expect(sv).toContain('data-working-label="Lägger till…">Lägg till i favoriter</button>');
+    const en = (await app.inject({ method: "GET", url: "/dishes", headers: { cookie: "lang=en" } })).body;
+    expect(en).toContain('data-working-label="Adding…">Add to favorites</button>');
+  });
+
   it("redirects to /dishes without a Referer", async () => {
     const app = await start();
     const id = createDish(app.ctx.db, { name: "X", inRotation: false, suggested: true });

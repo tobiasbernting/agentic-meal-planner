@@ -161,6 +161,8 @@ export const en = {
   "dishes.plannedOn": "Planned for: {dates}",
   "dishes.deleteYes": "Yes, delete",
   "dishes.addToFavorites": "Add to favorites",
+  "dishes.addingToFavorites": "Adding…",
+  "dishes.inFavorites": "In favorites ✓",
 
   "schools.title": "Schools",
   "schools.invalid": "A School needs a name and exactly one menu URL.",

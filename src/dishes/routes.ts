@@ -293,6 +293,10 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.post<{ Params: { id: string } }>("/dishes/:id/promote", async (req, reply) => {
     if (!promoteDishToFavorite(db, Number(req.params.id))) return reply.code(404).send(t(langOf(req), "dishes.notFound"));
+    if (req.headers["hx-request"] === "true") {
+      html(reply);
+      return `<span class="tag-favorited">${t(langOf(req), "dishes.inFavorites")}</span>`;
+    }
     return reply.redirect(sameSitePath(req.headers.referer, req.headers.host) ?? "/dishes", 303);
   });
 
