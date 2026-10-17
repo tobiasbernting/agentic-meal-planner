@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   publish:
+    # Only the owner's pushes to this repo publish; forks and other collaborators skip
+    if: github.repository == 'tobiasbernting/agentic-meal-planner' && github.actor == 'tobiasbernting'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
