@@ -138,7 +138,7 @@ function ingredientRow(lang: Lang, ing: Ingredient | undefined): string {
     `<label>${t(lang, labelKey)} <input name="${name}"${attrs} value="${escapeHtml(value)}" /></label>`;
   return `<li class="ingredient-row">
         ${field("ingredient_name", "dishes.ingredientName", ing?.name ?? "")}
-        ${field("ingredient_quantity", "dishes.ingredientQuantity", ing?.quantity ?? "", ' inputmode="decimal"')}
+        ${field("ingredient_quantity", "dishes.ingredientQuantity", String(ing?.quantity ?? ""), ' inputmode="decimal"')}
         ${field("ingredient_unit", "dishes.ingredientUnit", ing?.unit ?? "")}
         ${field("ingredient_note", "dishes.ingredientNote", ing?.preparationNote ?? "")}
         <button type="button" class="quiet" hx-on:click="this.closest('li').remove()">${t(lang, "dishes.removeIngredient")}</button>
