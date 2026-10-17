@@ -99,7 +99,8 @@ function exclusionReason(dish: Dish, day: DayInput, options: FilterOptions): str
   return rule === null ? null : describeExclusion(rule);
 }
 
-function isWeekend(weekday: Weekday): boolean {
+/** Saturday or Sunday: the days a Weekend Dish may be planned and no School serves lunch. */
+export function isWeekend(weekday: Weekday): boolean {
   return weekday === "sat" || weekday === "sun";
 }
 

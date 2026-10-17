@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3";
 import { swedishHoliday } from "../calendar/holidays.js";
 import { getDish, type Dish } from "../dishes/repo.js";
+import { isWeekend } from "../engine/filter.js";
 import { suggestedBadge } from "../dishes/suggested-badge.js";
 import { t, type Lang } from "../i18n/index.js";
 import { noLunchNotice } from "../lunch/notice.js";
@@ -46,7 +47,7 @@ export function almanac(db: Database.Database, lang: Lang) {
   };
 
   /** No School serves lunch on a weekend or a holiday: say so instead of "no lunch data". */
-  const noSchoolDay = (date: string) => ["sat", "sun"].includes(weekdayOf(date)) || swedishHoliday(date) !== undefined;
+  const noSchoolDay = (date: string) => isWeekend(weekdayOf(date)) || swedishHoliday(date) !== undefined;
 
   function lunchHtml(date: string, density: DayDensity): string {
     const lunches = listLunchForDate(db, date);
