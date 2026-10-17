@@ -375,7 +375,9 @@ describe("CliAgent.selectDishes", () => {
       ],
       [{ id: "d2", name: "Burgers" }],
     ],
-    recentlyPlanned: [{ dishId: "d1", lastDate: "2026-10-12" }],
+    recentlyPlanned: [{ dishId: "d1", name: "Tacos", lastDate: "2026-10-12" }],
+    suggestionStyle: "Swedish home cooking",
+    seedDishes: [{ name: "Köttbullar", mainCategory: "beef" as const, prepTimeMinutes: 40 }],
   };
 
   it("parses a selection and includes the candidates in the prompt", async () => {
@@ -407,6 +409,8 @@ describe("CliAgent.selectDishes", () => {
       days: [{ date: "2026-10-19", isQuickDay: false, lunch: [] }],
       candidates: [[{ id: 7, name: "Tacos" }]],
       recentlyPlanned: [],
+      suggestionStyle: "x",
+      seedDishes: [],
     });
 
     expect(result).toEqual({ ok: true, value: [{ date: "2026-10-19", dishId: "7", rationale: "ok" }] });
@@ -423,5 +427,121 @@ describe("CliAgent.selectDishes", () => {
     const result = await agent.selectDishes(input);
 
     expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
+  });
+
+  it("hands the suggestion style and seed list to the agent in the request JSON", async () => {
+    const { run, calls } = scriptedRunner(["[]"]);
+    await new CliAgent("copilot -p", { run }).selectDishes(input);
+
+    const prompt = calls[0]!.args.at(-1)!;
+    expect(prompt).toContain("Swedish home cooking");
+    expect(prompt).toContain("Köttbullar");
+  });
+
+  describe("with an empty-candidate day", () => {
+    const emptyDay = {
+      days: [
+        { date: "2026-10-19", isQuickDay: false, lunch: [] },
+        { date: "2026-10-20", isQuickDay: false, lunch: [] },
+      ],
+      candidates: [[{ id: "d1", name: "Tacos" }], []],
+      recentlyPlanned: [],
+      suggestionStyle: "Swedish home cooking",
+      seedDishes: [],
+    };
+
+    it("accepts a reply mixing a pick and a suggestion", async () => {
+      const reply = [
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", suggestion: { name: "Fiskgratäng", mainCategory: "fish", prepTimeMinutes: 45 }, rationale: "new" },
+      ];
+      const { run } = scriptedRunner([JSON.stringify(reply)]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes(emptyDay);
+
+      expect(result).toEqual({ ok: true, value: reply });
+    });
+
+    it("accepts a suggestion without a prep time", async () => {
+      const reply = [
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", suggestion: { name: "Soppa", mainCategory: "other" }, rationale: "new" },
+      ];
+      const { run } = scriptedRunner([JSON.stringify(reply)]);
+
+      expect(await new CliAgent("copilot -p", { run }).selectDishes(emptyDay)).toEqual({ ok: true, value: reply });
+    });
+
+    it.each([
+      ["an empty name", { name: "", mainCategory: "fish" }, { name: "", mainCategory: "fish" }],
+      ["an unknown category", { name: "Sushi", mainCategory: "sushi" }, { name: "Sushi", mainCategory: "sushi" }],
+      ["a missing category", { name: "Sushi" }, { name: "Sushi", mainCategory: "" }],
+      ["a zero prep time", { name: "Soppa", mainCategory: "soup", prepTimeMinutes: 0 }, { name: "Soppa", mainCategory: "soup", prepTimeMinutes: 0 }],
+      ["a string prep time", { name: "Soppa", mainCategory: "soup", prepTimeMinutes: "30" }, { name: "Soppa", mainCategory: "soup" }],
+    ])("passes a suggestion with %s through for the planner to judge", async (_label, suggestion, expected) => {
+      const reply = JSON.stringify([
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", suggestion, rationale: "new" },
+      ]);
+      const { run, calls } = scriptedRunner([reply]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes(emptyDay);
+
+      expect(result).toEqual({
+        ok: true,
+        value: [
+          { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+          { date: "2026-10-20", suggestion: expected, rationale: "new" },
+        ],
+      });
+      expect(calls).toHaveLength(1);
+    });
+
+    it("accepts a week of six good picks and one malformed suggestion", async () => {
+      const dates = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"];
+      const week = {
+        days: dates.map((date) => ({ date, isQuickDay: false, lunch: [] })),
+        candidates: dates.map((_, i) => (i === 6 ? [] : [{ id: "d1", name: "Tacos" }])),
+        recentlyPlanned: [],
+        suggestionStyle: "x",
+        seedDishes: [],
+      };
+      const reply = [
+        ...dates.slice(0, 6).map((date) => ({ date, dishId: "d1", rationale: "favorite" })),
+        { date: "2026-10-25", suggestion: { name: "", mainCategory: "sushi" }, rationale: "new" },
+      ];
+      const { run } = scriptedRunner([JSON.stringify(reply)]);
+
+      expect(await new CliAgent("copilot -p", { run }).selectDishes(week)).toEqual({ ok: true, value: reply });
+    });
+
+    it.each([
+      ["no name", { mainCategory: "fish" }],
+      ["a numeric name", { name: 7, mainCategory: "fish" }],
+      ["a non-object suggestion", "Soppa"],
+    ])("rejects a suggestion with %s as invalid JSON and retries once", async (_label, suggestion) => {
+      const bad = JSON.stringify([
+        { date: "2026-10-19", dishId: "d1", rationale: "favorite" },
+        { date: "2026-10-20", suggestion, rationale: "new" },
+      ]);
+      const { run, calls } = scriptedRunner([bad, bad]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes(emptyDay);
+
+      expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
+      expect(calls).toHaveLength(2);
+    });
+
+    it("rejects a suggestion for a date that has candidates", async () => {
+      const bad = JSON.stringify([
+        { date: "2026-10-19", suggestion: { name: "Soppa", mainCategory: "soup" }, rationale: "x" },
+        { date: "2026-10-20", suggestion: { name: "Soppa", mainCategory: "soup" }, rationale: "x" },
+      ]);
+      const { run } = scriptedRunner([bad, bad]);
+
+      const result = await new CliAgent("copilot -p", { run }).selectDishes(emptyDay);
+
+      expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/^invalid JSON after retry: /) });
+    });
   });
 });

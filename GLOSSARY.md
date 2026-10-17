@@ -11,8 +11,12 @@ A named dinner the household eats. May link to a Recipe and carry a prep-time ta
 _Avoid_: meal, dinner recipe
 
 **Favorite Dish**:
-A Dish the household has put in its rotation. The Weekly Plan is built only from Favorite Dishes. A Dish that is not in rotation is kept but never planned.
+A Dish the household has put in its rotation. The Weekly Plan prefers Favorite Dishes; a Suggested Dish fills a date where none is eligible. A Dish that is neither in rotation nor suggested is kept but never planned.
 _Avoid_: saved recipe, bookmark
+
+**Suggested Dish**:
+A Dish the Planner Agent proposed for a dinner date where no Favorite Dish was eligible, drawn from family-friendly home cooking in the household's chosen style. Kept as a Dish outside the rotation until the household adds it to its favorites. Still bound by every hard rule.
+_Avoid_: fallback dish, generated dish, placeholder
 
 **Preferred Days**:
 The weekdays a Favorite Dish is soft-favoured on ("burgers on Friday and Saturday"). Never blocks a Dish; a move off its preferred days earns a rationale.
@@ -63,7 +67,7 @@ _Avoid_: scrape status, sync result
 ### Planning
 
 **Weekly Plan**:
-The assignment of one Favorite Dish to each dinner date of a Monday–Sunday week.
+The assignment of one Dish (a Favorite Dish, or a Suggested Dish when none is eligible) to each dinner date of a Monday–Sunday week.
 _Avoid_: meal plan (ambiguous), menu
 
 **Planned Dinner**:

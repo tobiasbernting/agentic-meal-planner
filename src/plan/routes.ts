@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { getDish } from "../dishes/repo.js";
+import { suggestedBadge } from "../dishes/suggested-badge.js";
 import { addDays, mondayOf, weekDates, weekdayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
 import { ingestWeek, type LunchChange } from "../lunch/ingest.js";
@@ -79,7 +80,7 @@ function renderDinner(db: Database.Database, lang: Lang, dinner: PlannedDinner |
   if (!dinner) return `<p class="notice">${t(lang, "plan.noDinner")}</p>`;
   const dish = dinner.dishId === null ? undefined : getDish(db, dinner.dishId);
   const name = dish ? `<strong>${escapeHtml(dish.name)}</strong>` : `<span class="notice">${t(lang, "common.noEligibleDish")}</span>`;
-  return `<p class="dinner">${name}</p>
+  return `<p class="dinner">${name}${suggestedBadge(lang, dish)}</p>
 <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 

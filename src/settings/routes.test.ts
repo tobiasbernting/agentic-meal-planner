@@ -43,7 +43,7 @@ describe("Settings page", () => {
     expect(res.body).toContain('name="variety_window_weeks" value="3"');
     expect(res.body).toContain('name="category_collision_enabled" checked');
     expect(res.body).toContain('name="default_prep_limit_minutes" value="30"');
-    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot -p"');
+    expect(res.body).toContain('name="agent_command" value="" placeholder="copilot -p --model gpt-5-mini --reasoning-effort low"');
     expect(res.body).toContain('name="shopping_list_sinks">[]</textarea>');
   });
 
@@ -291,5 +291,24 @@ describe("Per-week Quick Day overrides", () => {
     expect(overridden.candidates[2]?.map((d) => d.name)).toEqual(["Omelette"]);
     expect(other.days.map((d) => d.isQuickDay)).toEqual([false, true, false, false, false, false, false]);
     expect(other.candidates[1]?.map((d) => d.name)).toEqual(["Omelette"]);
+  });
+});
+
+describe("suggestion style", () => {
+  it("shows the default, saves the entered text and shows it again", async () => {
+    const app = await start();
+    const first = await app.inject({ method: "GET", url: "/settings" });
+    expect(first.body).toContain('name="suggestion_style" value="family-friendly Swedish home cooking for a household with kids"');
+    expect(first.body).toContain("Suggestion style");
+
+    await app.inject({
+      method: "POST",
+      url: "/settings",
+      payload: { suggestion_style: "vegetarian Indian", cron_expression: "0 18 * * 0", shopping_list_sinks: "[]", variety_window_weeks: "3", default_prep_limit_minutes: "30" },
+    });
+
+    expect(readSetting(app.ctx.db, "suggestion_style")).toBe("vegetarian Indian");
+    const again = await app.inject({ method: "GET", url: "/settings" });
+    expect(again.body).toContain('name="suggestion_style" value="vegetarian Indian"');
   });
 });

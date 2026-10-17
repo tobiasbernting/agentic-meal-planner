@@ -5,12 +5,14 @@
  */
 import { silentLogger, type Logger } from "../logging/logger.js";
 import type Database from "better-sqlite3";
-import { listDishes } from "../dishes/repo.js";
+import { isMainCategory } from "../dishes/categories.js";
+import { createDish, listDishes } from "../dishes/repo.js";
 import type { LlmAgent } from "../llm/index.js";
 import { listLunchEntries } from "../lunch/repo.js";
 import { listActiveSchools } from "../schools/repo.js";
+import { normaliseName } from "../text.js";
 import type { LunchEntry } from "../types.js";
-import { planWeek } from "./plan-week.js";
+import { planWeek, type PlannedDinnerDraft, type PlanWeekResult } from "./plan-week.js";
 import { getPlanForWeek, listRecentlyPlanned, savePlan } from "./repo.js";
 import { readPlannerSettings } from "./settings.js";
 import { weekDates } from "../week.js";
@@ -67,7 +69,8 @@ export async function generatePlan(
   const settings = readPlannerSettings(db);
   const plan = await planWeek({
     weekStart,
-    dishes: listDishes(db).filter((d) => d.inRotation),
+    // All Dishes: the engine keeps only Favorite Dishes eligible; suggestions reuse the rest by name.
+    dishes: listDishes(db),
     lunchByDate: (deps.loadLunch ?? loadStoredLunch)(db, weekStart),
     settings,
     recentlyPlanned: listRecentlyPlanned(db, weekStart, settings.varietyWindowWeeks),
@@ -79,6 +82,32 @@ export async function generatePlan(
       "plan degraded: deterministic selection used where the agent could not",
     );
   }
-  const planId = savePlan(db, plan, deps.now());
+  const planId = db.transaction(() => savePlan(db, storeSuggestions(db, plan), deps.now()))();
   return { planId, degradedReasons: plan.degradedReasons };
+}
+
+/**
+ * Creates one Suggested Dish per distinct suggestion name (not in rotation, no URL, no
+ * Ingredients) and points the drafts at it, so the stored plan only holds Dish ids.
+ */
+function storeSuggestions(db: Database.Database, plan: PlanWeekResult): PlanWeekResult {
+  const created = new Map<string, number>();
+  const dinners = plan.dinners.map((draft): PlannedDinnerDraft => {
+    const { suggestion } = draft;
+    if (suggestion === null) return draft;
+    const key = normaliseName(suggestion.name);
+    let dishId = created.get(key);
+    if (dishId === undefined) {
+      dishId = createDish(db, {
+        name: suggestion.name,
+        mainCategory: isMainCategory(suggestion.mainCategory) ? suggestion.mainCategory : null,
+        prepTimeMinutes: suggestion.prepTimeMinutes ?? null,
+        inRotation: false,
+        suggested: true,
+      });
+      created.set(key, dishId);
+    }
+    return { ...draft, dishId, suggestion: null };
+  });
+  return { ...plan, dinners };
 }

@@ -4,6 +4,7 @@ import { runLogger } from "../logging/logger.js";
 import { noLunchNotice, type NoLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
 import { getDish } from "../dishes/repo.js";
+import { suggestedBadge } from "../dishes/suggested-badge.js";
 import { getPlanForWeek, type PlannedDinner } from "../planner/repo.js";
 import { mondayOf } from "../week.js";
 import { householdToday } from "../planner/settings.js";
@@ -33,7 +34,7 @@ function renderDinner(ctx: AppContext, lang: Lang, today: string): string {
   if (!dish) return `<p class="notice">${t(lang, "common.noEligibleDish")}</p>`;
   const name = escapeHtml(dish.name);
   const title = dish.recipeUrl ? `<a href="${escapeHtml(dish.recipeUrl)}">${name}</a>` : name;
-  return `<p class="dish">${title}</p>
+  return `<p class="dish">${title}${suggestedBadge(lang, dish)}</p>
   <p class="rationale">${escapeHtml(dinner.rationale)}</p>`;
 }
 

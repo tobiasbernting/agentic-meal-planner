@@ -123,14 +123,14 @@ export function listRecentlyPlanned(
   const from = windowStart(beforeWeekStart, windowWeeks);
   const rows = db
     .prepare(
-      `SELECT pd.dish_id AS dish_id, MAX(pd.date) AS last_date
-       FROM planned_dinner pd JOIN weekly_plan wp ON wp.id = pd.plan_id
-       WHERE pd.dish_id IS NOT NULL AND wp.week_start >= ? AND wp.week_start < ?
+      `SELECT pd.dish_id AS dish_id, d.name AS name, MAX(pd.date) AS last_date
+       FROM planned_dinner pd JOIN weekly_plan wp ON wp.id = pd.plan_id JOIN dish d ON d.id = pd.dish_id
+       WHERE wp.week_start >= ? AND wp.week_start < ?
        GROUP BY pd.dish_id
        ORDER BY last_date DESC, pd.dish_id`,
     )
-    .all(from, beforeWeekStart) as { dish_id: number; last_date: string }[];
-  return rows.map((r) => ({ dishId: String(r.dish_id), lastDate: r.last_date }));
+    .all(from, beforeWeekStart) as { dish_id: number; name: string; last_date: string }[];
+  return rows.map((r) => ({ dishId: String(r.dish_id), name: r.name, lastDate: r.last_date }));
 }
 
 function windowStart(weekStart: string, windowWeeks: number): string {

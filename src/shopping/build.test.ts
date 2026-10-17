@@ -7,6 +7,7 @@ import { createDish } from "../dishes/repo.js";
 import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
+import { generatePlan } from "../planner/generate.js";
 import { listPlannedDinners, savePlan } from "../planner/repo.js";
 import { buildShoppingList, getShoppingList } from "./build.js";
 
@@ -117,6 +118,25 @@ describe("buildShoppingList", () => {
     expect(list.buy).toEqual([{ name: "buns", quantity: "4", unit: null, sourceDishIds: [burgers] }]);
     expect(list.degradedReasons).toEqual([]);
     expect(listPlannedDinners(db, planId)[0]!.sourceUrl).toBe("https://recipes.test/burgers");
+  });
+
+  it("finds a recipe for a Suggested Dish stored by plan generation", async () => {
+    const db = freshDb();
+    const llm = new ScriptedLlmAgent({
+      selectDishes: (input) => ({
+        ok: true,
+        value: input.days.map((d) => ({ date: d.date, suggestion: { name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }, rationale: "new" })),
+      }),
+      findRecipe: { ok: true, value: { url: "https://recipes.test/kalops", ingredients: [{ name: "högrev", quantity: "1 kg" }] } },
+      matchPantryItems: { ok: true, value: [{ ingredient: "högrev", pantryId: null }] },
+    });
+    const generated = await generatePlan({ db, llm, now: () => NOW.toISOString() }, WEEK);
+    if (!("planId" in generated)) throw new Error("plan not generated");
+
+    const list = await buildShoppingList({ db, llm, fetchPage: noFetch, now: () => NOW }, generated.planId);
+
+    expect(llm.calls.filter((c) => c.method === "findRecipe").map((c) => c.args[0])).toEqual(["Kalops"]);
+    expect(list.buy.map((i) => i.name)).toEqual(["högrev"]);
   });
 
   it("is empty for a plan that has not been built", () => {

@@ -11,11 +11,14 @@ export type {
   Dish,
   SelectDishesInput,
   SelectedDish,
+  DishSuggestion,
+  SeedDish,
   FoundRecipe,
   MatchPantryInput,
   PantryMatch,
 } from "./types.js";
 export { AgentTimeoutError, CliAgent, type CliAgentDeps, type ProcessResult, type ProcessRunner } from "./cli-agent.js";
+export { SEED_DISHES, DEFAULT_SUGGESTION_STYLE } from "./seed-dishes.js";
 export { NoAgent, NO_AGENT_REASON } from "./no-agent.js";
 export { ScriptedLlmAgent, type ScriptedResponses } from "./fake.js";
 

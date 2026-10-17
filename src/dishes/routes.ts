@@ -9,11 +9,13 @@ import {
   getDish,
   isWeekday,
   listDishes,
+  promoteDishToFavorite,
   updateDish,
   type Dish,
   type DishInput,
   type Ingredient,
 } from "./repo.js";
+import { promoteForm } from "./suggested-badge.js";
 
 NAV.push({ href: "/dishes", label: "nav.dishes" });
 
@@ -125,6 +127,7 @@ const NEW_DISH: Omit<Dish, "id"> = {
   inRotation: true,
   preferredDays: [],
   weekendOnly: false,
+  suggested: false,
   ingredients: [],
 };
 
@@ -168,14 +171,30 @@ function dishListItem(lang: Lang, dish: Dish): string {
   const tags = [
     dish.mainCategory ? categoryLabel(dish.mainCategory, lang) : null,
     dish.prepTimeMinutes !== null ? t(lang, "dishes.prepMinutes", { n: dish.prepTimeMinutes }) : null,
+    dish.suggested ? t(lang, "dishes.tagSuggested") : null,
     dish.inRotation ? null : t(lang, "dishes.tagNotInRotation"),
     dish.weekendOnly ? t(lang, "dishes.tagWeekend") : null,
     dish.preferredDays.length ? dish.preferredDays.map((d) => weekdayName(lang, d, "short")).join("/") : null,
   ].filter((t): t is string => t !== null);
   return `<li>
         <a href="/dishes/${dish.id}/edit">${escapeHtml(dish.name)}</a>${tags.length ? ` <small>(${escapeHtml(tags.join(", "))})</small>` : ""}
+        ${dish.suggested ? promoteForm(lang, dish.id, true) : ""}
         <form method="post" action="/dishes/${dish.id}/delete" style="display:inline"><button type="submit">${t(lang, "common.delete")}</button></form>
       </li>`;
+}
+
+/** The Referer's path and query when it points at this site, so a redirect never leaves it. */
+function sameSitePath(referer: string | undefined, host: string | undefined): string | undefined {
+  if (!referer || !(referer.startsWith("/") || /^https?:\/\//.test(referer))) return undefined;
+  const base = `http://${host ?? "localhost"}`;
+  let url: URL;
+  try {
+    url = new URL(referer, base);
+  } catch {
+    return undefined;
+  }
+  if (url.host !== new URL(base).host || url.pathname.startsWith("//")) return undefined;
+  return url.pathname + url.search;
 }
 
 export const dishRoutes: FeaturePlugin = async (app, ctx) => {
@@ -240,6 +259,11 @@ export const dishRoutes: FeaturePlugin = async (app, ctx) => {
     }
     if (!updateDish(db, id, await withProposedCategory(parsed))) return reply.code(404).send(t(lang, "dishes.notFound"));
     return reply.redirect("/dishes", 303);
+  });
+
+  app.post<{ Params: { id: string } }>("/dishes/:id/promote", async (req, reply) => {
+    if (!promoteDishToFavorite(db, Number(req.params.id))) return reply.code(404).send(t(langOf(req), "dishes.notFound"));
+    return reply.redirect(sameSitePath(req.headers.referer, req.headers.host) ?? "/dishes", 303);
   });
 
   app.post<{ Params: { id: string } }>("/dishes/:id/delete", async (req, reply) => {

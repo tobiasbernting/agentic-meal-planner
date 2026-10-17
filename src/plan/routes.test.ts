@@ -4,8 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
-import { createDish } from "../dishes/repo.js";
-import { NO_AGENT_REASON, NoAgent, ScriptedLlmAgent } from "../llm/index.js";
+import { createDish, listDishes } from "../dishes/repo.js";
+import {
+  NO_AGENT_REASON,
+  NoAgent,
+  ScriptedLlmAgent,
+  type DishSuggestion,
+  type SelectDishesInput,
+} from "../llm/index.js";
 import { upsertLunchEntry } from "../lunch/repo.js";
 import { NO_ELIGIBLE_DISH_RATIONALE } from "../planner/plan-week.js";
 import { confirmPlan, getPlanForWeek, savePlan } from "../planner/repo.js";
@@ -68,6 +74,45 @@ describe("GET /plan", () => {
     expect(res.body.match(/Quick Day/g)).toHaveLength(1);
     expect(res.body).toContain("Status: generated");
     expect(res.body).not.toContain("No plan for this week");
+  });
+
+  it("marks only Suggested Dishes and promotes from Plan, returning to Plan with the badge gone", async () => {
+    const app = await start();
+    const burgers = createDish(app.ctx.db, { name: "Burgers" });
+    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({
+      date,
+      dishId: date === "2026-10-21" ? stew : burgers,
+      isQuickDay: false,
+      lunchThatDay: null,
+      rationale: "r",
+    }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const before = await app.inject({ method: "GET", url: `/plan?week=${WEEK}` });
+    expect(before.body.match(/Suggested/g)).toHaveLength(1);
+    expect(before.body.match(/Add to favorites/g)).toHaveLength(1);
+    expect(before.body).toContain(`action="/dishes/${stew}/promote"`);
+
+    const post = await app.inject({ method: "POST", url: `/dishes/${stew}/promote`, headers: { referer: `/plan?week=${WEEK}` } });
+    expect(post.headers.location).toBe(`/plan?week=${WEEK}`);
+
+    const after = await app.inject({ method: "GET", url: post.headers.location as string });
+    expect(after.body).toContain("Stew");
+    expect(after.body).not.toContain("Suggested");
+    expect(after.body).not.toContain("Add to favorites");
+  });
+
+  it("renders the badge and button in Swedish", async () => {
+    const app = await start();
+    const stew = createDish(app.ctx.db, { name: "Stew", inRotation: false, suggested: true });
+    const dinners = weekDates(WEEK).map((date) => ({ date, dishId: stew, isQuickDay: false, lunchThatDay: null, rationale: "r" }));
+    savePlan(app.ctx.db, { weekStart: WEEK, dinners, degradedReasons: [] }, NOW.toISOString());
+
+    const res = await app.inject({ method: "GET", url: `/plan?week=${WEEK}`, headers: { cookie: "lang=sv" } });
+
+    expect(res.body).toContain("Föreslagen");
+    expect(res.body).toContain("Lägg till i favoriter");
   });
 
   it("shows each School's Lunch Entry for the day, or the no-lunch-data notice (FR-5)", async () => {
@@ -144,14 +189,16 @@ describe("POST /plan/generate", () => {
       extractLunchMenu: { ok: true, value: [{ date: "2026-10-20", rawText: "Fiskgratäng", mainCategory: "fish" }] },
     });
     const app = await start({ llm, fetchPage: async () => "<html>menu</html>" });
-    createDish(app.ctx.db, { name: "Fish and chips", mainCategory: "fish", prepTimeMinutes: 20 });
+    const fish = createDish(app.ctx.db, { name: "Fish and chips", mainCategory: "fish", prepTimeMinutes: 20 });
     createSchool(app.ctx.db, { name: "Northside", url: "https://north.example/menu" });
 
     await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
 
     const dinners = getPlanForWeek(app.ctx.db, WEEK)!.dinners;
-    expect(dinners.find((d) => d.date === "2026-10-20")?.dishId).toBeNull();
-    expect(dinners.find((d) => d.date === "2026-10-21")?.dishId).not.toBeNull();
+    const tuesday = dinners.find((d) => d.date === "2026-10-20")!.dishId;
+    expect(tuesday).not.toBe(fish); // the seed fallback fills the colliding day instead
+    expect(listDishes(app.ctx.db).find((d) => d.id === tuesday)?.mainCategory).not.toBe("fish");
+    expect(dinners.find((d) => d.date === "2026-10-21")?.dishId).toBe(fish);
   });
 
   it("does not raise the lunch-changed notice when its ingest overwrites a stored entry (regenerate only)", async () => {
@@ -177,6 +224,80 @@ describe("POST /plan/generate", () => {
     expect(view.body).not.toContain("Burgers");
     expect(view.body).toContain("confirmed");
     expect(view.body).toContain("was not replaced");
+  });
+});
+
+describe("POST /plan/generate with Suggested Dishes", () => {
+  /** An agent that suggests the same new Dish for every date of the request. */
+  function suggestEveryDay(suggestion: DishSuggestion) {
+    return new ScriptedLlmAgent({
+      selectDishes: (input: SelectDishesInput) => ({
+        ok: true,
+        value: input.days.map((d) => ({ date: d.date, suggestion, rationale: "something new" })),
+      }),
+    });
+  }
+
+  it("stores a suggestion on an empty rotation as a Suggested Dish the Planned Dinners point at", async () => {
+    const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    const dishes = listDishes(app.ctx.db);
+    expect(dishes).toEqual([
+      expect.objectContaining({
+        name: "Kalops",
+        mainCategory: "beef",
+        prepTimeMinutes: 20,
+        recipeUrl: null,
+        inRotation: false,
+        suggested: true,
+      }),
+    ]);
+    const dinners = getPlanForWeek(app.ctx.db, WEEK)!.dinners;
+    expect(dinners.map((d) => d.dishId)).toEqual(Array(7).fill(dishes[0]!.id));
+  });
+
+  it("reuses the Suggested Dish on a second generate with the same suggestion name", async () => {
+    const app = await start({ llm: suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 }) });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const [kalops] = listDishes(app.ctx.db);
+
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
+
+    expect(listDishes(app.ctx.db).map((d) => d.id)).toEqual([kalops!.id]);
+    expect(getPlanForWeek(app.ctx.db, WEEK)!.dinners.map((d) => d.dishId)).toEqual(Array(7).fill(kalops!.id));
+  });
+
+  it("logs a dropped suggestion and the seed fallback in the planner warn record, storing the seed as a Suggested Dish", async () => {
+    const { logger, records } = createCapturingLogger();
+    const app = await start({ logger, llm: suggestEveryDay({ name: "Mystery", mainCategory: "not-a-category" }) });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    const warn = records.find((r) => r.level === "warn" && r.component === "planner");
+    const reasons = warn?.degradedReasons as string[];
+    expect(reasons).toContainEqual(expect.stringMatching(/^2026-10-19: suggestion "Mystery" dropped: /));
+    expect(reasons).toContain("2026-10-19: seed fallback used");
+    const dishes = listDishes(app.ctx.db);
+    expect(dishes.map((d) => d.name)).not.toContain("Mystery");
+    expect(dishes.length).toBeGreaterThan(0);
+    expect(dishes.every((d) => d.suggested && !d.inRotation)).toBe(true);
+    const mondayDishId = getPlanForWeek(app.ctx.db, WEEK)!.dinners[0]!.dishId;
+    expect(dishes.map((d) => d.id)).toContain(mondayDishId);
+  });
+
+  it("passes last week's Suggested Dish to the next generate as recently planned (variety)", async () => {
+    const llm = suggestEveryDay({ name: "Kalops", mainCategory: "beef", prepTimeMinutes: 20 });
+    const app = await start({ llm });
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+    const [kalops] = listDishes(app.ctx.db);
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-26" } });
+
+    const requests = llm.calls.filter((c) => c.method === "selectDishes").map((c) => c.args[0] as SelectDishesInput);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.recentlyPlanned).toEqual([{ dishId: String(kalops!.id), name: "Kalops", lastDate: "2026-10-25" }]);
   });
 });
 
