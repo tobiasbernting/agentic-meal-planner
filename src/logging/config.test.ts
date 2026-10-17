@@ -13,6 +13,11 @@ describe("resolveLogLevel", () => {
     expect(resolveLogLevel({ NODE_ENV: "development" })).toBe("debug");
   });
 
+  it("accepts silent", () => {
+    expect(resolveLogLevel({ LOG_LEVEL: "silent" })).toBe("silent");
+    expect(fastifyLoggerOptions({ LOG_LEVEL: "silent" })).toEqual({ level: "silent" });
+  });
+
   it("ignores an unknown LOG_LEVEL", () => {
     expect(resolveLogLevel({ LOG_LEVEL: "loud", NODE_ENV: "production" })).toBe("info");
   });
