@@ -26,6 +26,8 @@ export interface IngestDeps {
 export interface IngestOptions {
   /** Re-scrape even when the week is cached; `changed` then lists stored entries that differ. */
   force?: boolean;
+  /** Ingest only this School (the per-School retry on the Schools page). */
+  schoolId?: number;
 }
 
 /** A stored Lunch Entry whose text differs after a forced re-scrape (FR-9 "menu changed" notice). */
@@ -63,7 +65,7 @@ export async function ingestWeek(deps: IngestDeps, weekStart: string, options: I
   const log = runLog.child({ component: "lunch-ingest" });
   const plugins = deps.plugins ?? createSchoolPlugins(deps.fetchPage, runLog.child({ component: "school-plugin" }));
   const results: SchoolIngestResult[] = [];
-  for (const school of listActiveSchools(deps.db)) {
+  for (const school of listActiveSchools(deps.db).filter((s) => options.schoolId === undefined || s.id === options.schoolId)) {
     const { entries, ...result } = await ingestSchool(deps, plugins, school, weekStart, options.force === true, log);
     recordIngestOutcome(deps.db, {
       schoolId: school.id,

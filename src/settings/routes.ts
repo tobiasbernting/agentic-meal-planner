@@ -29,12 +29,17 @@ import {
 } from "../planner/settings.js";
 import { mondayOf } from "../week.js";
 import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
+import { agentBinaryFound } from "../logging/startup.js";
+import { trelloSinkFromEnv } from "../sinks/trello.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
 
 interface SettingsView {
   planner: PlannerSettings;
   cronExpression: string;
   agentCommand: string;
+  /** What actually runs: the saved command, else AGENT_COMMAND; undefined for none. */
+  effectiveAgentCommand: string | undefined;
+  trelloConfigured: boolean;
   shoppingListSinks: string;
   timezone: string;
 }
@@ -63,25 +68,121 @@ function languageSection(lang: Lang): string {
 </section>`;
 }
 
+/** Cron weekday numbers in picker order (Monday first). */
+const PICKER_DAYS: ReadonlyArray<readonly [number, Weekday]> = [
+  [1, "mon"], [2, "tue"], [3, "wed"], [4, "thu"], [5, "fri"], [6, "sat"], [0, "sun"],
+];
+
+/** `M H * * D` with plain numbers is what the picker can express; anything else is "avancerat". */
+export function cronToPicker(expression: string): { day: number; time: string } | undefined {
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/.exec(expression.trim());
+  if (!m) return undefined;
+  const minute = Number(m[1]);
+  const hour = Number(m[2]);
+  if (minute > 59 || hour > 23) return undefined;
+  return { day: Number(m[3]), time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}` };
+}
+
+function pickerToCron(day: string | undefined, time: string | undefined): string | undefined {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(time?.trim() ?? "");
+  if (!m || !/^[0-6]$/.test(day?.trim() ?? "")) return undefined;
+  return `${Number(m[2])} ${Number(m[1])} * * ${day!.trim()}`;
+}
+
+interface WebhookEntry {
+  url: string;
+  format: "ntfy" | "json";
+}
+
+function parseSinkEntries(raw: string): Array<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null) : [];
+  } catch {
+    return [];
+  }
+}
+
+function webhookOf(sinksJson: string): WebhookEntry {
+  const entry = parseSinkEntries(sinksJson).find((e) => e.type === "webhook");
+  return { url: typeof entry?.url === "string" ? entry.url : "", format: entry?.format === "json" ? "json" : "ntfy" };
+}
+
+/** Replace (or add, or drop) the first webhook entry; every other entry is kept as stored. */
+function withWebhook(sinksJson: string, webhook: { url: string; format: string }): string {
+  const entries = parseSinkEntries(sinksJson);
+  const index = entries.findIndex((e) => e.type === "webhook");
+  const next = webhook.url ? { type: "webhook", url: webhook.url, format: webhook.format === "json" ? "json" : "ntfy" } : undefined;
+  if (index >= 0) {
+    if (next) entries[index] = next;
+    else entries.splice(index, 1);
+  } else if (next) entries.push(next);
+  return JSON.stringify(entries);
+}
+
+function option(value: string, label: string, selected: boolean): string {
+  return `<option value="${value}"${selected ? " selected" : ""}>${label}</option>`;
+}
+
+function scheduleFields(lang: Lang, cronExpression: string): string {
+  const picker = cronToPicker(cronExpression);
+  const days = PICKER_DAYS.map(([n, d]) => option(String(n), weekdayName(lang, d), picker?.day === n)).join("");
+  const advanced = picker
+    ? ""
+    : `
+  <details open>
+    <summary>${t(lang, "settings.advanced")}</summary>
+    <label>${t(lang, "settings.cron")} <input name="cron_expression" value="${escapeHtml(cronExpression)}" /></label>
+  </details>`;
+  return `<label>${t(lang, "settings.scheduleDay")} <select name="schedule_day">${picker ? "" : option("", "-", true)}${days}</select></label>
+  <label>${t(lang, "settings.scheduleTime")} <input type="time" name="schedule_time" value="${picker?.time ?? ""}" /></label>${advanced}`;
+}
+
+function agentSection(lang: Lang, view: SettingsView): string {
+  const effective = view.effectiveAgentCommand;
+  const status = !effective
+    ? t(lang, "more.settings.noAgent")
+    : t(lang, agentBinaryFound(effective, process.env) ? "more.settings.agentFound" : "more.settings.agentMissing");
+  const current = effective ? `<code>${escapeHtml(effective)}</code> ` : "";
+  return `<p class="agent-status">${current}${status}</p>
+  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
+  <label>${t(lang, "settings.suggestionStyle")} <input name="suggestion_style" value="${escapeHtml(view.planner.suggestionStyle)}" /></label>`;
+}
+
 function settingsPage(lang: Lang, view: SettingsView, error?: string): string {
   const { planner } = view;
+  const webhook = webhookOf(view.shoppingListSinks);
   const body = `<h1>${t(lang, "settings.title")}</h1>
 ${errorNotice(error)}
 <form method="post" action="/settings">
-  <fieldset>
-    <legend>${t(lang, "settings.quickDayTemplate")}</legend>
-  ${quickDayFields(lang, planner.quickDayTemplate)}
-  </fieldset>
-  <p><a href="/settings/quick-days">${t(lang, "settings.overrideLink")}</a></p>
-  <label>${t(lang, "settings.defaultPrepLimit")} <input type="number" min="0" name="default_prep_limit_minutes" value="${planner.defaultPrepLimitMinutes}" /></label>
-  <label>${t(lang, "settings.cron")} <input name="cron_expression" value="${escapeHtml(view.cronExpression)}" /></label>
-  <label>${t(lang, "settings.timezone")} <input name="timezone" value="${escapeHtml(view.timezone)}" placeholder="Europe/Stockholm" /></label>
-  <label>${t(lang, "settings.varietyWindow")} <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
-  <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> ${t(lang, "settings.collision")}</label>
-  <label>${t(lang, "settings.agentCommand")} <input name="agent_command" value="${escapeHtml(view.agentCommand)}" placeholder="${escapeHtml(DEFAULT_AGENT_COMMAND)}" /></label>
-  <label>${t(lang, "settings.suggestionStyle")} <input name="suggestion_style" value="${escapeHtml(planner.suggestionStyle)}" /></label>
-  <label>${t(lang, "settings.sinks")} <code>[{"type":"webhook","url":"https://ntfy.sh/my-topic","format":"ntfy"}]</code> <textarea name="shopping_list_sinks">${escapeHtml(view.shoppingListSinks)}</textarea></label>
-  <button type="submit">${t(lang, "common.save")}</button>
+  <section id="week">
+    <h2>${t(lang, "settings.section.week")}</h2>
+    <fieldset>
+      <legend>${t(lang, "settings.quickDayTemplate")}</legend>
+    ${quickDayFields(lang, planner.quickDayTemplate)}
+    </fieldset>
+    <p><a href="/settings/quick-days">${t(lang, "settings.overrideLink")}</a></p>
+  </section>
+  <section id="planning">
+    <h2>${t(lang, "settings.section.planning")}</h2>
+    ${scheduleFields(lang, view.cronExpression)}
+    <label>${t(lang, "settings.timezone")} <input name="timezone" value="${escapeHtml(view.timezone)}" placeholder="Europe/Stockholm" /></label>
+    <label>${t(lang, "settings.defaultPrepLimit")} <input type="number" min="0" name="default_prep_limit_minutes" value="${planner.defaultPrepLimitMinutes}" /></label>
+    <label>${t(lang, "settings.varietyWindow")} <input type="number" min="0" name="variety_window_weeks" value="${planner.varietyWindowWeeks}" /></label>
+    <label><input type="checkbox" name="category_collision_enabled"${planner.categoryCollisionEnabled ? " checked" : ""} /> ${t(lang, "settings.collision")}</label>
+  </section>
+  <section id="agent">
+    <h2>${t(lang, "settings.section.agent")}</h2>
+    ${agentSection(lang, view)}
+  </section>
+  <section id="recipients">
+    <h2>${t(lang, "settings.section.recipients")}</h2>
+    <p>${t(lang, view.trelloConfigured ? "settings.trello.configured" : "settings.trello.missing")}</p>
+    <label>${t(lang, "settings.webhookUrl")} <input type="url" name="webhook_url" value="${escapeHtml(webhook.url)}" placeholder="https://ntfy.sh/my-topic" /></label>
+    <label>${t(lang, "settings.webhookFormat")} <select name="webhook_format">${option("ntfy", "ntfy", webhook.format === "ntfy")}${option("json", "JSON", webhook.format === "json")}</select></label>
+    <p>${t(lang, "settings.secretsInEnv")}</p>
+  </section>
+  <button type="submit" class="primary">${t(lang, "common.save")}</button>
 </form>
 ${languageSection(lang)}
 <p><a href="/logs">${t(lang, "logs.title")}</a></p>`;
@@ -115,6 +216,7 @@ function isJsonArray(text: string): boolean {
 function parseSettingsForm(
   lang: Lang,
   body: SettingsForm,
+  storedSinks: string,
 ): { values: Record<string, string>; cronExpression: string; timezone?: string } | { error: string } {
   const template: PlannerSettings["quickDayTemplate"] = {};
   for (const d of WEEKDAYS) {
@@ -128,12 +230,19 @@ function parseSettingsForm(
   if (defaultPrepLimit === undefined) return { error: t(lang, "settings.error.prepLimit") };
   const varietyWindow = parseMinutes(body.variety_window_weeks);
   if (varietyWindow === undefined) return { error: t(lang, "settings.error.variety") };
-  const cronExpression = body.cron_expression?.trim() ?? "";
+  // A posted (advanced) expression wins; otherwise the weekday/time picker writes it.
+  const cronExpression = body.cron_expression?.trim() || pickerToCron(body.schedule_day, body.schedule_time) || "";
   if (!isCronExpression(cronExpression)) return { error: t(lang, "settings.error.cron") };
   const timezone = body.timezone?.trim() ?? "";
   if (timezone && !isTimezone(timezone)) return { error: t(lang, "settings.error.timezone") };
-  const sinks = body.shopping_list_sinks?.trim() || "[]";
+  // `shopping_list_sinks` (raw JSON) is still accepted for scripted posts; the page itself only edits the webhook entry.
+  let sinks = body.shopping_list_sinks?.trim() || storedSinks;
   if (!isJsonArray(sinks)) return { error: t(lang, "settings.error.sinks") };
+  if (body.webhook_url !== undefined) {
+    const url = body.webhook_url.trim();
+    if (url && !/^https?:\/\/\S+$/.test(url)) return { error: t(lang, "settings.error.webhook") };
+    sinks = withWebhook(sinks, { url, format: body.webhook_format ?? "ntfy" });
+  }
 
   return {
     cronExpression,
@@ -214,6 +323,8 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
     timezone: readTimezone(db) ?? "",
     agentCommand: readSetting(db, SETTING_AGENT_COMMAND) ?? "",
     shoppingListSinks: readSetting(db, SETTING_SHOPPING_LIST_SINKS) ?? "[]",
+    effectiveAgentCommand: ctx.agentCommand,
+    trelloConfigured: trelloSinkFromEnv(ctx.env ?? process.env) !== null,
   });
 
   app.get("/settings", async (req, reply) => {
@@ -223,7 +334,7 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
 
   app.post<{ Body: SettingsForm }>("/settings", async (req, reply) => {
     const lang = langOf(req);
-    const parsed = parseSettingsForm(lang, req.body ?? {});
+    const parsed = parseSettingsForm(lang, req.body ?? {}, readSetting(db, SETTING_SHOPPING_LIST_SINKS) ?? "[]");
     if ("error" in parsed) {
       html(reply.code(400));
       return settingsPage(lang, currentView(), parsed.error);

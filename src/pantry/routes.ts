@@ -29,11 +29,11 @@ function parsePantryForm(body: PantryForm): PantryItemInput | undefined {
 }
 
 function itemRow(lang: Lang, item: PantryItem): string {
-  const aliases = item.aliases.length ? ` &mdash; <span>${escapeHtml(item.aliases.join(", "))}</span>` : "";
-  return `<li>
-  <strong>${escapeHtml(item.name)}</strong>${aliases}
-  <a href="/pantry/${item.id}/edit">${t(lang, "common.edit")}</a>
-  <form method="post" action="/pantry/${item.id}/delete" style="display:inline"><button type="submit">${t(lang, "common.delete")}</button></form>
+  const aliases = item.aliases.length ? `\n  <span class="row-status">${escapeHtml(item.aliases.join(", "))}</span>` : "";
+  return `<li class="row with-actions">
+  <span class="row-label">${escapeHtml(item.name)}</span>${aliases}
+  <div class="row-actions"><a class="button quiet" href="/pantry/${item.id}/edit">${t(lang, "common.edit")}</a>
+  <form method="post" action="/pantry/${item.id}/delete"><button type="submit" class="quiet">${t(lang, "common.delete")}</button></form></div>
 </li>`;
 }
 
@@ -47,9 +47,9 @@ function errorNotice(error?: string): string {
 }
 
 function listPage(lang: Lang, items: PantryItem[], error?: string): string {
-  const body = `<h1>${t(lang, "pantry.title")}</h1>
+  const body = `<header class="page-head"><h1>${t(lang, "pantry.title")}</h1></header>
 ${errorNotice(error)}
-<ul>
+<ul class="rows">
 ${items.map((i) => itemRow(lang, i)).join("\n")}
 </ul>
 <h2>${t(lang, "pantry.addHeading")}</h2>
@@ -61,7 +61,7 @@ ${items.map((i) => itemRow(lang, i)).join("\n")}
 }
 
 function editPage(lang: Lang, item: PantryItem, error?: string): string {
-  const body = `<h1>${t(lang, "pantry.editHeading")}</h1>
+  const body = `<header class="page-head"><h1>${t(lang, "pantry.editHeading")}</h1></header>
 ${errorNotice(error)}
 <form method="post" action="/pantry/${item.id}">
   ${itemFields(lang, item)}
