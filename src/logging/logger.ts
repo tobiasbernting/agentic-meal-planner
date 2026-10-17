@@ -4,6 +4,8 @@
  * Every emit truncates string fields over 8 KB first.
  */
 
+import { withRunId } from "./run-context.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Record<string, unknown>;
 
@@ -20,10 +22,8 @@ export const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"
 
 export const MAX_FIELD_CHARS = 8192;
 
-function truncateValue(value: unknown, max: number): unknown {
-  if (typeof value !== "string" || value.length <= max) return value;
-  return `${value.slice(0, max)}…[truncated ${value.length - max} chars]`;
-}
+/** How deep truncation descends into nested objects and arrays; deeper values pass as-is (cycles stop here). */
+const MAX_TRUNCATE_DEPTH = 8;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -31,19 +31,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/** Strings longer than `max` chars are cut with a `…[truncated N chars]` suffix, top level and one level down. */
-export function truncateFields(fields: LogFields, max = MAX_FIELD_CHARS): LogFields {
+function truncateValue(value: unknown, max: number, depth: number): unknown {
+  if (typeof value === "string") return value.length <= max ? value : `${value.slice(0, max)}…[truncated ${value.length - max} chars]`;
+  if (depth >= MAX_TRUNCATE_DEPTH) return value;
+  if (Array.isArray(value)) return value.map((v) => truncateValue(v, max, depth + 1));
+  if (isPlainObject(value)) return truncateObject(value, max, depth + 1);
+  return value;
+}
+
+function truncateObject(fields: LogFields, max: number, depth: number): LogFields {
   const out: LogFields = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (isPlainObject(value)) {
-      const inner: LogFields = {};
-      for (const [k, v] of Object.entries(value)) inner[k] = truncateValue(v, max);
-      out[key] = inner;
-    } else {
-      out[key] = truncateValue(value, max);
-    }
-  }
+  for (const [key, value] of Object.entries(fields)) out[key] = truncateValue(value, max, depth);
   return out;
+}
+
+/**
+ * Strings longer than `max` chars are cut with a `…[truncated N chars]` suffix, through plain
+ * objects and arrays down to a bounded depth. Errors and other class instances are untouched.
+ */
+export function truncateFields(fields: LogFields, max = MAX_FIELD_CHARS): LogFields {
+  return truncateObject(fields, max, 0);
 }
 
 /** The slice of a pino logger this adapter uses (Fastify's `app.log` fits). */
@@ -55,19 +62,23 @@ export interface PinoLike {
   child(bindings: Record<string, unknown>): PinoLike;
 }
 
-/** Wraps a pino instance as a `Logger`; fields are truncated before pino sees them. */
-export function pinoLogger(pino: PinoLike): Logger {
+/**
+ * Wraps a pino instance as a `Logger`; fields are truncated before pino sees them. Records
+ * without a bound or given `runId` get the current run's (see run-context.ts).
+ */
+export function pinoLogger(pino: PinoLike, runIdBound = false): Logger {
+  const fieldsOf = (fields: LogFields) => truncateFields(runIdBound ? fields : withRunId(fields));
   return {
-    debug: (fields, msg) => pino.debug(truncateFields(fields), msg),
-    info: (fields, msg) => pino.info(truncateFields(fields), msg),
-    warn: (fields, msg) => pino.warn(truncateFields(fields), msg),
-    error: (fields, msg) => pino.error(truncateFields(fields), msg),
-    child: (bindings) => pinoLogger(pino.child(truncateFields(bindings))),
+    debug: (fields, msg) => pino.debug(fieldsOf(fields), msg),
+    info: (fields, msg) => pino.info(fieldsOf(fields), msg),
+    warn: (fields, msg) => pino.warn(fieldsOf(fields), msg),
+    error: (fields, msg) => pino.error(fieldsOf(fields), msg),
+    child: (bindings) => pinoLogger(pino.child(truncateFields(bindings)), runIdBound || bindings.runId !== undefined),
   };
 }
 
 function bindingLogger(emit: (level: LogLevel, fields: LogFields, msg: string) => void, bindings: LogFields = {}): Logger {
-  const at = (level: LogLevel) => (fields: LogFields, msg: string) => emit(level, { ...bindings, ...truncateFields(fields) }, msg);
+  const at = (level: LogLevel) => (fields: LogFields, msg: string) => emit(level, withRunId({ ...bindings, ...truncateFields(fields) }), msg);
   return {
     debug: at("debug"),
     info: at("info"),

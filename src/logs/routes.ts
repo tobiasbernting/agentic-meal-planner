@@ -4,15 +4,15 @@
  * trust boundary as Settings.
  */
 import type { FeaturePlugin } from "../app.js";
-import type { BufferedRecord } from "../logging/buffer.js";
-import type { LogThreshold } from "../logging/config.js";
-import { LOG_LEVELS, type LogLevel } from "../logging/logger.js";
+import { LOG_BUFFER_SIZE, type BufferedRecord } from "../logging/buffer.js";
+import { isLogLevel, type LogThreshold } from "../logging/config.js";
+import { PINO_LEVELS } from "../logging/destinations.js";
+import { LOG_LEVELS } from "../logging/logger.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { escapeHtml, page } from "../ui/layout.js";
 
-function isLogLevel(value: unknown): value is LogLevel {
-  return typeof value === "string" && (LOG_LEVELS as readonly string[]).includes(value);
-}
+/** How often an idle live stream gets a `: ping` comment line. */
+const HEARTBEAT_MS = 15_000;
 
 /** One SSE event per record: `data: <JSON>` and a blank line. */
 export function sseEvent(record: BufferedRecord): string {
@@ -31,10 +31,8 @@ function scriptJson(value: unknown): string {
  */
 const CLIENT_SCRIPT = `
 (() => {
-  const labels = JSON.parse(document.getElementById("logs-labels").textContent);
-  const LEVELS = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
-  const RANK = { trace: 10, debug: 20, info: 30, warn: 40, error: 50, fatal: 60 };
-  const MAX = 2000;
+  const { labels, rank: RANK, max: MAX } = JSON.parse(document.getElementById("logs-config").textContent);
+  const LEVELS = Object.fromEntries(Object.entries(RANK).map(([name, n]) => [n, name]));
   const list = document.getElementById("logs-list");
   const status = document.getElementById("logs-status");
   const minLevel = document.getElementById("logs-min-level");
@@ -128,7 +126,7 @@ function logsPage(lang: Lang, level: LogThreshold): string {
     component: t(lang, "logs.component"),
   };
   const body = `<h1>${t(lang, "logs.title")}</h1>
-<p>${escapeHtml(t(lang, "logs.help"))}</p>
+<p>${escapeHtml(t(lang, "logs.help", { n: LOG_BUFFER_SIZE }))}</p>
 <form method="post" action="/logs/level">
   <p>${escapeHtml(t(lang, "logs.currentLevel", { level }))}</p>
   <label>${t(lang, "logs.levelLabel")} <select name="level">${levelOptions(LOG_LEVELS, level)}</select></label>
@@ -145,12 +143,12 @@ function logsPage(lang: Lang, level: LogThreshold): string {
   #logs-list { list-style: none; padding: 0; font-family: ui-monospace, monospace; font-size: 0.8rem; }
   .logs-row { padding: 0.15rem 0; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
   .logs-warn { background: #fff6dd; }
-  .logs-error, .logs-fatal { background: #fde7e7; }
+  .logs-error { background: #fde7e7; }
   .logs-time { color: #666; }
   .logs-pick { font: inherit; padding: 0 0.25rem; cursor: pointer; }
 </style>
 <ol id="logs-list"></ol>
-<script type="application/json" id="logs-labels">${scriptJson(labels)}</script>
+<script type="application/json" id="logs-config">${scriptJson({ labels, rank: PINO_LEVELS, max: LOG_BUFFER_SIZE })}</script>
 <script>${CLIENT_SCRIPT}</script>`;
   return page({ title: t(lang, "logs.title"), body, lang });
 }
@@ -181,14 +179,31 @@ export const logsRoutes: FeaturePlugin = async (app, ctx) => {
       res.end();
       return;
     }
-    const unsubscribe = buffer.subscribe((record) => res.write(sseEvent(record)));
+    // A client that stops reading gets records dropped until its socket drains, never queued.
+    let draining = false;
+    const send = (chunk: string) => {
+      if (draining) return;
+      if (!res.write(chunk)) {
+        draining = true;
+        res.once("drain", () => void (draining = false));
+      }
+    };
+    const unsubscribe = buffer.subscribe((record) => send(sseEvent(record)));
+    // Keeps proxies and the browser from timing out an idle stream.
+    const heartbeat = setInterval(() => send(": ping\n\n"), HEARTBEAT_MS);
+    let ended = false;
     const end = () => {
+      if (ended) return;
+      ended = true;
+      clearInterval(heartbeat);
       unsubscribe();
       open.delete(end);
       res.end();
     };
     open.add(end);
     req.raw.on("close", end);
+    res.on("close", end);
+    res.on("error", end);
   });
 
   /** Sets the live level (debug/info/warn/error), in memory only: a restart restores LOG_LEVEL. */

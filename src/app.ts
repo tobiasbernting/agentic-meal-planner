@@ -6,8 +6,9 @@ import type { LlmAgent } from "./llm/types.js";
 import { DEFAULT_CRON_EXPRESSION, SETTING_AGENT_COMMAND, SETTING_CRON_EXPRESSION, SETTING_TIMEZONE } from "./planner/settings.js";
 import { prettyStdout, resolveLogLevel, type LogThreshold } from "./logging/config.js";
 import { LogBuffer } from "./logging/buffer.js";
-import { createPino, LevelGate, teeLogger, type LogControl, type LogDestination } from "./logging/destinations.js";
+import { createPino, teeLogger, type LevelGate, type LogControl, type LogDestination } from "./logging/destinations.js";
 import { pinoLogger, type Logger } from "./logging/logger.js";
+import { runWithRunId } from "./logging/run-context.js";
 import { agentBinaryFound, startupReport } from "./logging/startup.js";
 import type { FetchPage } from "./plugins/schools/index.js";
 import { todayRoutes } from "./today/routes.js";
@@ -126,7 +127,7 @@ function logStartup(log: Logger, db: Database.Database, dataDir: string, agentCo
 async function appLogging(options: Pick<AppOptions, "logger" | "logLevel" | "logDestination">): Promise<{ pino?: FastifyBaseLogger; log: Logger; logs: LogControl }> {
   const buffer = new LogBuffer();
   if (options.logger) {
-    const gate = new LevelGate(options.logLevel ?? "debug");
+    const gate: LevelGate = { level: options.logLevel ?? "debug" };
     const logs: LogControl = { buffer, getLevel: () => gate.level, setLevel: (level) => void (gate.level = level) };
     return { log: teeLogger(options.logger, buffer, gate), logs };
   }
@@ -147,6 +148,8 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
   const app = pino
     ? Fastify({ loggerInstance: pino, logController: new LogController({ disableRequestLogging: true }) })
     : Fastify({ logger: false });
+  // The request's handlers, and everything they await, run under its id (shared loggers tag records with it).
+  app.addHook("onRequest", (req, _reply, done) => runWithRunId(req.id, done));
   app.addHook("onRequest", async (req) => {
     log.info({ runId: req.id, method: req.method, url: req.url }, "incoming request");
   });

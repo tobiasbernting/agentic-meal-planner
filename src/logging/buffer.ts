@@ -18,12 +18,24 @@ export class LogBuffer {
   push(record: BufferedRecord): void {
     this.records.push(record);
     if (this.records.length > this.capacity) this.records.splice(0, this.records.length - this.capacity);
-    for (const listener of this.listeners) listener(record);
+    for (const listener of this.listeners) {
+      // A failing subscriber (e.g. a broken stream) must not break the log call or starve the others.
+      try {
+        listener(record);
+      } catch {
+        // dropped: logging the failure here would recurse into push
+      }
+    }
   }
 
   /** The buffered records, oldest first (a copy). */
   snapshot(): BufferedRecord[] {
     return [...this.records];
+  }
+
+  /** How many live subscribers there are (open Logs page streams). */
+  subscriberCount(): number {
+    return this.listeners.size;
   }
 
   /** Calls `listener` with every record pushed from now on; returns the unsubscribe function. */

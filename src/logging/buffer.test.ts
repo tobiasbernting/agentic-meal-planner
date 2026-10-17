@@ -29,4 +29,18 @@ describe("LogBuffer", () => {
 
     expect(seen).toEqual(["a"]);
   });
+
+  it("keeps notifying later subscribers and keeps the record when one subscriber throws", () => {
+    const buffer = new LogBuffer();
+    const seen: unknown[] = [];
+    buffer.subscribe(() => {
+      throw new Error("client gone");
+    });
+    buffer.subscribe((r) => seen.push(r.msg));
+
+    expect(() => buffer.push({ msg: "a" })).not.toThrow();
+
+    expect(seen).toEqual(["a"]);
+    expect(buffer.snapshot()).toEqual([{ msg: "a" }]);
+  });
 });

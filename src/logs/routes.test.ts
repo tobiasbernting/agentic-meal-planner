@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { writeSetting } from "../db.js";
@@ -76,6 +76,39 @@ describe("GET /logs/stream", () => {
   });
 });
 
+describe("GET /logs/stream, live", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("unsubscribes from the buffer when the client disconnects", async () => {
+    const { app } = await start();
+    const disconnect = new AbortController();
+    const res = await app.inject({ method: "GET", url: "/logs/stream", payloadAsStream: true, signal: disconnect.signal });
+    res.stream().on("error", () => {});
+    expect(app.ctx.logs.buffer.subscriberCount()).toBe(1);
+
+    disconnect.abort();
+    await vi.waitFor(() => expect(app.ctx.logs.buffer.subscriberCount()).toBe(0));
+  });
+
+  it("sends a heartbeat comment every 15 s and clears its timer on app.close()", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const { app } = await start();
+    const res = await app.inject({ method: "GET", url: "/logs/stream", payloadAsStream: true });
+    const stream = res.stream();
+    let text = "";
+    stream.on("data", (chunk) => (text += String(chunk)));
+
+    vi.advanceTimersByTime(15_000);
+    await vi.waitFor(() => expect(text).toContain(": ping\n\n"));
+
+    await apps.pop()!.close();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(app.ctx.logs.buffer.subscriberCount()).toBe(0);
+  });
+});
+
 describe("POST /logs/level", () => {
   it("switches the live level, including for loggers created before the switch", async () => {
     const { app, stdout } = await start({ logLevel: "info" });
@@ -122,6 +155,8 @@ describe("GET /logs", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("<h1>Logs</h1>");
+    expect(res.body).toContain("Shows the last 2000 records");
+    expect(res.body).toContain('"rank":{"debug":20,"info":30,"warn":40,"error":50},"max":2000');
     expect(res.body).toContain("Current level: debug");
     expect(res.body).toMatch(/<form method="post" action="\/logs\/level">/);
     expect(res.body).toContain('<option value="debug" selected>');
@@ -182,5 +217,33 @@ describe("debug level and the agent's prompts", () => {
     const records = await generateWithAgent("info");
     expect(records.some((r) => r.component === "llm" && r.level === 20)).toBe(false);
     expect(records).toContainEqual(expect.objectContaining({ level: 30, component: "llm", msg: "agent call finished" }));
+  });
+
+  it("tags the shared llm logger's records with the request's runId", async () => {
+    const { app, stdout } = await start({ logLevel: "info", now: () => new Date(2026, 9, 21, 18, 30) });
+    writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+
+    const runId = stdout.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
+    const finished = stdout.filter((r) => r.component === "llm" && r.msg === "agent call finished");
+    expect(finished.length).toBeGreaterThan(0);
+    expect(finished.every((r) => r.runId === runId)).toBe(true);
+  });
+
+  it("tags them through an injected logger too, in its records and in the buffer", async () => {
+    const { logger, records } = createCapturingLogger();
+    const app = withEnglish(await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-logs-")), logger, now: () => new Date(2026, 9, 21, 18, 30) }));
+    apps.push(app);
+    writeSetting(app.ctx.db, SETTING_AGENT_COMMAND, "true");
+    createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });
+
+    await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: "2026-10-19" } });
+
+    const runId = records.find((r) => r.msg === "request completed" && r.url === "/plan/generate")?.runId;
+    expect(records.find((r) => r.msg === "agent call finished")?.runId).toBe(runId);
+    const streamed = sseRecords((await app.inject({ method: "GET", url: "/logs/stream?once=1" })).body);
+    expect(streamed.find((r) => r.msg === "agent call finished")?.runId).toBe(runId);
   });
 });

@@ -154,6 +154,16 @@ describe("POST /plan/generate", () => {
     expect(dinners.find((d) => d.date === "2026-10-21")?.dishId).not.toBeNull();
   });
 
+  it("does not raise the lunch-changed notice when its ingest overwrites a stored entry (regenerate only)", async () => {
+    const app = await start({ llm: new NoAgent(), fetchPage: fetchMenu });
+    const north = createSchool(app.ctx.db, { name: "Northside", url: MENU_URL });
+    upsertLunchEntry(app.ctx.db, { schoolId: north.id, date: "2026-10-20", rawText: "Pasta bolognese", fetchedAt: NOW.toISOString() });
+
+    const res = await app.inject({ method: "POST", url: "/plan/generate", payload: { weekStart: WEEK } });
+
+    expect(res.headers.location).toBe(`/plan?week=${WEEK}`);
+  });
+
   it("does not replace a confirmed plan and says so (FR-9a)", async () => {
     const app = await start({ llm: new NoAgent() });
     createDish(app.ctx.db, { name: "Burgers", prepTimeMinutes: 20 });

@@ -166,7 +166,7 @@ export const en = {
   "logs.runId": "Run",
   "logs.component": "Component",
   "logs.clearFilter": "Clear",
-  "logs.help": "Shows the last 2000 records, then new ones live. Click a record's run or component to filter by it.",
+  "logs.help": "Shows the last {n} records, then new ones live. Click a record's run or component to filter by it.",
   "logs.connecting": "Connecting…",
   "logs.live": "Live",
   "logs.disconnected": "Disconnected, reconnecting…",
