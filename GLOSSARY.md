@@ -99,36 +99,46 @@ The whole pipeline that produces the Weekly Plan: deterministic constraint enfor
 _Avoid_: AI, scheduler
 
 **Plan Run**:
-One execution of everything a week needs, triggered by hand or by the schedule: lunch ingest, dish selection, ingredient resolution, pantry matching, and Shopping List push. At most one Plan Run per week is in flight at a time. The household can see which Phase a Plan Run is in.
+One execution of everything a week needs, triggered by hand or by the schedule: lunch ingest, dish selection, ingredient resolution, pantry matching, and Shopping List update. At most one Plan Run per week is in flight at a time. The household can see which Phase a Plan Run is in.
 _Avoid_: job, task, generation
 
 **Phase**:
-One of the five stages of a Plan Run, in fixed order: Lunch ingest, Dish selection, Ingredient resolution (reported per Dish), Pantry matching, Shopping List push.
+One of the five stages of a Plan Run, in fixed order: Lunch ingest, Dish selection, Ingredient resolution (reported per Dish), Pantry matching, Shopping List update.
 _Avoid_: step, stage
 
 ### Shopping
 
 **Shopping List**:
-The Ingredients aggregated for a Weekly Plan, plus the week's Extra Items, minus its Removed Lines, split into a "Buy" section and a "Check pantry" section. Each line may be Checked Off.
-_Avoid_: grocery list (fine informally, but Shopping List is canonical)
+The household's one living list of lines to buy, split into a "Buy" section and a "Check pantry" section. A line is identified by its Ingredient name and holds the Shares of every Planned Dinner that wants it, from any week, and may also be hand-added. A Plan Run adds Shares to it; only the household removes lines, by Delete or Clear. Each line may be Checked Off.
+_Avoid_: grocery list (fine informally, but Shopping List is canonical), weekly list, this week's list
+
+**Share**:
+One Planned Dinner's claim on a Shopping List line: the quantity and unit that dinner's Dish needs of the Ingredient. A line's quantity is the sum of its Shares. A Share is added once, when its Planned Dinner is first pushed to the list, and withdrawn when that Planned Dinner is Swapped or regenerated. Later edits to the Dish do not touch Shares already on the list.
+_Avoid_: contribution, source, portion
 
 **Pantry Item**:
-An Ingredient the household restocks ad hoc during the week (flour, milk, cream, …). Lands in "Check pantry", never in "Buy".
+An Ingredient the household restocks ad hoc during the week (flour, milk, cream, …). Lands in "Check pantry", never in "Buy". A line's section is fixed when its first Share or hand-add lands.
 _Avoid_: staple, basic
 
 **Checked Off**:
-A Shopping List line the household has marked as handled for the week. Keyed by week and ingredient name, so a rebuilt list keeps the ticks of lines that survive. Never pushed to a Shopping List Sink.
-_Avoid_: bought (pantry lines get checked too), done
+A Shopping List line the household has marked as in the basket or handled. Stays visible, struck through, below the unticked lines of its section, until Cleared. Tapping again un-ticks. A new Share landing on a Checked Off line un-ticks it, since more is now needed. Not attributed to a person.
+_Avoid_: bought (pantry lines get checked too), done, completed
 
 **Extra Item**:
-A Shopping List line the household adds by hand for one week, not derived from any Dish. Always in "Buy"; survives a rebuild; included in a push made after it was added.
+A Shopping List line the household added by hand, not derived from any Planned Dinner. Its quantity is free text. Adding a name already on the list un-ticks that line and marks it hand-added instead of duplicating it. Always in "Buy" unless the line already existed in "Check pantry".
 _Avoid_: custom item, manual ingredient
 
-**Removed Line**:
-A Dish-derived Shopping List line the household took off one week's list. Stays off through rebuilds, keyed by week and ingredient name; the Dish keeps its Ingredient.
-_Avoid_: hidden, deleted ingredient
+**Delete**:
+The household taking one line off the Shopping List, ticked or not. Final: the Shares it held never come back, and the Dish keeps its Ingredient.
+_Avoid_: remove, hide
+
+**Clear**:
+The household taking every Checked Off line off the Shopping List in one action, across both sections. The only way ticked lines leave the list; never automatic on a Plan Run or a timer.
+_Avoid_: reset, done shopping, new week
 
 ### Offline
+
+Dormant since ADR-0008: with the app reached over plain HTTP, no service worker runs. The terms stay for the day it returns.
 
 **Pending Change**:
 A household edit made while the device could not reach the server, kept on the device until it can. Only edits that need no Plan Run can become Pending Changes.
