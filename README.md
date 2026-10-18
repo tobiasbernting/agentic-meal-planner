@@ -27,13 +27,15 @@ Early design. See:
 - [GLOSSARY.md](./GLOSSARY.md) — the domain language
 - [docs/adr/](./docs/adr/) — recorded design decisions (status per ADR; all but ADR-0002 accepted by the owner on 2026-10-16)
 
-## Quickstart (planned)
+## Quickstart
 
 ```sh
 docker run -v meal-planner-data:/data -p 8080:8080 ghcr.io/tobiasbernting/agentic-meal-planner
 ```
 
 Then open http://localhost:8080, add your schools' lunch-menu URLs and your favorite dishes.
+
+Every push to `main` that passes typecheck and tests publishes `:latest` and `:sha-<short>` (linux/amd64). For a homelab, [deploy/](./deploy/) has a [Compose file](./deploy/compose.yaml) and an [Ansible playbook](./deploy/ansible/meal-planner.yml); both pull `:latest`, so re-running them updates the app.
 
 ### Phones and offline: serve HTTPS on the LAN
 

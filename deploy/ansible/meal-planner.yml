@@ -1,0 +1,30 @@
+# Homelab deploy. Needs the community.docker collection:
+#   ansible-galaxy collection install community.docker
+# Re-running pulls the newest :latest and recreates the container if it changed.
+- name: Deploy meal planner
+  hosts: homelab
+  become: true
+  tasks:
+    - name: Run meal planner container
+      community.docker.docker_container:
+        name: meal-planner
+        image: ghcr.io/tobiasbernting/agentic-meal-planner:latest
+        pull: true
+        restart_policy: unless-stopped
+        published_ports:
+          - "8080:8080"
+        env:
+          TZ: Europe/Stockholm
+          # AGENT_COMMAND: "copilot --model gpt-5-mini --reasoning-effort low --allow-tool=url -p"
+        volumes:
+          - meal-planner-data:/data
+          # Agent CLI (the image ships none; see "Agent CLI in the container" in the README).
+          # The auth dir must be readable and writable by uid 1000.
+          # - /usr/local/bin/copilot:/usr/local/bin/copilot:ro
+          # - /home/<you>/.copilot:/home/node/.copilot
+        healthcheck:
+          # The slim image has no curl
+          test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+          interval: 30s
+          timeout: 5s
+          retries: 3
