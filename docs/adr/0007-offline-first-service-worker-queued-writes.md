@@ -1,7 +1,7 @@
 # Offline-first via service worker with queued writes
 
 ---
-Status: Accepted (owner, 2026-10-17)
+Status: Accepted (owner, 2026-10-17). Reach amended by ADR-0008 (2026-10-18): the phones now reach the LAN over WireGuard, and the Tailscale rejection below no longer holds. The offline mechanism stands, but only on HTTPS deployments; the owner's own deployment serves HTTP and gets no offline behaviour.
 ---
 
 The server runs on the home LAN only (ADR-0002) and is unreachable from the store, the school, or anywhere else the household actually consults the plan. We keep it that way and make the web UI offline-first instead: a service worker serves an Offline Copy of Today, Plan, Shopping, Dishes and Pantry, pre-warmed on every online visit, and queues a fixed allowlist of writes as Pending Changes that replay on the next visit (Background Sync where the browser offers it; iOS does not). The app is installable so iOS keeps its caches.
