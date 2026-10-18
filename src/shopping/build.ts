@@ -9,8 +9,11 @@ import type Database from "better-sqlite3";
 import { resolvePlanIngredients, type ResolveDeps } from "../ingredients/resolve.js";
 import { matchPantry } from "../pantry/matching.js";
 import { listPantryItems } from "../pantry/repo.js";
+import { getPlanById } from "../planner/repo.js";
 import { aggregateIngredients, type AggregatedItem, type DishIngredients } from "./aggregate.js";
+import { applyEdits, type ShoppingLine, type StoredShoppingList } from "./edits.js";
 import { splitSections, type ShoppingSections } from "./split.js";
+import { normaliseName } from "../text.js";
 
 export type ShoppingListDeps = ResolveDeps;
 
@@ -68,8 +71,11 @@ export function getMissingDishIds(db: Database.Database, planId: number): number
   return rows.map((r) => r.dish_id);
 }
 
-/** The stored list for a plan; empty sections when it has not been built. */
-export function getShoppingList(db: Database.Database, planId: number): ShoppingSections {
+/**
+ * The stored list for a plan with the week's edits applied (Checked Off, Removed Lines, Extra
+ * Items); empty sections when it has not been built.
+ */
+export function getShoppingList(db: Database.Database, planId: number): StoredShoppingList {
   const rows = db
     .prepare("SELECT name, quantity, unit, section, source_dish_ids FROM shopping_list_item WHERE plan_id = ? ORDER BY position")
     .all(planId) as ItemRow[];
@@ -83,12 +89,24 @@ export function getShoppingList(db: Database.Database, planId: number): Shopping
     };
     (row.section === "buy" ? sections.buy : sections.checkPantry).push(item);
   }
-  return sections;
+  const weekStart = getPlanById(db, planId)?.weekStart;
+  return applyEdits(db, weekStart, sections);
 }
 
-/** A stable fingerprint of a Buy list, recorded with each push so the view can tell the list changed since. */
-export function buyFingerprint(buy: AggregatedItem[]): string {
-  return createHash("sha256").update(JSON.stringify(buy)).digest("hex");
+/**
+ * A stable fingerprint of what a push sends, recorded with each push so the view can tell the
+ * list changed since. Hashed in normalised-name order, so neither a tick (which sorts the line
+ * last) nor any other reorder changes it; only a line's content or presence does.
+ */
+export function buyFingerprint(buy: ShoppingLine[]): string {
+  const keyed = buy.map((line) => [normaliseName(line.name), pushedItem(line)] as const);
+  const sorted = keyed.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, item]) => item);
+  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
+}
+
+/** The line as a sink receives it: the Ingredient fields only, no tick and no Extra Item id. */
+export function pushedItem({ name, quantity, unit, sourceDishIds }: ShoppingLine): AggregatedItem {
+  return { name, quantity, unit, sourceDishIds };
 }
 
 function replaceItems(db: Database.Database, planId: number, { buy, checkPantry }: ShoppingSections, missingDishIds: number[]): void {

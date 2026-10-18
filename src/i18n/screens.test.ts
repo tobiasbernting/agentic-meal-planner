@@ -60,7 +60,7 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
     for (const [url, text] of screens) {
       const res = await app.inject({ method: "GET", url });
       expect(res.statusCode, url).toBe(200);
-      expect(res.body, url).toContain('<html lang="sv">');
+      expect(res.body, url).toContain('<html lang="sv" data-online="1">');
       expect(res.body, url).toContain(text);
       expect(res.body, url).toContain("Måltidsplaneraren");
     }

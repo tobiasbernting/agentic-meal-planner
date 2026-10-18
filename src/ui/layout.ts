@@ -4,6 +4,8 @@
  * and component classes live in public/app.css (see `ASSET_PATHS`). Keep feature logic out.
  */
 import { DEFAULT_LANG, t, type Lang, type MessageKey } from "../i18n/index.js";
+import { markOnlineOnlyForms } from "../offline/online-only.js";
+import { workerTexts } from "../offline/texts.js";
 import { ASSET_PATHS } from "./assets.js";
 
 export function escapeHtml(value: unknown): string {
@@ -41,9 +43,44 @@ function tabBar(lang: Lang, active: Tab): string {
   return `<nav class="tabbar" aria-label="${escapeHtml(t(lang, "nav.label"))}">${links}</nav>`;
 }
 
+/** Paper, the stylesheet's background token in light mode; the installed app's chrome colour. */
+export const THEME_COLOR = "#fbfaf6";
+
+export const MANIFEST_PATH = "/manifest.webmanifest";
+
+/** Installability (ADR-0007): manifest, home-screen icon, standalone on iOS, chrome colour. */
+function installLinks(): string {
+  return `<link rel="manifest" href="${MANIFEST_PATH}" />
+    <link rel="apple-touch-icon" href="${ASSET_PATHS.appleTouchIcon}" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="${THEME_COLOR}" />`;
+}
+
+/** Registers the offline service worker (served by src/offline/routes.ts) where the browser has one. */
+function workerRegistration(): string {
+  return `<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { type: "module" });</script>`;
+}
+
+/**
+ * The worker replaces this exact text with the Offline Copy banner; it appears once per page.
+ * The worker gets it from its config (src/offline/routes.ts), never a copy of its own.
+ */
+export const OFFLINE_BANNER_MARKER = `<div id="offline-banner"></div>`;
+
+/** JSON for an inline script element: `<` is escaped so text can never close the element. */
+function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+/** The Pending Changes badge (#108), hidden until the worker reports a queue, plus its texts. */
+function pendingChangesBadge(lang: Lang): string {
+  return `<div id="pending-changes" hidden data-lang="${escapeHtml(lang)}"><button type="button" class="quiet" id="pending-changes-toggle"></button><ul class="rows" id="pending-changes-list" hidden></ul><p class="muted" id="pending-changes-note"></p></div>
+<script type="application/json" id="offline-texts">${scriptJson(workerTexts(lang))}</script>`;
+}
+
 export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): string {
   return `<!doctype html>
-<html lang="${escapeHtml(lang)}">
+<html lang="${escapeHtml(lang)}" data-online="1">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -53,10 +90,15 @@ export function page({ title, body, tab, lang = DEFAULT_LANG }: PageOptions): st
     <link rel="stylesheet" href="${ASSET_PATHS.stylesheet}" />
     <script src="${ASSET_PATHS.htmx}" defer></script>
     <script src="${ASSET_PATHS.pending}" defer></script>
+    <script src="${ASSET_PATHS.offlinePage}" defer></script>
+    ${installLinks()}
+    ${workerRegistration()}
   </head>
   <body data-working-label="${escapeHtml(t(lang, "common.working"))}">
     <main class="page">
-${body}
+${OFFLINE_BANNER_MARKER}
+${pendingChangesBadge(lang)}
+${markOnlineOnlyForms(body, lang)}
     </main>
     ${tabBar(lang, tab)}
   </body>
