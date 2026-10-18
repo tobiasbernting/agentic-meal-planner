@@ -41,7 +41,7 @@ A self-hosted, single-container app that plans a household's dinners Mon–Sun, 
 - FR-12: CRUD Pantry Items with comma-separated aliases.
 
 **Delivery**
-- FR-13: `ShoppingListSink` interface (`push(items)`). v1 sinks, optional and composable: Trello (primary) and a generic webhook (ntfy reference default). Trello: each week's Buy list becomes a new list on the shared shopping board, named by its Monday date. The push is one-way; the app never reads the board back. The "Buy" section is pushed on plan generation; "Check pantry" is never pushed.
+- FR-13: `ShoppingListSink` interface (`push(items)`). One optional sink: a generic webhook (ntfy reference default). The push is one-way. The "Buy" section is pushed on plan generation; "Check pantry" is never pushed. The Trello sink was removed by ADR-0008: the household ticks the list in the app, reached from the store over a VPN.
 - FR-14: Sink failures never fail the plan: the list stays in the app and the UI surfaces the error.
 
 **Configuration & agent**
@@ -67,7 +67,7 @@ A self-hosted, single-container app that plans a household's dinners Mon–Sun, 
 2. A day whose school lunch matches a Dish's Main Category never gets that category planned.
 3. A Quick Day never gets a Dish over its prep-time limit.
 4. Burgers can appear every week without manual intervention.
-5. Flour in a recipe lands in "Check pantry", not in "Buy"; "Buy" reaches the Trello board as a new weekly list.
+5. Flour in a recipe lands in "Check pantry", not in "Buy"; "Buy" reaches a configured webhook sink.
 5a. The Today view shows today's lunch for each School and today's dinner.
 6. With `agent_command` unset, the app still produces a (degraded) plan.
 7. A contributor can add a School Plugin by copying CONTRIBUTING.md's example, with tests.

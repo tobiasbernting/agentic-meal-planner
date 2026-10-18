@@ -14,7 +14,7 @@ Secondary: other households that self-host their own copy (open source, MIT). Mo
 
 ## Product Purpose
 
-Plans a household's dinners Monday to Sunday around what the kids already ate for school lunch, then delivers the week's shopping list to the shared Trello board. Success means nobody has to think about dinner during the week. Dinner never repeats lunch, Quick Days get quick dishes, and the shopping list is already on the board.
+Plans a household's dinners Monday to Sunday around what the kids already ate for school lunch, then keeps the week's shopping list in the app, where both parents tick it off at the store. Success means nobody has to think about dinner during the week. Dinner never repeats lunch, Quick Days get quick dishes, and the shopping list is ready on the phone.
 
 Two moments matter equally:
 
@@ -28,8 +28,8 @@ Built around the kids' school lunch menus: dinner is planned against what each S
 ## Operating Context
 
 - Weekly rhythm: a scheduled Plan Run (default Sunday 18:00) produces next week's plan. The household reviews it and confirms it, which locks it from automatic changes.
-- Shopping happens off-app: the Buy section lands on Trello as one list per week. Check pantry items stay in the app.
-- Runs on the home LAN in one Docker container. No auth; the household is trusted.
+- Shopping happens in the app: the Buy and Check pantry sections are ticked on the phone in the store.
+- Runs on the home LAN in one Docker container, reached from outside over a VPN on the phones. No auth; the household is trusted.
 - Plan Runs take time and run in Phases; the household can see which Phase a run is in.
 - The app must still work in degraded mode when no agent is configured.
 
