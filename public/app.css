@@ -311,8 +311,11 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 .todo-overdue .todo-due { font-weight: 800; color: var(--ink); }
 .todo > .todo-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
 .todo-end .button, .todo-end button { min-height: var(--tap); font-size: var(--fs-small); }
-.todo-add { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 14px var(--gutter) 0; }
-.todo-add .todo-add-when { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
+.todo-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin: 14px var(--gutter) 0; }
+/* Quick Add's parsed words, shown once on the new row: ink underline, never colour alone. */
+.quick-add-echo { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; font-size: var(--fs-small); }
+.quick-add-echo form { margin: 0; }
+.quick-add-echo mark { background: transparent; color: inherit; font-weight: 700; border-bottom: 2px solid var(--ink); }
 .todo-add label { margin-top: 0; }
 .todo-add input, .todo-add select { margin-top: 4px; }
 /* Todos in an almanac day cell (ADR-0010): the same rows, flush with the cell's text. */

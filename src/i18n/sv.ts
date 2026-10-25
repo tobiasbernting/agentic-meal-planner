@@ -327,6 +327,9 @@ export const sv: Dictionary = {
   "lists.clearConfirm": "Ta bort {n} rader",
   "lists.cleared": "{n} klara rader rensades.",
 
+  "quickAdd.label": "Lägg till att göra",
+  "quickAdd.hint": "t.ex. Soptunnan ut varje onsdag kl 19 @Pappa",
+  "quickAdd.keepText": "behåll som text",
   "todo.add": "Lägg till",
   "todo.title": "Vad",
   "todo.notes": "Anteckning",
