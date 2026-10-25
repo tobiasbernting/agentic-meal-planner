@@ -113,6 +113,19 @@ Tokens live on `:root` and are redefined under `prefers-color-scheme: dark`. Pag
 | `--notice-fg` | `#ffffff` | `#161614` | Notice text |
 | `--focus` | `--ink` | `--ink` | Focus ring |
 
+The Member palette (ADR-0010) is eight ink-friendly tones, used only for a Member's chip dot. Red is not among them; it stays for red days. Each has a name in Swedish and English, shown beside its swatch when a colour is picked.
+
+| Token | Light | Dark | Name (sv / en) |
+|---|---|---|---|
+| `--member-moss` | `#4f7a3a` | `#8fc06e` | Mossa / Moss |
+| `--member-sea` | `#2f6f8f` | `#7fb8d8` | Hav / Sea |
+| `--member-plum` | `#6d4a86` | `#b48ad0` | Plommon / Plum |
+| `--member-clay` | `#a0522d` | `#e0906a` | Lera / Clay |
+| `--member-sand` | `#a98a2a` | `#d8c060` | Sand / Sand |
+| `--member-slate` | `#4f5d6e` | `#9fb0c4` | Skiffer / Slate |
+| `--member-berry` | `#9c2f5a` | `#e07aa3` | Bär / Berry |
+| `--member-pine` | `#2f6b5a` | `#7fc0a8` | Tall / Pine |
+
 Rules for use:
 
 - Red is applied to the date numeral and weekday of a `.day-red` row and to the holiday name (`.day-holiday`). It is never used for errors, buttons or links.
@@ -154,7 +167,8 @@ Section headings (`h2`) look like labels: small, uppercase, muted. Pages get str
 - Page header, in order: `.week-head` (week number left, month right) or `.page-head` (title), then `.week-nav` (neighbouring weeks), then notices and status, then the days or ruled rows.
 - Lists are `.rows`: full-width `li` items divided by 1px rules, each at least 60px tall. A whole row is the link.
 - Spacing is a few fixed values (4, 8, 12, 16, 24px) rather than a scale. Sections are separated by 24px.
-- Navigation is a fixed bottom tab bar with four tabs in fixed order: Idag, Plan, Inköp, Mer. Library and admin pages (Dishes, Schools, Pantry, Settings, Logs) sit under Mer. Language is switched on Settings.
+- Navigation is a fixed bottom tab bar with five tabs in fixed order: Idag, Inköp, Listor, Plan, Mer (ADR-0010). Listor holds every List, the Shopping List first. Library and admin pages (Dishes, Schools, Pantry, Members, Settings, Logs) sit under Mer. Language is switched on Settings.
+- A day cell carries the Todos due that day after the Dinner: every Todo with its tick in a `full` row, the first three and "+N till" in a `half` row, a count ("3 att göra") in a `compact` row. Today's row lists overdue Todos first under "Försenat".
 
 ## Elevation & Depth
 
@@ -195,7 +209,15 @@ Square corners everywhere (`border-radius: 0`). Outlines are 1.5px ink for contr
 
 **Section label.** `.section-label`: small bold uppercase muted text over a ruled list. Used for Köp and Kolla skafferiet on Shopping.
 
-**Tab bar.** Four equal cells, 58px tall, 2px ink rule on top. Inactive tabs are muted. The active tab is ink, weight 800, with a 2px underline, and carries `aria-current="page"`.
+**Tab bar.** Five equal cells, 58px tall, 2px ink rule on top, labels short enough to fit a 360px screen. Inactive tabs are muted. The active tab is ink, weight 800, with a 2px underline, and carries `aria-current="page"`.
+
+**Member chip.** `memberChip()` in `src/members/device.ts`: a 12px square dot in the Member's colour with a 1.5px ink border, then the Member's name in 600 weight. The name is always there, so colour is never the only signal.
+
+**Todo row.** `li.todo` in `.rows`: the tick column of the Shopping List, the title, then a muted status line with the Due ("fre 31 okt 15:00"), the Member chip, the Repeat ("↻ varje onsdag") and, when Done, who ticked it ("Pappa 14:02"). Done rows are struck and muted and sort below the open ones. An overdue Todo says "Försenad" in words and sets its Due in 800 weight ink; it is not red.
+
+**Quick Add marks.** The words Quick Add parsed are shown once on the new row as `<mark>` with a 2px ink underline and 700 weight, no fill, next to a quiet "behåll som text".
+
+**Nyligen and Aktivitet.** The re-add tray is a row of quiet chips (rule outline, 400 weight) under the add row. Aktivitet is a `<details>` disclosure at the foot of a List, closed by default, with muted ruled rows.
 
 **First-run block.** On Today before any Schools or Dishes exist: a 2px ink box with a heading and links to what is missing.
 

@@ -1,7 +1,7 @@
 # The app becomes the household's lists: Lists, Todos and Members beside the dinner plan
 
 ---
-Status: Proposed (written 2026-10-25 from the owner's direction; confirmed when this PR merges)
+Status: Accepted (written 2026-10-25 from the owner's direction; confirmed by merging #135, built in spec #121)
 ---
 
 The household wants one app for everything it writes down together: the shopping list, the things to do, the packing list, who picks up whom. Today the app plans dinners around the kids' school lunches and keeps one Shopping List (ADR-0009, one living list with Shares). Everything else lives in other apps, so the shopping list competes with Apple Reminders and a family chat for attention and loses. We make this app the household's list app: the dinner plan and the school lunches stay, the Shopping List stays the Plan Run's output, and generic household Lists with Todos and Members are added around them. Open source and self-hosted as before; reachability from the internet is a separate, later decision (ADR-0008 covers today's VPN).
