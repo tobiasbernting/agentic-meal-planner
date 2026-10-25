@@ -96,6 +96,7 @@ describe("prewarmUrls", () => {
       "/plan?week=2026-10-12",
       "/plan?week=2026-10-19",
       "/shopping",
+      "/lists",
       "/dishes",
       "/pantry",
     ]);

@@ -146,7 +146,8 @@ export function injectBanner(html, text, marker) {
 function tabFor(path) {
   if (path.startsWith("/plan")) return "/plan";
   if (path.startsWith("/shopping")) return "/shopping";
-  if (/^\/(dishes|pantry|settings|schools|logs|more)\b/.test(path)) return "/more";
+  if (/^\/(lists|todos)\b/.test(path)) return "/lists";
+  if (/^\/(dishes|pantry|settings|schools|logs|more|members|me)\b/.test(path)) return "/more";
   return "/";
 }
 

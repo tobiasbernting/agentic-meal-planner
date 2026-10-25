@@ -83,6 +83,45 @@ export function listLists(db: Database.Database): List[] {
   return db.prepare("SELECT id, name, kind, position FROM list ORDER BY position, id").all() as ListRow[];
 }
 
+export function createList(db: Database.Database, name: string, kind: ListKind, createdAt: string): List {
+  const position = (db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS next FROM list").get() as { next: number }).next;
+  const result = db.prepare("INSERT INTO list (name, kind, position, created_at) VALUES (?, ?, ?, ?)").run(name.trim(), kind, position, createdAt);
+  return getList(db, Number(result.lastInsertRowid))!;
+}
+
+export function renameList(db: Database.Database, id: number, name: string): boolean {
+  return db.prepare("UPDATE list SET name = ? WHERE id = ?").run(name.trim(), id).changes > 0;
+}
+
+/** Swaps positions with the neighbour above or below; the Shopping List (id 1) stays first. */
+export function moveList(db: Database.Database, id: number, direction: "up" | "down"): boolean {
+  const lists = listLists(db).filter((l) => l.id !== 1);
+  const index = lists.findIndex((l) => l.id === id);
+  const other = direction === "up" ? index - 1 : index + 1;
+  if (index === -1 || other < 0 || other >= lists.length) return false;
+  const a = lists[index]!;
+  const b = lists[other]!;
+  db.transaction(() => {
+    db.prepare("UPDATE list SET position = ? WHERE id = ?").run(other + 1, a.id);
+    db.prepare("UPDATE list SET position = ? WHERE id = ?").run(index + 1, b.id);
+    // Normalise so positions stay 1..n after any history of gaps.
+    lists.forEach((l, i) => {
+      if (l.id !== a.id && l.id !== b.id) db.prepare("UPDATE list SET position = ? WHERE id = ?").run(i + 1, l.id);
+    });
+  })();
+  return true;
+}
+
+/** Deletes a List and, by the schema, its items. The Shopping List (id 1) is refused. */
+export function deleteList(db: Database.Database, id: number): boolean {
+  if (id === 1) return false;
+  return db.prepare("DELETE FROM list WHERE id = ?").run(id).changes > 0;
+}
+
+export function countOpenItems(db: Database.Database, listId: number): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM list_item WHERE list_id = ? AND checked_at IS NULL").get(listId) as { n: number }).n;
+}
+
 /** The List's items in position order (insertion order unless moved). */
 export function listItems(db: Database.Database, listId: number): ListItem[] {
   return (db.prepare(`${SELECT_ITEM} WHERE list_id = ? ORDER BY position, id`).all(listId) as ItemRow[]).map(toItem);

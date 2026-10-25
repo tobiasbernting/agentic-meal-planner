@@ -21,11 +21,14 @@ import { pushShoppingList } from "../sinks/push.js";
 import { addDays, mondayOf } from "../week.js";
 import { getShoppingList } from "./list.js";
 import { listMissingDinners, updateShoppingList } from "./shares.js";
-import { addLine, checkLine, clearChecked, countChecked, deleteLine, moveLine, uncheckLine } from "./edits.js";
+import { addLine, checkLine, clearChecked, countChecked, deleteLine, moveLine, shoppingLineList, uncheckLine } from "./edits.js";
+import { getListLines } from "./list.js";
+import { SHOPPING_LIST_ID } from "../lists/schema.js";
+import { getList } from "../lists/repo.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
-import { addForm, clearControl, renderLists, renderMissing, renderPushes, shortDate, type Undo } from "./view.js";
+import { addForm, clearControl, renderLists, renderMissing, renderPlainLines, renderPushes, shortDate, type Undo } from "./view.js";
 
 interface ShoppingQuery {
   notice?: string;
@@ -40,6 +43,8 @@ interface LineForm {
 interface AddForm {
   name?: string;
   quantity?: string;
+  /** Another shopping-style List; the Shopping List when absent. */
+  listId?: string;
 }
 
 interface PantryForm extends LineForm {
@@ -93,35 +98,32 @@ ${renderPushes(lang, ctx, buy)}`;
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
-  /** After an edit: the sections over HTMX, the page otherwise. */
-  const sendLists = (req: FastifyRequest, reply: FastifyReply, undo?: Undo) => {
-    if (!isHtmx(req)) return reply.redirect("/shopping", 303);
+  /** After an edit: the List's sections over HTMX, its page otherwise. */
+  const sendLists = (req: FastifyRequest, reply: FastifyReply, undo?: Undo, listId = SHOPPING_LIST_ID) => {
+    if (!isHtmx(req)) return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
     html(reply);
+    if (listId !== SHOPPING_LIST_ID) return reply.send(renderPlainLines(langOf(req), listId, getListLines(ctx.db, listId)));
     return reply.send(renderLists(langOf(req), ctx, { alwaysHome: true, undo }));
   };
 
-  app.post<{ Body: LineForm }>("/shopping/check", async (req, reply) => {
-    const id = lineId(req.body);
-    if (id !== undefined) checkLine(ctx.db, id, ctx.now().toISOString());
-    return sendLists(req, reply);
-  });
-
-  app.post<{ Body: LineForm }>("/shopping/uncheck", async (req, reply) => {
-    const id = lineId(req.body);
-    if (id !== undefined) uncheckLine(ctx.db, id);
-    return sendLists(req, reply);
-  });
-
-  app.post<{ Body: LineForm }>("/shopping/delete", async (req, reply) => {
-    const id = lineId(req.body);
-    if (id !== undefined) deleteLine(ctx.db, id);
-    return sendLists(req, reply);
-  });
+  /** Applies a line edit and answers for the line's List (read before the edit, since Delete removes the line). */
+  const lineEdit = (action: string, edit: (id: number) => void) =>
+    app.post<{ Body: LineForm }>(action, async (req, reply) => {
+      const id = lineId(req.body);
+      const listId = id === undefined ? undefined : shoppingLineList(ctx.db, id);
+      if (id !== undefined && listId !== undefined) edit(id);
+      return sendLists(req, reply, undefined, listId ?? SHOPPING_LIST_ID);
+    });
+  lineEdit("/shopping/check", (id) => checkLine(ctx.db, id, ctx.now().toISOString()));
+  lineEdit("/shopping/uncheck", (id) => uncheckLine(ctx.db, id));
+  lineEdit("/shopping/delete", (id) => deleteLine(ctx.db, id));
 
   app.post<{ Body: AddForm }>("/shopping/add", async (req, reply) => {
+    const requested = Number(req.body.listId);
+    const listId = Number.isInteger(requested) && requested > 0 && getList(ctx.db, requested)?.kind === "shopping" ? requested : SHOPPING_LIST_ID;
     const name = req.body.name?.trim();
-    if (name) addLine(ctx.db, { name, quantity: req.body.quantity }, ctx.now().toISOString());
-    return reply.redirect("/shopping", 303);
+    if (name) addLine(ctx.db, { name, quantity: req.body.quantity }, ctx.now().toISOString(), listId);
+    return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
   });
 
   // Clear asks once: the GET is the confirmation page, the POST removes every Checked Off line.
