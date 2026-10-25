@@ -2,7 +2,8 @@
  * The almanac day (spec #71) that Today and Plan share: a day row whose cell holds the lunch
  * on the name-day line and the Planned Dinner as the main text, at a chosen density. Build
  * one `almanac(db, lang)` per page render (it loads the no-lunch notice, planner settings and
- * each week's plan once), then call `day()` per date.
+ * each week's plan once), then call `day()` per date. With `todos` set, each cell also carries
+ * the Todos due that date after the Dinner (ADR-0010), loaded once per week like the plans.
  */
 import type Database from "better-sqlite3";
 import { swedishHoliday } from "../calendar/holidays.js";
@@ -12,11 +13,15 @@ import { suggestedBadge } from "../dishes/suggested-badge.js";
 import { LANGS, t, type Lang, type MessageKey } from "../i18n/index.js";
 import { noLunchNotice } from "../lunch/notice.js";
 import { listLunchForDate, type SchoolLunch } from "../lunch/repo.js";
+import { getList, type List } from "../lists/repo.js";
+import { listOverdueTodos, listTodosDueBetween, type Todo } from "../lists/todos.js";
+import { listName, todoRow } from "../lists/view.js";
+import { listMembers, type Member } from "../members/repo.js";
 import { getPlanForWeek, type PlannedDinner, type WeeklyPlan } from "../planner/repo.js";
 import { quickDayLimitFor, readPlannerSettings } from "../planner/settings.js";
 import { dayRow, type DayDensity } from "../ui/almanac.js";
 import { escapeHtml } from "../ui/layout.js";
-import { mondayOf, weekdayOf } from "../week.js";
+import { addDays, mondayOf, weekdayOf } from "../week.js";
 
 /** Rationales the planner writes itself when it falls back; a degraded notice already says the same. */
 const GENERIC_RATIONALE_KEYS: MessageKey[] = ["rationale.seedFallback", "rationale.pickDropped"];
@@ -33,7 +38,24 @@ export interface AlmanacDayOptions {
   extraHtml?: string;
   /** The day carries a degraded notice, so the generic fallback rationales would repeat it. */
   hideGenericRationale?: boolean;
+  /** List overdue Todos first, under "Försenat" (today's row on Today). */
+  overdueTodos?: boolean;
+  /** No Todos on this row (a past day on Today, whose open Todos show as overdue on today's). */
+  hideTodos?: boolean;
 }
+
+/** Todos on the almanac: the household's date, where a tick returns, and the Mina filter. */
+export interface AlmanacTodoOptions {
+  today: string;
+  timezone: string | undefined;
+  /** The page a tick returns to without HTMX. */
+  next: string;
+  /** Only Todos assigned to this Member (the Mina toggle). */
+  mineId?: number;
+}
+
+/** A `half` row lists this many Todos, then "+N till". */
+const HALF_TODOS = 3;
 
 const lines = (rawText: string) =>
   rawText
@@ -41,7 +63,7 @@ const lines = (rawText: string) =>
     .map((line) => line.trim())
     .filter((line) => line !== "");
 
-export function almanac(db: Database.Database, lang: Lang) {
+export function almanac(db: Database.Database, lang: Lang, todos?: AlmanacTodoOptions) {
   const notice = noLunchNotice(db);
   const settings = readPlannerSettings(db);
   const plans = new Map<string, WeeklyPlan | undefined>();
@@ -116,10 +138,54 @@ export function almanac(db: Database.Database, lang: Lang) {
     return `${label}${name}${metaHtml(date, dinner, dish)}${suggested}${why}<div class="actions">${swap}${recipeLink}</div>`;
   }
 
+  const weekTodos = new Map<string, Todo[]>();
+  const lists = new Map<number, List | undefined>();
+  let members: Member[] | undefined;
+  const mine = (list: Todo[]) => (todos?.mineId === undefined ? list : list.filter((todo) => todo.memberId === todos.mineId));
+  const dueOn = (date: string) => {
+    const weekStart = mondayOf(date);
+    if (!weekTodos.has(weekStart)) weekTodos.set(weekStart, listTodosDueBetween(db, weekStart, addDays(weekStart, 6)));
+    return mine(weekTodos.get(weekStart)!.filter((todo) => todo.dueDate === date));
+  };
+  const listNameOf = (id: number) => {
+    if (!lists.has(id)) lists.set(id, getList(db, id));
+    const list = lists.get(id);
+    return list ? listName(lang, list) : undefined;
+  };
+
+  function todoRows(opts: AlmanacTodoOptions, list: Todo[]): string {
+    members ??= listMembers(db);
+    const rows = list.map((todo) => {
+      const name = listNameOf(todo.listId);
+      return todoRow(lang, todo, members!, { today: opts.today, timezone: opts.timezone, next: opts.next, ...(name ? { listName: name } : {}) });
+    });
+    return `<ul class="rows day-todos">\n${rows.join("\n")}\n</ul>`;
+  }
+
+  /** The Todos due on `date` at the row's density; overdue ones first when asked. Empty when none. */
+  function todosHtml(date: string, density: DayDensity, overdue = false): string {
+    if (!todos) return "";
+    const due = dueOn(date);
+    const late = overdue ? mine(listOverdueTodos(db, date)) : [];
+    if (due.length === 0 && late.length === 0) return "";
+    if (density === "compact") {
+      const n = due.length + late.length;
+      return `<div class="day-todos-count">${escapeHtml(t(lang, n === 1 ? "day.todos.one" : "day.todos.other", { n }))}</div>`;
+    }
+    if (density === "half") {
+      const all = [...late, ...due];
+      const more = all.length - HALF_TODOS;
+      return todoRows(todos, all.slice(0, HALF_TODOS)) + (more > 0 ? `<div class="day-todos-more muted">${escapeHtml(t(lang, "day.todos.more", { n: more }))}</div>` : "");
+    }
+    const lateHtml = late.length ? `<div class="label">${t(lang, "day.overdue")}</div>${todoRows(todos, late)}` : "";
+    const dueHtml = due.length ? `<div class="label">${t(lang, "day.todos")}</div>${todoRows(todos, due)}` : "";
+    return lateHtml + dueHtml;
+  }
+
   return {
     /** One almanac day row for `opts.date`. */
     day(opts: AlmanacDayOptions): string {
-      const cellHtml = lunchHtml(opts.date, opts.density) + dinnerHtml(opts) + (opts.extraHtml ?? "");
+      const cellHtml = lunchHtml(opts.date, opts.density) + dinnerHtml(opts) + (opts.hideTodos ? "" : todosHtml(opts.date, opts.density, opts.overdueTodos)) + (opts.extraHtml ?? "");
       return dayRow({ lang, date: opts.date, density: opts.density, today: opts.today, cellHtml });
     },
   };

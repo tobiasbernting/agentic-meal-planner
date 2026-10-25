@@ -10,7 +10,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { AppContext, FeaturePlugin } from "../app.js";
 import { almanac } from "../almanac/day.js";
 import { addDays, isIsoDate, mondayOf, resolveWeek, weekDates } from "../week.js";
-import { householdToday } from "../planner/settings.js";
+import { householdToday, readTimezone } from "../planner/settings.js";
 import { ingestWeek } from "../lunch/ingest.js";
 import { listLunchForDate } from "../lunch/repo.js";
 import { generatePlan, type GeneratePlanResult } from "../planner/generate.js";
@@ -99,12 +99,12 @@ ${runInFlight ? "" : `<div class="actions">${weekForm(weekStart, "/plan/generate
 /**
  * The seven almanac rows, all open (density `full`). Per-day hooks for later tickets:
  * `swapHtml` takes the Swap control (#81; empty when Swap is unavailable) and
- * `extraHtml` the day's degraded reasons (#80).
+ * `extraHtml` the day's degraded reasons (#80). Each row lists the Todos due that day (ADR-0010).
  */
 function renderDays(ctx: AppContext, lang: Lang, weekStart: string, today: string): string {
-  const days = almanac(ctx.db, lang);
-  const reasons = getPlanForWeek(ctx.db, weekStart)?.degradedReasons ?? [];
   const next = `/plan?week=${weekStart}`;
+  const days = almanac(ctx.db, lang, { today, timezone: readTimezone(ctx.db), next });
+  const reasons = getPlanForWeek(ctx.db, weekStart)?.degradedReasons ?? [];
   return weekDates(weekStart)
     .map((date) =>
       days.day({
