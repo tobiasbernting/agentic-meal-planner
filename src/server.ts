@@ -1,7 +1,7 @@
 import { buildApp } from "./app.js";
 import { DEFAULT_AGENT_COMMAND } from "./planner/settings.js";
 import { readSchedulerOptions, startScheduler } from "./scheduler/scheduler.js";
-import { buildAndPushShoppingList } from "./shopping/build-and-push.js";
+import { updateAndPushShoppingList } from "./shopping/update-and-push.js";
 
 // FR-15: `copilot -p` is the default agent command in production. buildApp itself has no default
 // (tests stay agent-free); an explicit AGENT_COMMAND (even empty = no agent) or the Settings value wins.
@@ -34,7 +34,7 @@ const scheduler = startScheduler(
     },
     // The same registry the Plan page reads, so the scheduled run shows in its banner (spec #61).
     planRuns: app.ctx.planRuns,
-    afterPlan: ({ planId, log, onProgress }) => buildAndPushShoppingList({ ...app.ctx, ...(log ? { log } : {}), onProgress }, planId),
+    afterPlan: ({ planId, log, onProgress }) => updateAndPushShoppingList({ ...app.ctx, ...(log ? { log } : {}), onProgress }, planId),
   },
   { ...readSchedulerOptions(app.ctx.db), logger: app.ctx.log.child({ component: "scheduler" }) },
 );

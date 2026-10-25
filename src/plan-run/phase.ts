@@ -8,7 +8,7 @@ export const PHASES = [
   "dish-selection",
   "ingredient-resolution",
   "pantry-matching",
-  "shopping-list-push",
+  "shopping-list-update",
 ] as const;
 
 export type Phase = (typeof PHASES)[number];

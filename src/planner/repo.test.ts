@@ -43,6 +43,7 @@ describe("savePlan / getPlanForWeek", () => {
     });
     expect(stored?.dinners).toHaveLength(7);
     expect(stored?.dinners[0]).toEqual({
+      id: expect.any(Number),
       date: "2026-10-12",
       dishId: burgers,
       isQuickDay: false,

@@ -255,7 +255,7 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 
 /* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the dense line beside
    it (name and quantity lead, the quiet "till" line under), the quiet actions at the end.
-   Checked Off lines are struck through and muted, never removed; the add row closes Buy. */
+   Checked Off lines are struck through and muted until Cleared; the add row follows the sections. */
 .rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 4px var(--gutter) 4px calc(var(--gutter) - 8px); }
 .line form { margin: 0; }
 .line > .line-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
@@ -266,19 +266,17 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 .line-body { grid-column: 2; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
 .line-checked .row-label { color: var(--muted); font-weight: 400; }
 /* A Pending Change shown on its line from the Offline Copy (ADR-0007): a quiet "väntar" after the
-   label; a pending remove stays in place, muted, with its control flipped to restore. */
+   label; a pending delete stays in place, muted. */
 .pending-mark { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
 .line-removed .row-label { color: var(--muted); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--rule); }
 .line-removed .tick { visibility: hidden; }
 .line-checked .row-status { opacity: 0.7; }
-.extra-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 10px var(--gutter) 0; }
-.extra-add label { margin-top: 0; }
-.extra-add input { margin-top: 4px; }
-.extra-add input[name="quantity"] { width: 7em; }
-main > #removed { margin-inline: 0; }
-#removed summary { padding: 14px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); cursor: pointer; }
-#removed .rows { border-top: 1px solid var(--rule); }
-#removed .row-label { color: var(--muted); font-weight: 400; }
+/* The hand-add row under the sections and the Clear control (ADR-0009). */
+.line-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 14px var(--gutter) 0; }
+.line-add label { margin-top: 0; }
+.line-add input { margin-top: 4px; }
+.line-add input[name="quantity"] { width: 7em; }
+.clear-control { margin: 10px var(--gutter) 0; }
 
 /* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
 .swap-list { flex-basis: 100%; margin: 0; }

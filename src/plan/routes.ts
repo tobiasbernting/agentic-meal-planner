@@ -21,7 +21,7 @@ import { planRunBanner } from "../plan-run/routes.js";
 import { logPlanSummary } from "../planner/summary.js";
 import { confirmPlan, getPlanForWeek, type WeeklyPlan } from "../planner/repo.js";
 import { describeDegraded, type DegradedReason } from "../planner/degraded.js";
-import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
+import { updateAndPushShoppingList } from "../shopping/update-and-push.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, weekNav } from "../ui/almanac.js";
 import { swapControl } from "../swap/routes.js";
@@ -168,7 +168,7 @@ async function finishPlan(
   language: Lang,
   result: { planId: number; degradedReasons: string[] },
 ): Promise<void> {
-  const sinksPushed = await buildAndPushShoppingList({ ...ctx, log, onProgress, language }, result.planId);
+  const sinksPushed = await updateAndPushShoppingList({ ...ctx, log, onProgress, language }, result.planId);
   logPlanSummary(log, ctx.db, result.planId, result.degradedReasons, sinksPushed);
 }
 

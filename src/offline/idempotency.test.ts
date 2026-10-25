@@ -6,7 +6,8 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent } from "../llm/index.js";
-import { savePlan } from "../planner/repo.js";
+import { lineIdOf, planWeek, updateList } from "../shopping/test-helpers.js";
+import { writeSetting } from "../db.js";
 
 type App = Awaited<ReturnType<typeof buildApp>>;
 const apps: App[] = [];
@@ -29,26 +30,17 @@ function post(app: App, url: string, payload: Record<string, string>, key?: stri
 const NOW = new Date(2026, 9, 21, 18, 30);
 const WEEK = "2026-10-19";
 
-/** Pasta (pasta) and Gratäng (ost) planned for WEEK, Shopping List built. */
-async function builtList(app: App) {
+/** Pasta (pasta) and Gratäng (ost) planned for WEEK, Shopping List updated. Returns the ost line's id. */
+async function builtList(app: App): Promise<string> {
   const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
   const gratin = createDish(app.ctx.db, { name: "Gratäng", ingredients: [{ name: "ost", quantity: null, unit: null }] });
-  savePlan(
-    app.ctx.db,
-    {
-      weekStart: WEEK,
-      dinners: [pasta, gratin].map((dishId, i) => ({ date: `2026-10-${19 + i}`, dishId, isQuickDay: false, lunchThatDay: null, rationale: "r" })),
-      degradedReasons: [],
-    },
-    NOW.toISOString(),
-  );
-  const built = await post(app, "/shopping/build", { weekStart: WEEK });
-  expect(built.statusCode).toBe(303);
+  await updateList(app, planWeek(app.ctx.db, WEEK, [pasta, gratin], NOW.toISOString()));
+  return lineIdOf((await app.inject({ method: "GET", url: "/shopping" })).body, "ost");
 }
 
-/** The labels of struck-through (checked) lines on the week's Shopping page. */
+/** The labels of struck-through (checked) lines on the Shopping page. */
 async function checkedLines(app: App) {
-  const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
+  const res = await app.inject({ method: "GET", url: "/shopping" });
   return [...res.body.matchAll(/<s class="row-label">([^<]*)<\/s>/g)].map((m) => m[1]);
 }
 
@@ -89,16 +81,16 @@ describe("Idempotency-Key on queueable routes", () => {
 
   it("replays a Shopping check without running it again", async () => {
     const app = await start({ now: () => NOW, llm: new NoAgent() });
-    await builtList(app);
+    const ost = await builtList(app);
 
-    const first = await post(app, "/shopping/check", { weekStart: WEEK, name: "ost" }, "key-check");
+    const first = await post(app, "/shopping/check", { id: ost }, "key-check");
     const afterFirst = await checkedLines(app);
-    await post(app, "/shopping/uncheck", { weekStart: WEEK, name: "ost" });
-    const repeat = await post(app, "/shopping/check", { weekStart: WEEK, name: "ost" }, "key-check");
+    await post(app, "/shopping/uncheck", { id: ost });
+    const repeat = await post(app, "/shopping/check", { id: ost }, "key-check");
 
     expect(first.statusCode).toBe(303);
     expect(afterFirst).toEqual(["ost"]);
-    expect(repeat.headers.location).toBe(`/shopping?week=${WEEK}`);
+    expect(repeat.headers.location).toBe("/shopping");
     expect(await checkedLines(app)).toEqual([]);
   });
 
@@ -112,20 +104,19 @@ describe("Idempotency-Key on queueable routes", () => {
   });
 
   it("ignores the key on an online-only route", async () => {
-    const app = await start({ now: () => NOW, llm: new NoAgent() });
-    await builtList(app);
-    const checkPantry = async () => {
-      const res = await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` });
-      return /<section id="check-pantry">([\s\S]*?)<\/section>/.exec(res.body)?.[1] ?? "";
+    const sent: string[] = [];
+    const fetch = async (url: string) => {
+      sent.push(url);
+      return { ok: true, status: 200, json: async () => ({}) };
     };
+    const app = await start({ now: () => NOW, llm: new NoAgent(), fetch });
+    await builtList(app);
+    writeSetting(app.ctx.db, "shopping_list_sinks", JSON.stringify([{ type: "webhook", url: "https://hook.example/list" }]));
 
-    await post(app, "/shopping/build", { weekStart: WEEK }, "key-build");
-    await post(app, "/pantry", { name: "ost", aliases: "" });
-    const beforeRepeat = await checkPantry();
-    await post(app, "/shopping/build", { weekStart: WEEK }, "key-build");
+    await post(app, "/shopping/push", {}, "key-push");
+    await post(app, "/shopping/push", {}, "key-push");
 
-    expect(beforeRepeat).not.toContain("ost");
-    expect(await checkPantry()).toContain("ost");
+    expect(sent).toHaveLength(2);
   });
 
   it("replays a rejected form as the same 400 page with its content type", async () => {

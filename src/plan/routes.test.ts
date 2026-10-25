@@ -536,7 +536,7 @@ describe("run logging", () => {
       "dish-selection",
       "ingredient-resolution",
       "pantry-matching",
-      "shopping-list-push",
+      "shopping-list-update",
     ]);
     const progress = planRun.filter((r) => r.msg === "phase progress");
     expect(progress.map((r) => [r.phase, r.done, r.total, r.dish])).toEqual(names.map((name, i) => ["ingredient-resolution", i, 7, name]));

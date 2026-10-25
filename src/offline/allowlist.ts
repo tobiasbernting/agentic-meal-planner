@@ -21,10 +21,11 @@ export const QUEUEABLE_LABELS = {
   "/lang": "offline.label.lang",
   "/shopping/check": "offline.label.shoppingCheck",
   "/shopping/uncheck": "offline.label.shoppingUncheck",
-  "/shopping/extra": "offline.label.shoppingExtra",
-  "/shopping/extra/delete": "offline.label.shoppingExtraDelete",
-  "/shopping/remove": "offline.label.shoppingRemove",
-  "/shopping/restore": "offline.label.shoppingRestore",
+  "/shopping/add": "offline.label.shoppingAdd",
+  "/shopping/delete": "offline.label.shoppingDelete",
+  "/shopping/clear": "offline.label.shoppingClear",
+  "/shopping/pantry": "offline.label.shoppingPantry",
+  "/shopping/pantry/undo": "offline.label.shoppingPantryUndo",
 } as const satisfies Record<string, MessageKey>;
 
 export const QUEUEABLE_ROUTES: readonly string[] = Object.keys(QUEUEABLE_LABELS);
@@ -35,11 +36,8 @@ export const ONLINE_ONLY_ROUTES: readonly string[] = [
   "/plan/regenerate",
   "/plan/confirm",
   "/plan/swap",
-  "/shopping/build",
   "/shopping/retry",
   "/shopping/push",
-  "/shopping/pantry",
-  "/shopping/pantry/undo",
   "/lunch/refresh",
   "/schools",
   "/schools/:id",
@@ -70,8 +68,7 @@ export const PREWARM_PAGES: readonly string[] = [
   "/",
   "/plan?week={thisWeek}",
   "/plan?week={nextWeek}",
-  "/shopping?week={thisWeek}",
-  "/shopping?week={nextWeek}",
+  "/shopping",
   "/dishes",
   "/pantry",
 ];

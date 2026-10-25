@@ -30,7 +30,7 @@ describe("the write-route allowlist (ADR-0007)", () => {
     expect(isQueueable("/dishes/:id")).toBe(true);
     expect(isQueueable("/dishes/7")).toBe(false);
     expect(isOnlineOnly("/plan/generate")).toBe(true);
-    expect(isOnlineOnly("/shopping/pantry/undo")).toBe(true);
+    expect(isOnlineOnly("/shopping/push")).toBe(true);
     expect(isQueueable("/shopping/check")).toBe(true);
   });
 });

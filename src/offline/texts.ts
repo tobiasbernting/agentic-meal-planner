@@ -19,10 +19,8 @@ export const TEXT_KEYS = {
   failed: "offline.failed",
   pendingState: "offline.pendingState",
   discard: "offline.discard",
-  /** The overlay's per-line mark and the labels it swaps in when it flips a remove into a restore. */
+  /** The overlay's per-line mark on a line with a Pending Change. */
   pendingMark: "offline.pendingMark",
-  remove: "shopping.remove",
-  restore: "shopping.restore",
 } as const satisfies Record<string, MessageKey>;
 
 export type WorkerTexts = Record<keyof typeof TEXT_KEYS, string>;

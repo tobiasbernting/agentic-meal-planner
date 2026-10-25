@@ -1,212 +1,183 @@
 /**
- * Shopping List view (FR-11, FR-17): the stored list for one week's Weekly Plan in two
- * sections, "Buy" and "Check pantry", with a rebuild action (page parts in ./view.ts). Building also happens
- * automatically after plan generation (src/plan/routes.ts and src/server.ts). The week's
- * Plan Run banner explains a half-built list; Build/Rebuild and Har alltid hemma are withheld
- * (and refused over HTTP) while that run is in flight. The household's own edits (ADR-0007:
- * check, uncheck, remove, restore, Extra Items) touch no list rows and are allowed any time.
+ * The Shopping List page (FR-11, FR-17, ADR-0009): the household's one living list in two
+ * sections, "Buy" and "Check pantry" (page parts in ./view.ts). The Plan Run's Shopping List
+ * update adds Shares to it (src/shopping/shares.ts, called from the plan routes, the weekly
+ * run and Swap); the page itself never rebuilds anything. The household's edits (tick, hand-add,
+ * Delete, Clear, Har alltid hemma) touch lines only, need no Plan Run, and are allowed any time. Försök igen
+ * re-resolves the dinners with no Ingredients and is withheld (and refused) while their week's
+ * Plan Run is in flight.
  */
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { resolveWeek } from "../week.js";
 import { householdToday } from "../planner/settings.js";
-import { getPlanForWeek } from "../planner/repo.js";
+import { getPlanById } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { getDish } from "../dishes/repo.js";
-import { weekHead, weekNav } from "../ui/almanac.js";
+import { weekHead } from "../ui/almanac.js";
 import { isHtmx, navigate } from "../ui/htmx.js";
-import { notice, page } from "../ui/layout.js";
+import { escapeHtml, notice, page } from "../ui/layout.js";
 import { pushShoppingList } from "../sinks/push.js";
-import { buildShoppingList, getMissingDishIds, getShoppingList } from "./build.js";
-import { addExtraItem, checkLine, deleteExtraItem, removeLine, restoreLine, uncheckLine } from "./edits.js";
+import { addDays, mondayOf } from "../week.js";
+import { getShoppingList } from "./list.js";
+import { listMissingDinners, updateShoppingList } from "./shares.js";
+import { addLine, checkLine, clearChecked, countChecked, deleteLine, moveLine, uncheckLine } from "./edits.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
-import { buildForm, renderLists, renderMissing, renderPushes, type Undo } from "./view.js";
+import { addForm, clearControl, renderLists, renderMissing, renderPushes, shortDate, type Undo } from "./view.js";
 
 interface ShoppingQuery {
-  week?: string;
   notice?: string;
+  cleared?: string;
 }
 
-const NOTICES = { "run-in-progress": "shopping.notice.run-in-progress" } as const;
-
-function queryNotice(lang: Lang, key: string | undefined): string {
-  return key !== undefined && Object.hasOwn(NOTICES, key) ? notice({ text: t(lang, NOTICES[key as keyof typeof NOTICES]), role: "status" }) : "";
-}
-
-/** Where a refused change returns: the week's list with the run-in-progress notice. */
-function runInProgress(weekStart: string): string {
-  return `/shopping?week=${weekStart}&notice=run-in-progress`;
-}
-
-interface BuildForm {
-  weekStart?: string;
-}
-
-interface PantryForm extends BuildForm {
-  name?: string;
-}
-
-interface UndoForm extends BuildForm {
+/** Edits post the line's id. */
+interface LineForm {
   id?: string;
 }
 
-/** Every week edit posts at least the week. */
-interface WeekForm {
-  weekStart?: string;
-}
-
-/** Check, uncheck, remove and restore post the week and the line's name. */
-interface LineForm {
-  weekStart?: string;
+interface AddForm {
   name?: string;
-}
-
-/** Extra Item add posts the week, the item's name and an optional free-text quantity. */
-interface ExtraForm extends LineForm {
   quantity?: string;
 }
 
-/** Extra Item delete posts the week and the item's id. */
-interface ExtraDeleteForm {
-  weekStart?: string;
-  id?: string;
+interface PantryForm extends LineForm {
+  name?: string;
+}
+
+interface UndoForm extends LineForm {
+  pantryId?: string;
+}
+
+function queryNotice(lang: Lang, query: ShoppingQuery): string {
+  if (query.notice === "run-in-progress") return notice({ text: t(lang, "shopping.notice.run-in-progress"), role: "status" });
+  const cleared = Number(query.cleared);
+  if (Number.isInteger(cleared) && cleared > 0) return notice({ text: t(lang, "shopping.cleared", { n: cleared }), role: "status" });
+  return "";
+}
+
+function lineId(form: LineForm): number | undefined {
+  const id = Number(form.id);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
 export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
-  const rebuildDeps = (req: FastifyRequest) => ({ ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) });
+  const today = () => householdToday(ctx.db, ctx.now());
+  const html = (reply: FastifyReply) => reply.type("text/html; charset=utf-8");
+
+  /** The weeks whose Plan Run would also write the dinners with no Ingredients. */
+  const missingWeeks = () => new Set(listMissingDinners(ctx.db).flatMap((d) => getPlanById(ctx.db, d.planId)?.weekStart ?? []));
+  const retryBlocked = () => [...missingWeeks()].some((week) => ctx.planRuns.isInFlight(week));
 
   app.get<{ Querystring: ShoppingQuery }>("/shopping", async (req, reply) => {
     const lang = langOf(req);
-    const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
-    const plan = getPlanForWeek(ctx.db, weekStart);
-    const runInFlight = ctx.planRuns.isInFlight(weekStart);
-    const dishName = (id: number) => getDish(ctx.db, id)?.name;
-    /** The Build or Rebuild form, or nothing while the week's Plan Run is in flight. */
-    const rebuild = (label: string) => (runInFlight ? "" : buildForm(weekStart, label));
-    let content: string;
-    if (!plan) {
-      content = `<p class="notice">${t(lang, "shopping.noPlan")} <a href="/plan?week=${weekStart}">${t(lang, "shopping.goToPlan")}</a> ${t(lang, "shopping.toGenerate")}</p>`;
-    } else {
-      const { buy, checkPantry, removed } = getShoppingList(ctx.db, plan.id);
-      const missing = renderMissing(lang, weekStart, getMissingDishIds(ctx.db, plan.id).flatMap((id) => dishName(id) ?? []), !runInFlight);
-      content =
-        buy.length + checkPantry.length + removed.length === 0
-          ? `${missing}<p class="notice">${t(lang, "shopping.none")}</p>
-${rebuild(t(lang, "shopping.build"))}`
-          : `${missing}
-${renderLists(lang, ctx, plan.id, weekStart, { alwaysHome: !runInFlight })}
-${rebuild(t(lang, "shopping.rebuild"))}
-${renderPushes(lang, ctx, plan.id, weekStart, buy)}`;
-    }
-    const body = `${weekHead(lang, weekStart)}
-${weekNav(lang, weekStart, "/shopping")}
-${queryNotice(lang, req.query.notice)}
-${planRunBanner(ctx, lang, weekStart)}
-${content}`;
-    reply.type("text/html; charset=utf-8");
+    const now = today();
+    const thisWeek = mondayOf(now);
+    const { buy, checkPantry } = getShoppingList(ctx.db);
+    const missingNames = listMissingDinners(ctx.db).flatMap(({ dishId, date }) => {
+      const name = getDish(ctx.db, dishId)?.name;
+      return name ? [`${name} (${shortDate(lang, date)})`] : [];
+    });
+    const empty = buy.length + checkPantry.length === 0;
+    const body = `${weekHead(lang, now)}
+${queryNotice(lang, req.query)}
+${planRunBanner(ctx, lang, thisWeek)}
+${planRunBanner(ctx, lang, addDays(thisWeek, 7))}
+${renderMissing(lang, missingNames, !retryBlocked())}
+${empty ? `<p class="notice">${t(lang, "shopping.empty")} <a href="/plan">${t(lang, "shopping.goToPlan")}</a></p>` : renderLists(lang, ctx)}
+${addForm(lang, ctx)}
+${clearControl(lang, ctx)}
+${renderPushes(lang, ctx, buy)}`;
+    html(reply);
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
-  // Build, Försök igen and Har alltid hemma rewrite the list the week's Plan Run is also writing, so all are refused in flight.
-  app.post<{ Body: BuildForm }>("/shopping/build", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
-    const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) {
-      const deps = rebuildDeps(req);
-      await buildShoppingList(deps, plan.id);
-      await pushShoppingList(deps, plan.id);
-    }
-    return reply.redirect(`/shopping?week=${weekStart}`, 303);
-  });
-
-  // Försök igen: re-resolves only the Dishes the last build recorded as missing, past their caches
-  // (a cached empty list included). It does not push: the household sends with Skicka igen.
-  app.post<{ Body: BuildForm }>("/shopping/retry", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (ctx.planRuns.isInFlight(weekStart)) return reply.redirect(runInProgress(weekStart), 303);
-    const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) await buildShoppingList(rebuildDeps(req), plan.id, new Set(getMissingDishIds(ctx.db, plan.id)));
-    return reply.redirect(`/shopping?week=${weekStart}`, 303);
-  });
-
-  /** A refused change: the week's list with the run-in-progress notice. */
-  const refuse = (req: FastifyRequest, reply: FastifyReply, weekStart: string) => navigate(req, reply, runInProgress(weekStart));
-  const sendLists = (req: FastifyRequest, reply: FastifyReply, weekStart: string, undo?: Undo) => {
-    const plan = getPlanForWeek(ctx.db, weekStart);
-    if (!isHtmx(req) || !plan) return reply.redirect(`/shopping?week=${weekStart}`, 303);
-    reply.type("text/html; charset=utf-8");
-    return reply.send(renderLists(langOf(req), ctx, plan.id, weekStart, { alwaysHome: true, undo }));
+  /** After an edit: the sections over HTMX, the page otherwise. */
+  const sendLists = (req: FastifyRequest, reply: FastifyReply, undo?: Undo) => {
+    if (!isHtmx(req)) return reply.redirect("/shopping", 303);
+    html(reply);
+    return reply.send(renderLists(langOf(req), ctx, { alwaysHome: true, undo }));
   };
 
-  app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (ctx.planRuns.isInFlight(weekStart)) return refuse(req, reply, weekStart);
+  app.post<{ Body: LineForm }>("/shopping/check", async (req, reply) => {
+    const id = lineId(req.body);
+    if (id !== undefined) checkLine(ctx.db, id, ctx.now().toISOString());
+    return sendLists(req, reply);
+  });
+
+  app.post<{ Body: LineForm }>("/shopping/uncheck", async (req, reply) => {
+    const id = lineId(req.body);
+    if (id !== undefined) uncheckLine(ctx.db, id);
+    return sendLists(req, reply);
+  });
+
+  app.post<{ Body: LineForm }>("/shopping/delete", async (req, reply) => {
+    const id = lineId(req.body);
+    if (id !== undefined) deleteLine(ctx.db, id);
+    return sendLists(req, reply);
+  });
+
+  app.post<{ Body: AddForm }>("/shopping/add", async (req, reply) => {
     const name = req.body.name?.trim();
-    let undo: Undo | undefined;
-    if (name) {
-      const existing = pantryLookup(listPantryItems(ctx.db))(name);
-      // Ångra only removes an item this tap created.
-      if (!existing) undo = createPantryItem(ctx.db, { name, aliases: [] });
-      const plan = getPlanForWeek(ctx.db, weekStart);
-      if (plan) await buildShoppingList(rebuildDeps(req), plan.id);
-    }
-    return sendLists(req, reply, weekStart, undo);
+    if (name) addLine(ctx.db, { name, quantity: req.body.quantity }, ctx.now().toISOString());
+    return reply.redirect("/shopping", 303);
+  });
+
+  // Clear asks once: the GET is the confirmation page, the POST removes every Checked Off line.
+  app.get("/shopping/clear", async (req, reply) => {
+    const lang = langOf(req);
+    const n = countChecked(ctx.db);
+    const body = `<header class="page-head"><h1>${t(lang, "shopping.clearTitle")}</h1></header>
+<p>${escapeHtml(t(lang, "shopping.clearText", { n }))}</p>
+<form method="post" action="/shopping/clear">
+  <button type="submit" class="primary">${escapeHtml(t(lang, "shopping.clearConfirm", { n }))}</button>
+</form>
+<p><a href="/shopping">${t(lang, "shopping.clearCancel")}</a></p>`;
+    html(reply);
+    return page({ title: t(lang, "shopping.clearTitle"), body, lang, tab: "shopping" });
+  });
+
+  app.post("/shopping/clear", async (_req, reply) => {
+    const n = clearChecked(ctx.db);
+    return reply.redirect(n > 0 ? `/shopping?cleared=${n}` : "/shopping", 303);
+  });
+
+  // Försök igen: re-resolves only the dinners with no Ingredients, past their caches. It does not push.
+  app.post("/shopping/retry", async (req, reply) => {
+    if (retryBlocked()) return navigate(req, reply, "/shopping?notice=run-in-progress");
+    const missing = listMissingDinners(ctx.db);
+    const byPlan = new Map<number, Set<number>>();
+    for (const d of missing) (byPlan.get(d.planId) ?? byPlan.set(d.planId, new Set()).get(d.planId)!).add(d.id);
+    const deps = { ...ctx, log: runLogger(ctx.log, req, "shopping"), language: langOf(req) };
+    for (const [planId, dinnerIds] of byPlan) await updateShoppingList(deps, planId, dinnerIds);
+    return reply.redirect("/shopping", 303);
+  });
+
+  /** Har alltid hemma: a Pantry Item of the line's name (unless one matches already), and the line moves to Check pantry. */
+  app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
+    const id = lineId(req.body);
+    const name = req.body.name?.trim();
+    if (id === undefined || !name) return sendLists(req, reply);
+    const existing = pantryLookup(listPantryItems(ctx.db))(name);
+    // Ångra only removes an item this tap created.
+    const undo: Undo = existing ? { lineId: id } : { lineId: id, pantryId: createPantryItem(ctx.db, { name, aliases: [] }).id };
+    moveLine(ctx.db, id, "check_pantry");
+    return sendLists(req, reply, undo);
   });
 
   app.post<{ Body: UndoForm }>("/shopping/pantry/undo", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    if (ctx.planRuns.isInFlight(weekStart)) return refuse(req, reply, weekStart);
-    const id = Number(req.body.id);
-    if (Number.isInteger(id)) {
-      deletePantryItem(ctx.db, id);
-      const plan = getPlanForWeek(ctx.db, weekStart);
-      if (plan) await buildShoppingList(rebuildDeps(req), plan.id);
-    }
-    return sendLists(req, reply, weekStart);
+    const id = lineId(req.body);
+    const pantryId = Number(req.body.pantryId);
+    if (Number.isInteger(pantryId) && pantryId > 0) deletePantryItem(ctx.db, pantryId);
+    if (id !== undefined) moveLine(ctx.db, id, "buy");
+    return sendLists(req, reply);
   });
 
-  app.get<{ Querystring: ShoppingQuery }>("/shopping/sections", async (req, reply) => {
-    const weekStart = resolveWeek(req.query.week, householdToday(ctx.db, ctx.now()));
-    return sendLists(req, reply, weekStart);
-  });
+  app.get("/shopping/sections", async (req, reply) => sendLists(req, reply));
 
-  // The week's own edits (ADR-0007): plain POST forms, each back to the week's page.
-  /** Resolves the posted week, applies the edit to it, and redirects back to the week's list. */
-  const weekEdit = <Form extends WeekForm>(action: string, edit: (weekStart: string, form: Form) => void) => {
-    app.post<{ Body: WeekForm }>(action, async (req, reply) => {
-      const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-      edit(weekStart, req.body as Form);
-      return reply.redirect(`/shopping?week=${weekStart}`, 303);
-    });
-  };
-  const lineEdit = (action: string, edit: (weekStart: string, name: string) => void) =>
-    weekEdit<LineForm>(action, (weekStart, form) => {
-      const name = form.name?.trim();
-      if (name) edit(weekStart, name);
-    });
-  lineEdit("/shopping/check", (weekStart, name) => checkLine(ctx.db, weekStart, name));
-  lineEdit("/shopping/uncheck", (weekStart, name) => uncheckLine(ctx.db, weekStart, name));
-  lineEdit("/shopping/remove", (weekStart, name) => removeLine(ctx.db, weekStart, name));
-  lineEdit("/shopping/restore", (weekStart, name) => restoreLine(ctx.db, weekStart, name));
-
-  weekEdit<ExtraForm>("/shopping/extra", (weekStart, form) => {
-    const name = form.name?.trim();
-    if (name) addExtraItem(ctx.db, weekStart, { name, quantity: form.quantity });
-  });
-
-  weekEdit<ExtraDeleteForm>("/shopping/extra/delete", (weekStart, form) => {
-    const id = Number(form.id);
-    if (Number.isInteger(id)) deleteExtraItem(ctx.db, weekStart, id);
-  });
-
-  app.post<{ Body: BuildForm }>("/shopping/push", async (req, reply) => {
-    const weekStart = resolveWeek(req.body.weekStart, householdToday(ctx.db, ctx.now()));
-    const plan = getPlanForWeek(ctx.db, weekStart);
-    if (plan) await pushShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping") }, plan.id);
-    return reply.redirect(`/shopping?week=${weekStart}`, 303);
+  app.post("/shopping/push", async (req, reply) => {
+    await pushShoppingList({ ...ctx, log: runLogger(ctx.log, req, "shopping") });
+    return reply.redirect("/shopping", 303);
   });
 };

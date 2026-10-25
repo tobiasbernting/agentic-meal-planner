@@ -9,7 +9,7 @@ import { createCapturingLogger, type LogRecord } from "./logging/logger.js";
 import { savePlan } from "./planner/repo.js";
 import { createSchool } from "./schools/repo.js";
 import { weekDates } from "./week.js";
-import { postPlanRun } from "./plan-run/test-helpers.js";
+import { planRunSettled, postPlanRun } from "./plan-run/test-helpers.js";
 
 // Wednesday 2026-10-21; the week starts Monday 2026-10-19.
 const NOW = new Date(2026, 9, 21, 18, 30);
@@ -137,9 +137,10 @@ describe("loud fallbacks on the Shopping List", () => {
       NOW.toISOString(),
     );
 
-    await app.inject({ method: "POST", url: "/shopping/build", payload: form });
+    await app.inject({ method: "POST", url: "/plan/regenerate", payload: form });
+    await planRunSettled(app, WEEK);
 
-    expect(runRecords(records, "/shopping/build")).toContainEqual(
+    expect(runRecords(records, "/plan/regenerate")).toContainEqual(
       expect.objectContaining({ level: "warn", component: "ingredients", dish: "Mystery stew", reason: "no recipe found" }),
     );
   });

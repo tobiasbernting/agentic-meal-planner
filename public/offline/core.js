@@ -97,7 +97,7 @@ function mondayOf(date) {
 }
 
 /** Pages whose server default is this week, so `?week=<this Monday>` is the same page. */
-const WEEK_PAGES = ["/plan", "/shopping"];
+const WEEK_PAGES = ["/plan"];
 
 /**
  * The pre-warm list with `{thisWeek}` and `{nextWeek}` filled in.
@@ -111,8 +111,8 @@ export function prewarmUrls(templates, today) {
 }
 
 /**
- * Cache keys to try, in order, for a page's Offline Copy: the URL itself, then for Plan and
- * Shopping without a `?week` this week's pre-warmed copy.
+ * Cache keys to try, in order, for a page's Offline Copy: the URL itself, then for Plan without
+ * a `?week` this week's pre-warmed copy.
  * @param {string} url absolute URL
  * @param {string} today "YYYY-MM-DD"
  */
@@ -165,18 +165,17 @@ export function activateTab(html, backPath) {
 
 /**
  * The Shopping List edit a Pending Change is, read from its route and form body; undefined for
- * any other change.
+ * any other change. Lines are keyed by id (ADR-0009), a hand-add by its typed name.
  * @param {PendingChange} entry
- * @returns {{ kind: "check" | "uncheck" | "remove" | "restore" | "extra" | "extra-delete", weekStart: string, name: string, quantity: string, id: string } | undefined}
+ * @returns {{ kind: "check" | "uncheck" | "delete" | "add" | "clear", id: string, name: string, quantity: string } | undefined}
  */
 function shoppingEdit(entry) {
   const path = new URL(entry.url, "http://x").pathname;
-  const kinds = { "/shopping/check": "check", "/shopping/uncheck": "uncheck", "/shopping/remove": "remove", "/shopping/restore": "restore", "/shopping/extra": "extra", "/shopping/extra/delete": "extra-delete" };
+  const kinds = { "/shopping/check": "check", "/shopping/uncheck": "uncheck", "/shopping/delete": "delete", "/shopping/add": "add", "/shopping/clear": "clear" };
   const kind = kinds[path];
   if (!kind) return undefined;
   const form = new URLSearchParams(entry.body);
-  const normalised = (form.get("name") ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return { kind, weekStart: form.get("weekStart") ?? "", name: normalised, quantity: (form.get("quantity") ?? "").trim(), id: form.get("id") ?? "" };
+  return { kind, id: form.get("id") ?? "", name: (form.get("name") ?? "").trim(), quantity: (form.get("quantity") ?? "").trim() };
 }
 
 /** The quiet "väntar" mark after a line's label. @param {string} text */
@@ -205,34 +204,33 @@ function marked(li, mark) {
 }
 
 /**
- * The Offline Copy of a Shopping page with the week's Pending Changes shown on it, so a tick at
- * the store looks like a tick at home: a pending check is struck through and its tick unchecks,
- * a pending remove is muted and its control restores, a pending Extra Item is appended to Buy,
- * a pending Extra Item delete hides its line. Every touched line carries a small pending mark.
- * String replacement keyed on the `data-line` and `data-extra` attributes src/shopping/view.ts
- * renders. Any other page, and any change for another week, comes back unchanged.
+ * The Offline Copy of the Shopping page with the Pending Changes shown on it, so a tick at the
+ * store looks like a tick at home: a pending check is struck through and its tick unchecks, a
+ * pending Delete is muted, a pending hand-add is appended to Buy, a pending Clear hides the
+ * Checked Off lines. Every touched line carries a small pending mark. String replacement keyed
+ * on the `data-line` attribute (the line id) src/shopping/view.ts renders. Any other page comes
+ * back unchanged.
  * @param {string} html
  * @param {readonly PendingChange[]} pending
- * @param {{ pendingMark: string, remove: string, restore: string }} texts
+ * @param {{ pendingMark: string }} texts
  */
 export function overlayPendingChanges(html, pending, texts) {
-  const week = /name="weekStart" value="([^"]+)"/.exec(html)?.[1];
-  if (!week || !html.includes('action="/shopping/check"')) return html;
+  if (!html.includes('id="shopping-lists"')) return html;
   const mark = pendingMark(texts.pendingMark);
   let out = html;
   for (const entry of pending) {
     const edit = shoppingEdit(entry);
-    if (!edit || edit.weekStart !== week) continue;
-    const byName = `data-line="${escapeHtml(edit.name)}"`;
+    if (!edit) continue;
+    const byId = `data-line="${edit.id}"`;
     switch (edit.kind) {
       case "check":
       case "uncheck": {
         const checked = edit.kind === "check";
-        out = rewriteLine(out, `<li class="row line${checked ? "" : " line-checked"}${out.includes(`line-pending" ${byName}`) ? " line-pending" : ""}" ${byName}`, (li) =>
+        out = rewriteLine(out, `<li class="row line${checked ? "" : " line-checked"}${out.includes(`line-pending" ${byId}`) ? " line-pending" : ""}" ${byId}`, (li) =>
           marked(
             li
               .replace(/^<li class="row line[^"]*"/, `<li class="row line${checked ? " line-checked" : ""} line-pending"`)
-              .replace(checked ? 'action="/shopping/check"' : 'action="/shopping/uncheck"', checked ? 'action="/shopping/uncheck"' : 'action="/shopping/check"')
+              .replaceAll(checked ? '/shopping/check"' : '/shopping/uncheck"', checked ? '/shopping/uncheck"' : '/shopping/check"')
               .replace(`aria-pressed="${!checked}"`, `aria-pressed="${checked}"`)
               .replace(checked ? /<span class="row-label">([^<]*)<\/span>/ : /<s class="row-label">([^<]*)<\/s>/, checked ? '<s class="row-label">$1</s>' : '<span class="row-label">$1</span>'),
             mark,
@@ -240,31 +238,23 @@ export function overlayPendingChanges(html, pending, texts) {
         );
         break;
       }
-      case "remove":
-        out = rewriteLine(out, `<li class="row line" ${byName}`, (li) =>
-          marked(
-            li
-              .replace('<li class="row line"', '<li class="row line line-removed line-pending"')
-              .replace('action="/shopping/remove"', 'action="/shopping/restore"')
-              .replace(new RegExp(`(action="/shopping/restore">[\\s\\S]*?<button[^>]*>)${escapeHtml(texts.remove)}(</button>)`), `$1${escapeHtml(texts.restore)}$2`),
-            mark,
-          ),
-        );
-        break;
-      case "restore":
-        out = rewriteLine(out, `<li class="row with-actions" ${byName}`, (li) => marked(li.replace('<li class="row with-actions"', '<li class="row with-actions line-pending"'), mark));
-        break;
-      case "extra": {
-        const label = `${edit.quantity ? `${edit.quantity} ` : ""}${edit.name}`;
-        const li = `<li class="row line line-pending"><div class="line-body"><span class="row-label">${escapeHtml(label)}</span>${mark}</div></li>`;
-        const form = out.indexOf('<form method="post" action="/shopping/extra"');
-        const ul = out.lastIndexOf("</ul>", form);
-        const buyStart = out.indexOf('<section id="buy">');
-        out = ul > buyStart ? `${out.slice(0, ul)}${li}\n${out.slice(ul)}` : `${out.slice(0, form)}<ul class="rows">\n${li}\n</ul>\n${out.slice(form)}`;
+      case "delete": {
+        const open = new RegExp(`<li class="row line([^"]*)" ${byId}`).exec(out);
+        if (!open || open[1].includes("line-removed")) break;
+        out = rewriteLine(out, open[0], (li) => marked(li.replace(open[0], `<li class="row line${open[1]} line-removed line-pending" ${byId}`), mark));
         break;
       }
-      case "extra-delete":
-        out = out.replace(new RegExp(`(<li class="row line[^"]*" data-line="[^"]*" data-extra="${edit.id}")>`), "$1 hidden>");
+      case "add": {
+        const label = `${edit.quantity ? `${edit.quantity} ` : ""}${edit.name}`;
+        const li = `<li class="row line line-pending"><div class="line-body"><span class="row-label">${escapeHtml(label)}</span>${mark}</div></li>`;
+        const buyStart = out.indexOf('<section id="buy">');
+        const buyEnd = out.indexOf("</section>", buyStart);
+        const ul = out.lastIndexOf("</ul>", buyEnd);
+        out = ul > buyStart ? `${out.slice(0, ul)}${li}\n${out.slice(ul)}` : `${out.slice(0, buyEnd)}<ul class="rows">\n${li}\n</ul>\n${out.slice(buyEnd)}`;
+        break;
+      }
+      case "clear":
+        out = out.replace(/<li class="row line line-checked([^"]*)"([^>]*)>/g, (tag, classes, attrs) => (attrs.includes(" hidden") ? tag : `<li class="row line line-checked${classes}"${attrs} hidden>`));
         break;
     }
   }

@@ -9,6 +9,8 @@ import { parseDegradedReasons, toStored, type DegradedReason, type DegradedReaso
 export type PlanStatus = "generated" | "confirmed";
 
 export interface PlannedDinner {
+  /** The row id; Shares on the Shopping List refer to it (ADR-0009). */
+  id: number;
   date: string;
   dishId: number | null;
   isQuickDay: boolean;
@@ -37,6 +39,7 @@ interface PlanRow {
 }
 
 interface DinnerRow {
+  id: number;
   date: string;
   dish_id: number | null;
   is_quick_day: number;
@@ -90,6 +93,7 @@ export function getPlanForWeek(db: Database.Database, weekStart: string): Weekly
 export function listPlannedDinners(db: Database.Database, planId: number): PlannedDinner[] {
   return (db.prepare("SELECT * FROM planned_dinner WHERE plan_id = ? ORDER BY date").all(planId) as DinnerRow[]).map(
     (d) => ({
+      id: d.id,
       date: d.date,
       dishId: d.dish_id,
       isQuickDay: d.is_quick_day === 1,

@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import { writeSetting } from "../db.js";
 import { createDish, getDish } from "../dishes/repo.js";
 import { savePlan } from "../planner/repo.js";
+import { updateShoppingList } from "../shopping/shares.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { createSchool } from "../schools/repo.js";
 import { MAIN_CATEGORIES, MAIN_CATEGORY_KEYS } from "../dishes/categories.js";
@@ -88,12 +89,12 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
       ingredients: [{ name: "pasta", quantity: 400, unit: "g" }],
     });
     const pastaId = typeof pasta === "number" ? pasta : pasta.id;
-    savePlan(
+    const planId = savePlan(
       app.ctx.db,
       { weekStart: "2026-10-26", dinners: [{ date: "2026-10-26", dishId: pastaId, isQuickDay: false, lunchThatDay: null, rationale: "r" }], degradedReasons: [] },
       new Date(2026, 9, 28, 12).toISOString(),
     );
-    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: "2026-10-26" } });
+    await updateShoppingList(app.ctx, planId);
     const sv = (await app.inject({ method: "GET", url: "/shopping?week=2026-10-26" })).body;
     expect(sv).toContain('<section id="sinks">');
     expect(sv).toContain("Skicka igen");

@@ -51,7 +51,7 @@ describe("classify", () => {
   });
 
   it("classifies a POST sent by htmx by its route all the same", () => {
-    expect(classify(post("/shopping/pantry", { "HX-Request": "true" }), config)).toEqual({ kind: "online-only-write", route: "/shopping/pantry" });
+    expect(classify(post("/shopping/push", { "HX-Request": "true" }), config)).toEqual({ kind: "online-only-write", route: "/shopping/push" });
     expect(classify(post("/shopping/check", { "HX-Request": "true" }), config)).toEqual({ kind: "queueable-write", route: "/shopping/check" });
   });
 
@@ -95,8 +95,7 @@ describe("prewarmUrls", () => {
       "/",
       "/plan?week=2026-10-12",
       "/plan?week=2026-10-19",
-      "/shopping?week=2026-10-12",
-      "/shopping?week=2026-10-19",
+      "/shopping",
       "/dishes",
       "/pantry",
     ]);
@@ -109,9 +108,9 @@ describe("prewarmUrls", () => {
 });
 
 describe("cacheKeysFor", () => {
-  it("tries Plan and Shopping without a week as this week's pre-warmed copy too", () => {
+  it("tries Plan without a week as this week's pre-warmed copy too; the Shopping List has no weeks", () => {
     expect(cacheKeysFor(`${ORIGIN}/plan`, "2026-10-17")).toEqual([`${ORIGIN}/plan`, `${ORIGIN}/plan?week=2026-10-12`]);
-    expect(cacheKeysFor(`${ORIGIN}/shopping`, "2026-10-18")).toEqual([`${ORIGIN}/shopping`, `${ORIGIN}/shopping?week=2026-10-12`]);
+    expect(cacheKeysFor(`${ORIGIN}/shopping`, "2026-10-18")).toEqual([`${ORIGIN}/shopping`]);
   });
 
   it("tries only the URL itself for other pages and for a named week", () => {
@@ -484,89 +483,88 @@ describe("routeLabel", () => {
 });
 
 describe("overlayPendingChanges", () => {
-  const WEEK = "2026-10-12";
   const change = (path: string, fields: Record<string, string>) =>
-    newPendingChange({ url: ORIGIN + path, body: new URLSearchParams({ weekStart: WEEK, ...fields }).toString(), contentType: "application/x-www-form-urlencoded", now: new Date(2026, 9, 17, 9, 0), uuid: () => "u" });
+    newPendingChange({ url: ORIGIN + path, body: new URLSearchParams(fields).toString(), contentType: "application/x-www-form-urlencoded", now: new Date(2026, 9, 17, 9, 0), uuid: () => "u" });
   const texts = config.texts.sv;
 
-  /** A Shopping copy for the week: Buy has pasta and the Extra Item batteries; Check pantry has mjölk; ost is a Removed Line. */
-  async function shoppingCopy(): Promise<string> {
+  /** A Shopping copy: Buy has pasta and the hand-added batteries (ticked); Check pantry has mjölk. Returns the html and the line ids by name. */
+  async function shoppingCopy(): Promise<{ html: string; id: Record<string, string> }> {
     const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-offline-overlay-")), now: () => new Date(2026, 9, 14, 18, 30), logLevel: "info", logDestination: { write: () => true } });
     apps.push(app);
     const { createDish } = await import("../dishes/repo.js");
     const { createPantryItem } = await import("../pantry/repo.js");
-    const { savePlan } = await import("../planner/repo.js");
-    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "mjölk", quantity: 2, unit: "dl" }, { name: "ost", quantity: null, unit: null }] });
+    const { planWeek, updateList } = await import("../shopping/test-helpers.js");
+    const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "mjölk", quantity: 2, unit: "dl" }] });
     createPantryItem(app.ctx.db, { name: "mjölk", aliases: [] });
-    savePlan(app.ctx.db, { weekStart: WEEK, dinners: [{ date: WEEK, dishId: pasta, isQuickDay: false, lunchThatDay: null, rationale: "r" }], degradedReasons: [] }, "2026-10-11T18:00:00Z");
-    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
-    await app.inject({ method: "POST", url: "/shopping/extra", payload: { weekStart: WEEK, name: "batteries" } });
-    await app.inject({ method: "POST", url: "/shopping/remove", payload: { weekStart: WEEK, name: "ost" } });
-    return (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body;
+    await updateList(app, planWeek(app.ctx.db, "2026-10-12", [pasta], "2026-10-11T18:00:00Z"));
+    await app.inject({ method: "POST", url: "/shopping/add", payload: { name: "batteries", quantity: "2 pack" } });
+    let html = (await app.inject({ method: "GET", url: "/shopping" })).body;
+    const idOf = (name: string) => new RegExp(`data-line="(\\d+)" data-name="${name}"`).exec(html)![1]!;
+    const id = { pasta: idOf("pasta"), mjölk: idOf("mjölk"), batteries: idOf("batteries") };
+    await app.inject({ method: "POST", url: "/shopping/check", payload: { id: id.batteries } });
+    html = (await app.inject({ method: "GET", url: "/shopping" })).body;
+    return { html, id };
   }
 
-  const line = (html: string, key: string) => new RegExp(`<li class="row line[^"]*" data-line="${key}"[^>]*>[\\s\\S]*?</li>`).exec(html)?.[0] ?? "";
+  const line = (html: string, id: string) => new RegExp(`<li class="row line[^"]*" data-line="${id}"[^>]*>[\\s\\S]*?</li>`).exec(html)?.[0] ?? "";
 
   it("shows a pending check struck through with a pending mark, and flips its form to uncheck", async () => {
-    const html = overlayPendingChanges(await shoppingCopy(), [change("/shopping/check", { name: "pasta" })], texts);
-    const pasta = line(html, "pasta");
+    const { html: copy, id } = await shoppingCopy();
+    const html = overlayPendingChanges(copy, [change("/shopping/check", { id: id.pasta })], texts);
+    const pasta = line(html, id.pasta);
     expect(pasta).toMatch(/^<li class="row line line-checked line-pending"/);
-    expect(pasta).toContain('action="/shopping/uncheck"');
+    expect(pasta).toContain('action="/shopping/uncheck" hx-post="/shopping/uncheck"');
+    expect(pasta).not.toContain("/shopping/check\"");
     expect(pasta).toContain('aria-pressed="true"');
     expect(pasta).toMatch(/<s class="row-label">400 g pasta<\/s><span class="row-status pending-mark">väntar<\/span>/);
-    expect(line(html, "mjölk")).not.toContain("line-checked");
+    expect(line(html, id.mjölk)).not.toContain("line-checked");
   });
 
   it("shows a pending uncheck as open again, with one mark", async () => {
-    const checked = overlayPendingChanges(await shoppingCopy(), [change("/shopping/check", { name: "pasta" })], texts);
-    const html = overlayPendingChanges(checked, [change("/shopping/uncheck", { name: "pasta" })], texts);
-    const pasta = line(html, "pasta");
+    const { html: copy, id } = await shoppingCopy();
+    const checked = overlayPendingChanges(copy, [change("/shopping/check", { id: id.pasta })], texts);
+    const html = overlayPendingChanges(checked, [change("/shopping/uncheck", { id: id.pasta })], texts);
+    const pasta = line(html, id.pasta);
     expect(pasta).toMatch(/^<li class="row line line-pending"/);
     expect(pasta).toContain('action="/shopping/check"');
     expect(pasta).toMatch(/<span class="row-label">400 g pasta<\/span><span class="row-status pending-mark">väntar<\/span>/);
     expect(pasta.match(/pending-mark/g)).toHaveLength(1);
   });
 
-  it("shows a pending remove as a muted line whose control restores it, and a pending restore marked in the removed list", async () => {
-    const copy = await shoppingCopy();
-    const removed = overlayPendingChanges(copy, [change("/shopping/remove", { name: "mjölk" })], texts);
-    const mjolk = line(removed, "mjölk");
+  it("shows a pending Delete as a muted line with a mark, once", async () => {
+    const { html: copy, id } = await shoppingCopy();
+    const html = overlayPendingChanges(copy, [change("/shopping/delete", { id: id.mjölk }), change("/shopping/delete", { id: id.mjölk })], texts);
+    const mjolk = line(html, id.mjölk);
     expect(mjolk).toMatch(/^<li class="row line line-removed line-pending"/);
-    expect(mjolk).toMatch(/action="\/shopping\/restore">[\s\S]*?>Återställ<\/button>/);
-    expect(mjolk).not.toContain(">Ta bort<");
-
-    const restored = overlayPendingChanges(copy, [change("/shopping/restore", { name: "ost" })], texts);
-    const ost = /<li class="row with-actions[^"]*" data-line="ost"[^>]*>[\s\S]*?<\/li>/.exec(restored)![0];
-    expect(ost).toMatch(/^<li class="row with-actions line-pending"/);
-    expect(ost).toContain("pending-mark");
+    expect(mjolk.match(/pending-mark/g)).toHaveLength(1);
+    expect(line(html, id.pasta)).not.toContain("line-removed");
   });
 
-  it("appends a pending Extra Item to Buy with its quantity text, escaped, and hides a pending Extra Item delete", async () => {
-    const copy = await shoppingCopy();
-    const added = overlayPendingChanges(copy, [change("/shopping/extra", { name: "<candles>", quantity: "2 pack" })], texts);
+  it("appends a pending hand-add to Buy with its quantity text, escaped, and hides the ticked lines on a pending Clear", async () => {
+    const { html: copy, id } = await shoppingCopy();
+    const added = overlayPendingChanges(copy, [change("/shopping/add", { name: "<candles>", quantity: "2 pack" })], texts);
     const buy = /<section id="buy">[\s\S]*?<\/section>/.exec(added)![0];
-    expect(buy).toMatch(/<li class="row line line-pending">[\s\S]*?<span class="row-label">2 pack &lt;candles&gt;<\/span><span class="row-status pending-mark">väntar<\/span>[\s\S]*?<\/li>\s*<\/ul>\s*<form method="post" action="\/shopping\/extra"/);
+    expect(buy).toMatch(/<li class="row line line-pending"><div class="line-body"><span class="row-label">2 pack &lt;candles&gt;<\/span><span class="row-status pending-mark">väntar<\/span><\/div><\/li>\s*<\/ul>\s*<\/section>$/);
 
-    const id = /data-extra="(\d+)"/.exec(copy)![1]!;
-    const deleted = overlayPendingChanges(copy, [change("/shopping/extra/delete", { id })], texts);
-    expect(deleted).toMatch(new RegExp(`<li class="row line" data-line="batteries" data-extra="${id}" hidden>`));
+    const cleared = overlayPendingChanges(copy, [change("/shopping/clear", {})], texts);
+    expect(line(cleared, id.batteries)).toMatch(/^<li class="row line line-checked" data-line="\d+" data-name="batteries" hidden>/);
+    expect(line(cleared, id.pasta)).toMatch(/^<li class="row line" data-line="\d+" data-name="pasta">/);
   });
 
-  it("ignores another week's changes, non-Shopping changes and a page that is not a Shopping copy", async () => {
-    const copy = await shoppingCopy();
-    const otherWeek = newPendingChange({ url: ORIGIN + "/shopping/check", body: "weekStart=2026-10-19&name=pasta", contentType: "application/x-www-form-urlencoded", now: new Date(), uuid: () => "u" });
+  it("ignores non-Shopping changes and a page that is not a Shopping copy", async () => {
+    const { html: copy, id } = await shoppingCopy();
     const dish = newPendingChange({ url: ORIGIN + "/dishes/3", body: "name=X", contentType: "application/x-www-form-urlencoded", now: new Date(), uuid: () => "u" });
-    expect(overlayPendingChanges(copy, [otherWeek, dish], texts)).toBe(copy);
+    expect(overlayPendingChanges(copy, [dish], texts)).toBe(copy);
     const today = await renderedPage("/");
-    expect(overlayPendingChanges(today, [change("/shopping/check", { name: "pasta" })], texts)).toBe(today);
+    expect(overlayPendingChanges(today, [change("/shopping/check", { id: id.pasta })], texts)).toBe(today);
   });
 });
 
 describe("offlineResponseFor with Pending Changes", () => {
   it("answers a Shopping List edit with a 303 back to the list, not a page", async () => {
-    const res = offlineResponseFor({ kind: "queueable-write", route: "/shopping/check" }, { config, lang: "sv", back: "/shopping?week=2026-10-12" });
+    const res = offlineResponseFor({ kind: "queueable-write", route: "/shopping/check" }, { config, lang: "sv", back: "/shopping" });
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/shopping?week=2026-10-12");
+    expect(res.headers.get("location")).toBe("/shopping");
     expect(await res.text()).toBe("");
   });
 
