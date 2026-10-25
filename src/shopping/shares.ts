@@ -12,6 +12,7 @@
  * - after all of that, a line with no Shares and not hand-added is deleted if unticked and kept
  *   (as hand-added) if ticked; a ticked line that now needs more is un-ticked.
  */
+import { recordActivity } from "../lists/activity.js";
 import type Database from "better-sqlite3";
 import { getDish } from "../dishes/repo.js";
 import type { Ingredient } from "../dishes/repo.js";
@@ -192,6 +193,7 @@ export async function updateShoppingList(deps: ShoppingUpdateDeps, planId: numbe
   const sectionFor = (name: string): Section => (matches.get(name) ? "check_pantry" : "buy");
 
   deps.onProgress?.({ phase: "shopping-list-update" });
+  const lastLineBefore = (db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM list_item").get() as { id: number }).id;
   db.transaction(() => {
     for (const { dinner, dish, ingredients } of resolved) {
       db.prepare("DELETE FROM shopping_missing WHERE planned_dinner_id = ?").run(dinner.id);
@@ -199,6 +201,9 @@ export async function updateShoppingList(deps: ShoppingUpdateDeps, planId: numbe
       else addShares(db, { id: dinner.id, dishId: dish.id }, ingredients, sectionFor, now, touched);
     }
     for (const [lineId, before] of touched) settleLine(db, lineId, before);
+    // One Activity row for the update: how many new lines the planner wrote.
+    const newLines = (db.prepare("SELECT COUNT(*) AS n FROM list_item WHERE list_id = ? AND id > ?").get(SHOPPING_LIST_ID, lastLineBefore) as { n: number }).n;
+    if (newLines > 0) recordActivity(db, SHOPPING_LIST_ID, "planned", String(newLines), undefined, now);
   })();
   return { degradedReasons, missingDinnerIds, added: resolved.filter((r) => r.ingredients.length > 0).length };
 }

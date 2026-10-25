@@ -12,6 +12,7 @@ import { SCHEMA_IDEMPOTENCY } from "./offline/idempotency.js";
 import { SCHEMA_LISTS } from "./lists/schema.js";
 import { SCHEMA_MEMBERS } from "./members/schema.js";
 import { SCHEMA_TODOS } from "./lists/todos-schema.js";
+import { SCHEMA_ACTIVITY } from "./lists/activity.js";
 import { migrateToLivingShoppingList } from "./shopping/migrate.js";
 
 export const DB_FILENAME = "meal-planner.db";
@@ -39,6 +40,7 @@ const SCHEMA: string[] = [
   SCHEMA_LISTS,
   SCHEMA_MEMBERS,
   SCHEMA_TODOS,
+  SCHEMA_ACTIVITY,
 ];
 
 /**

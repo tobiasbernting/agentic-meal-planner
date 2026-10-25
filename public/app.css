@@ -350,3 +350,15 @@ html[data-online="0"] form[data-online-only]::after { content: attr(data-online-
 #pending-changes .rows > li.with-actions { padding-inline: 0; }
 #pending-changes .rows .notice { margin: 4px 0 0; padding: 8px 10px; font-size: var(--fs-small); }
 #pending-changes-note { margin: 0; }
+
+/* "Nyligen" (ADR-0010): quiet chips under the add row that put a cleared line back. */
+.recent-tray { margin: 12px var(--gutter) 0; }
+.recent-tray .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; }
+.recent-tray form { margin: 0; }
+.recent-tray .chip { background: transparent; color: var(--ink); font-weight: 400; }
+
+/* Activity (ADR-0010): who did what, closed by default at the foot of a List. */
+.activity { margin: 20px var(--gutter) 0; }
+.activity summary { min-height: var(--tap); display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.activity .rows > li { padding: 8px 0; }
+.line-done-by { display: block; }

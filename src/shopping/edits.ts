@@ -5,7 +5,8 @@
  * line back. Har alltid hemma (src/shopping/routes.ts) moves a line's section in place.
  */
 import type Database from "better-sqlite3";
-import { countCheckedItems, createItem, deleteCheckedItems, deleteItem, findItemByName, getItem, getList, markHandAdded, setChecked, setSection, type ListItem, type Section } from "../lists/repo.js";
+import { countCheckedItems, createItem, deleteCheckedItems, deleteItem, findItemByName, getItem, getList, listItems, markHandAdded, setChecked, setSection, type ListItem, type Section } from "../lists/repo.js";
+import { recordActivity, rememberCleared, type Actor } from "../lists/activity.js";
 import { SHOPPING_LIST_ID } from "../lists/schema.js";
 import { handAddSection } from "./shares.js";
 
@@ -55,6 +56,19 @@ export function deleteLine(db: Database.Database, id: number): boolean {
 /** Clear: every Checked Off line of the List (both sections on the Shopping List). Returns how many went. */
 export function clearChecked(db: Database.Database, listId = SHOPPING_LIST_ID): number {
   return deleteCheckedItems(db, listId);
+}
+
+/**
+ * Clear with its record: on a shopping-style List the ticked lines go to the re-add tray, and
+ * any List gets one "cleared" Activity row. Returns how many went.
+ */
+export function clearLines(db: Database.Database, listId: number, by: Actor, now: string): number {
+  const ticked = listItems(db, listId).filter((item) => item.checkedAt !== null);
+  const n = deleteCheckedItems(db, listId);
+  if (n === 0) return 0;
+  if (getList(db, listId)?.kind === "shopping") rememberCleared(db, listId, ticked, now);
+  recordActivity(db, listId, "cleared", String(n), by, now);
+  return n;
 }
 
 export function countChecked(db: Database.Database, listId = SHOPPING_LIST_ID): number {

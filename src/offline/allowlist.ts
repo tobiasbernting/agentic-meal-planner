@@ -35,6 +35,7 @@ export const QUEUEABLE_LABELS = {
   "/lists/:id/move": "offline.label.listMove",
   "/lists/:id/delete": "offline.label.listDelete",
   "/lists/:id/clear": "offline.label.listClear",
+  "/lists/:id/add": "offline.label.shoppingAdd",
   "/lists/:id/todos": "offline.label.todoCreate",
   "/todos/:id": "offline.label.todoEdit",
   "/todos/:id/tick": "offline.label.todoTick",

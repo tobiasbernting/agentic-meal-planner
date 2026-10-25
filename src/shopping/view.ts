@@ -19,6 +19,7 @@ import { weekdayOf } from "../week.js";
 import { SHOPPING_LIST_ID } from "../lists/schema.js";
 import { buyFingerprint, getShoppingList, type ShoppingLine } from "./list.js";
 import { countChecked } from "./edits.js";
+import type { ClearedLine } from "../lists/activity.js";
 
 /** What Har alltid hemma just did: the line moved, and the Pantry Item it created (none when one existed). */
 export interface Undo {
@@ -83,14 +84,20 @@ function provenance(lang: Lang, dishName: (id: number) => string | undefined, li
   return parts.length === 0 ? "" : `\n<span class="row-status">${t(lang, "shopping.till", { dishes: parts.join(", ") })}</span>`;
 }
 
-function renderLine(lang: Lang, dishName: (id: number) => string | undefined, line: ShoppingLine, actions: string[]): string {
-  const label = line.checked ? `<s class="row-label">${escapeHtml(itemLabel(line))}</s>` : `<span class="row-label">${escapeHtml(itemLabel(line))}</span>`;
-  const end = actions.length ? `\n<div class="line-end">${actions.join("\n")}</div>` : "";
-  return `<li class="row line${line.checked ? " line-checked" : ""}" data-line="${line.id}" data-name="${escapeHtml(normaliseName(line.name))}">${tickForm(lang, line)}<div class="line-body">${label}${provenance(lang, dishName, line)}</div>${end}</li>`;
+/** "Pappa 14:02" on a line a Member ticked. */
+function doneBy(lang: Lang, line: ShoppingLine, timezone: string | undefined): string {
+  if (!line.checked || !line.checkedBy || !line.checkedAt) return "";
+  return `\n<span class="row-status line-done-by">${escapeHtml(t(lang, "todo.doneBy", { name: line.checkedBy, time: shortWhen(lang, line.checkedAt, timezone) }))}</span>`;
 }
 
-function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[]): string {
-  const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, l, actions(l))).join("\n")}\n</ul>`;
+function renderLine(lang: Lang, dishName: (id: number) => string | undefined, line: ShoppingLine, actions: string[], timezone: string | undefined): string {
+  const label = line.checked ? `<s class="row-label">${escapeHtml(itemLabel(line))}</s>` : `<span class="row-label">${escapeHtml(itemLabel(line))}</span>`;
+  const end = actions.length ? `\n<div class="line-end">${actions.join("\n")}</div>` : "";
+  return `<li class="row line${line.checked ? " line-checked" : ""}" data-line="${line.id}" data-name="${escapeHtml(normaliseName(line.name))}">${tickForm(lang, line)}<div class="line-body">${label}${provenance(lang, dishName, line)}${doneBy(lang, line, timezone)}</div>${end}</li>`;
+}
+
+function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[], timezone: string | undefined): string {
+  const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, l, actions(l), timezone)).join("\n")}\n</ul>`;
   return `<section id="${id}">${heading ? `<h2 class="section-label">${heading}</h2>\n` : ""}${list}</section>`;
 }
 
@@ -118,6 +125,29 @@ export function addForm(lang: Lang, ctx: AppContext, listId = SHOPPING_LIST_ID):
 </form>`;
 }
 
+/**
+ * "Nyligen": lines Cleared or Deleted from this List in the last 30 days and not on it now, as
+ * quiet chips that add the line back with one tap. Nothing when the tray is empty.
+ */
+export function recentTray(lang: Lang, listId: number, lines: ClearedLine[]): string {
+  if (lines.length === 0) return "";
+  const chips = lines
+    .map((line) => {
+      const quantity = line.quantity ? `\n    <input type="hidden" name="quantity" value="${escapeHtml(line.quantity)}" />` : "";
+      return `<li><form method="post" action="/lists/${listId}/add">
+    <input type="hidden" name="name" value="${escapeHtml(line.name)}" />${quantity}
+    <button type="submit" class="chip" aria-label="${escapeHtml(t(lang, "shopping.recentAdd", { name: line.name }))}">${escapeHtml(line.quantity ? `${line.quantity} ${line.name}` : line.name)}</button>
+  </form></li>`;
+    })
+    .join("\n");
+  return `<section class="recent-tray" aria-labelledby="recent-${listId}">
+<h2 class="section-label" id="recent-${listId}">${t(lang, "shopping.recent")}</h2>
+<ul class="chips">
+${chips}
+</ul>
+</section>`;
+}
+
 /** "Rensa avbockade (N)" leading to the confirmation page; nothing when no line is ticked. */
 export function clearControl(lang: Lang, ctx: AppContext, listId = SHOPPING_LIST_ID): string {
   const n = countChecked(ctx.db, listId);
@@ -127,10 +157,10 @@ export function clearControl(lang: Lang, ctx: AppContext, listId = SHOPPING_LIST
 }
 
 /** Another shopping-style List: one plain section of lines with tick and Delete, in the Shopping page's markup. */
-export function renderPlainLines(lang: Lang, listId: number, lines: ShoppingLine[]): string {
+export function renderPlainLines(lang: Lang, listId: number, lines: ShoppingLine[], timezone?: string): string {
   const none = () => undefined;
   return `<div id="shopping-lists" data-list="${listId}">
-${renderSection(lang, none, "lines", "", lines, (line) => [deleteForm(lang, line)])}
+${renderSection(lang, none, "lines", "", lines, (line) => [deleteForm(lang, line)], timezone)}
 </div>`;
 }
 
@@ -145,10 +175,11 @@ export function renderLists(lang: Lang, ctx: AppContext, opts: { alwaysHome: boo
   const { undo } = opts;
   const buyActions = (line: ShoppingLine) => [...(opts.alwaysHome ? [alwaysHomeForm(lang, line)] : []), deleteForm(lang, line)];
   const pantryActions = (line: ShoppingLine) => [...(undo && undo.lineId === line.id ? [undoForm(lang, undo)] : []), deleteForm(lang, line)];
+  const timezone = readTimezone(ctx.db);
   const expire = undo ? `\n<div hidden hx-get="/shopping/sections" hx-trigger="load delay:6s" hx-target="#shopping-lists" hx-swap="outerHTML"></div>` : "";
   return `<div id="shopping-lists">
-${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, buyActions)}
-${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, pantryActions)}${expire}
+${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, buyActions, timezone)}
+${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, pantryActions, timezone)}${expire}
 </div>`;
 }
 

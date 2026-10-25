@@ -10,17 +10,18 @@ import { langOf, t, type Lang } from "../i18n/index.js";
 import { memberOf } from "../members/device.js";
 import { getMember, listMembers } from "../members/repo.js";
 import { householdToday, readTimezone } from "../planner/settings.js";
-import { countChecked } from "../shopping/edits.js";
+import { clearLines, countChecked } from "../shopping/edits.js";
+import { listActivity, listRecentlyCleared, recordActivity, type Actor } from "./activity.js";
 import { getListLines } from "../shopping/list.js";
-import { addForm, clearControl, renderPlainLines, shortDate } from "../shopping/view.js";
+import { addForm, clearControl, recentTray, renderPlainLines, shortDate } from "../shopping/view.js";
 import { isHtmx } from "../ui/htmx.js";
 import { page } from "../ui/layout.js";
 import { countOpenItems, createList, deleteList, getList, listLists, moveList, renameList, type List, type ListKind } from "./repo.js";
 import { SHOPPING_LIST_ID } from "./schema.js";
 import { parseQuickAdd, plain } from "./quick-add.js";
 import { isRepeatKind, type RepeatRule } from "./repeat.js";
-import { clearDoneTodos, createTodo, deleteTodo, endRepeat, getTodo, listDoneRecords, listTodos, tickTodo, untickTodo, updateTodo, type TodoInput } from "./todos.js";
-import { listClearPage, listDeletePage, listEditPage, listHead, listHref, listName, listsPage, todoEditPage, todoListPage, todoRow } from "./view.js";
+import { createTodo, deleteTodo, endRepeat, getTodo, listDoneRecords, listTodos, tickTodo, untickTodo, updateTodo, type TodoInput } from "./todos.js";
+import { activityDisclosure, listClearPage, listDeletePage, listEditPage, listHead, listHref, listName, listsPage, todoEditPage, todoListPage, todoRow } from "./view.js";
 
 interface ListParams {
   id: string;
@@ -110,6 +111,12 @@ export const listRoutes: FeaturePlugin = async (app, ctx) => {
     return { title, notes: body.notes ?? null, dueDate, dueTime: dueDate ? dueTime : null, member: member ? { id: member.id, name: member.name } : null, repeat };
   }
 
+  /** The device Member an edit is attributed to. */
+  const actor = (req: FastifyRequest): Actor => {
+    const me = memberOf(req, db);
+    return me ? { id: me.id, name: me.name } : undefined;
+  };
+
   const notFound = (req: FastifyRequest, reply: FastifyReply, key: "lists.notFound" | "todo.notFound") => reply.code(404).type("text/plain; charset=utf-8").send(t(langOf(req), key));
 
   app.get("/lists", async (req, reply) => {
@@ -140,9 +147,11 @@ export const listRoutes: FeaturePlugin = async (app, ctx) => {
       const lines = getListLines(db, list.id);
       const body = `${listHead(lang, list)}
 ${clearedNotice ? `<div class="notice" role="status"><span class="notice-text">${clearedNotice}</span></div>` : ""}
-${lines.length === 0 ? `<p class="notice">${t(lang, "lists.empty")}</p>` : renderPlainLines(lang, list.id, lines)}
+${lines.length === 0 ? `<p class="notice">${t(lang, "lists.empty")}</p>` : renderPlainLines(lang, list.id, lines, readTimezone(db))}
 ${addForm(lang, ctx, list.id)}
-${clearControl(lang, ctx, list.id)}`;
+${recentTray(lang, list.id, listRecentlyCleared(db, list.id, ctx.now().toISOString()))}
+${clearControl(lang, ctx, list.id)}
+${activityDisclosure(lang, listActivity(db, list.id, ctx.now().toISOString()), today(), readTimezone(db))}`;
       return page({ title: list.name, body, lang, tab: "lists" });
     }
     const me = memberOf(req, db);
@@ -154,6 +163,7 @@ ${clearControl(lang, ctx, list.id)}`;
       typeof text === "string" && todos.some((todo) => todo.id === addedId) ? { id: addedId, text, spans: parseQuickAdd(text, { lang, today: today(), members: listMembers(db) }).spans } : undefined;
     return todoListPage(lang, ctx, list, todos, {
       ...(added ? { added } : {}),
+      activityHtml: activityDisclosure(lang, listActivity(db, list.id, ctx.now().toISOString()), today(), readTimezone(db)),
       today: today(),
       timezone: readTimezone(db),
       me,
@@ -217,7 +227,7 @@ ${clearControl(lang, ctx, list.id)}`;
     const list = getList(db, Number(req.params.id));
     if (!list) return notFound(req, reply, "lists.notFound");
     if (list.id === SHOPPING_LIST_ID) return reply.redirect("/shopping/clear", 303);
-    const n = clearDoneTodos(db, list.id);
+    const n = clearLines(db, list.id, actor(req), ctx.now().toISOString());
     return reply.redirect(n > 0 ? `/lists/${list.id}?cleared=${n}` : `/lists/${list.id}`, 303);
   });
 
@@ -234,7 +244,10 @@ ${clearControl(lang, ctx, list.id)}`;
       const todos = listTodos(db, list.id);
       return todoListPage(lang, ctx, list, todos, { today: today(), timezone: readTimezone(db), me: memberOf(req, db), mine: false, doneCount: todos.filter((todo) => todo.doneAt !== null).length, notice: parsed.error });
     }
-    createTodo(db, list.id, parsed, ctx.now().toISOString(), memberOf(req, db)?.name ?? null);
+    const now = ctx.now().toISOString();
+    const by = actor(req);
+    createTodo(db, list.id, parsed, now, by?.name ?? null);
+    recordActivity(db, list.id, "added", parsed.title, by, now);
     return reply.redirect(`/lists/${list.id}`, 303);
   });
 
@@ -269,7 +282,10 @@ ${clearControl(lang, ctx, list.id)}`;
       updateTodo(db, replacing.id, input);
       id = replacing.id;
     } else {
-      id = createTodo(db, listId, input, ctx.now().toISOString(), memberOf(req, db)?.name ?? null).id;
+      const now = ctx.now().toISOString();
+      const by = actor(req);
+      id = createTodo(db, listId, input, now, by?.name ?? null).id;
+      recordActivity(db, listId, "added", input.title, by, now);
     }
     if (isHtmx(req)) {
       html(reply);
@@ -302,7 +318,7 @@ ${clearControl(lang, ctx, list.id)}`;
 
   app.post<{ Params: ListParams; Body: TodoForm }>("/todos/:id/delete", async (req, reply) => {
     const todo = getTodo(db, Number(req.params.id));
-    if (todo) deleteTodo(db, todo.id);
+    if (todo && deleteTodo(db, todo.id)) recordActivity(db, todo.listId, "deleted", todo.title, actor(req), ctx.now().toISOString());
     return reply.redirect(todo ? `/lists/${todo.listId}` : "/lists", 303);
   });
 
@@ -321,8 +337,10 @@ ${clearControl(lang, ctx, list.id)}`;
     const lang = langOf(req);
     const todo = getTodo(db, Number(req.params.id));
     if (!todo) return notFound(req, reply, "todo.notFound");
-    const me = memberOf(req, db);
-    const outcome = tickTodo(db, todo.id, ctx.now().toISOString(), today(), me ? { id: me.id, name: me.name } : undefined);
+    const by = actor(req);
+    const now = ctx.now().toISOString();
+    const outcome = tickTodo(db, todo.id, now, today(), by);
+    if (outcome.kind !== "missing") recordActivity(db, todo.listId, "ticked", todo.title, by, now);
     const flash = outcome.kind === "advanced" ? t(lang, "todo.repeat.advanced", { date: shortDate(lang, outcome.nextDue) }) : undefined;
     return answerTick(req, reply, todo.id, todo.listId, flash);
   });
@@ -331,6 +349,7 @@ ${clearControl(lang, ctx, list.id)}`;
     const todo = getTodo(db, Number(req.params.id));
     if (!todo) return notFound(req, reply, "todo.notFound");
     if (!untickTodo(db, todo.id)) return reply.code(409).type("text/plain; charset=utf-8").send(t(langOf(req), "todo.repeat.cannotUntick"));
+    recordActivity(db, todo.listId, "unticked", todo.title, actor(req), ctx.now().toISOString());
     return answerTick(req, reply, todo.id, todo.listId);
   });
 

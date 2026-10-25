@@ -1,6 +1,7 @@
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import type Database from "better-sqlite3";
 import { openDatabase, readSetting } from "./db.js";
+import { pruneActivity } from "./lists/activity.js";
 import { configuredLlmAgent } from "./llm/index.js";
 import type { LlmAgent } from "./llm/types.js";
 import { DEFAULT_CRON_EXPRESSION, SETTING_AGENT_COMMAND, SETTING_CRON_EXPRESSION, SETTING_TIMEZONE } from "./planner/settings.js";
@@ -198,6 +199,8 @@ export async function buildApp({ dataDir, llm, now, fetchPage, scheduler, env, f
     ...(fetch ? { fetch } : {}),
   };
   app.decorate("ctx", ctx);
+  // Activity and the re-add tray keep 30 days; the scheduler's minute tick prunes once a day too.
+  pruneActivity(db, ctx.now().toISOString());
   const postRoutes: string[] = [];
   app.decorate("postRoutes", postRoutes);
   app.addHook("onRoute", (route) => {

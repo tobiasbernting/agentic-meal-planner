@@ -10,7 +10,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FeaturePlugin } from "../app.js";
 import { runLogger } from "../logging/logger.js";
-import { householdToday } from "../planner/settings.js";
+import { householdToday, readTimezone } from "../planner/settings.js";
 import { getPlanById } from "../planner/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { getDish } from "../dishes/repo.js";
@@ -21,14 +21,17 @@ import { pushShoppingList } from "../sinks/push.js";
 import { addDays, mondayOf } from "../week.js";
 import { getShoppingList } from "./list.js";
 import { listMissingDinners, updateShoppingList } from "./shares.js";
-import { addLine, checkLine, clearChecked, countChecked, deleteLine, moveLine, shoppingLineList, uncheckLine } from "./edits.js";
+import { addLine, checkLine, clearLines, countChecked, deleteLine, moveLine, shoppingLineList, uncheckLine } from "./edits.js";
 import { getListLines } from "./list.js";
 import { SHOPPING_LIST_ID } from "../lists/schema.js";
-import { getList } from "../lists/repo.js";
+import { getItem, getList } from "../lists/repo.js";
+import { listActivity, listRecentlyCleared, recordActivity, rememberCleared, type Actor } from "../lists/activity.js";
+import { activityDisclosure } from "../lists/view.js";
+import { memberOf } from "../members/device.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
-import { addForm, clearControl, renderLists, renderMissing, renderPlainLines, renderPushes, shortDate, type Undo } from "./view.js";
+import { addForm, clearControl, recentTray, renderLists, renderMissing, renderPlainLines, renderPushes, shortDate, type Undo } from "./view.js";
 
 interface ShoppingQuery {
   notice?: string;
@@ -92,8 +95,10 @@ ${planRunBanner(ctx, lang, addDays(thisWeek, 7))}
 ${renderMissing(lang, missingNames, !retryBlocked())}
 ${empty ? `<p class="notice">${t(lang, "shopping.empty")} <a href="/plan">${t(lang, "shopping.goToPlan")}</a></p>` : renderLists(lang, ctx)}
 ${addForm(lang, ctx)}
+${recentTray(lang, SHOPPING_LIST_ID, listRecentlyCleared(ctx.db, SHOPPING_LIST_ID, ctx.now().toISOString()))}
 ${clearControl(lang, ctx)}
-${renderPushes(lang, ctx, buy)}`;
+${renderPushes(lang, ctx, buy)}
+${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toISOString()), now, readTimezone(ctx.db))}`;
     html(reply);
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
@@ -102,28 +107,60 @@ ${renderPushes(lang, ctx, buy)}`;
   const sendLists = (req: FastifyRequest, reply: FastifyReply, undo?: Undo, listId = SHOPPING_LIST_ID) => {
     if (!isHtmx(req)) return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
     html(reply);
-    if (listId !== SHOPPING_LIST_ID) return reply.send(renderPlainLines(langOf(req), listId, getListLines(ctx.db, listId)));
+    if (listId !== SHOPPING_LIST_ID) return reply.send(renderPlainLines(langOf(req), listId, getListLines(ctx.db, listId), readTimezone(ctx.db)));
     return reply.send(renderLists(langOf(req), ctx, { alwaysHome: true, undo }));
   };
 
-  /** Applies a line edit and answers for the line's List (read before the edit, since Delete removes the line). */
-  const lineEdit = (action: string, edit: (id: number) => void) =>
+  /** The device Member an edit is attributed to. */
+  const actor = (req: FastifyRequest): Actor => {
+    const me = memberOf(req, ctx.db);
+    return me ? { id: me.id, name: me.name } : undefined;
+  };
+
+  /**
+   * Applies a line edit, records it in the line's List's Activity, and answers for that List
+   * (read before the edit, since Delete removes the line).
+   */
+  const lineEdit = (action: string, activity: "ticked" | "unticked" | "deleted", edit: (id: number, by: Actor, now: string) => boolean) =>
     app.post<{ Body: LineForm }>(action, async (req, reply) => {
       const id = lineId(req.body);
       const listId = id === undefined ? undefined : shoppingLineList(ctx.db, id);
-      if (id !== undefined && listId !== undefined) edit(id);
+      if (id !== undefined && listId !== undefined) {
+        const item = getItem(ctx.db, id)!;
+        const by = actor(req);
+        const now = ctx.now().toISOString();
+        if (edit(id, by, now)) {
+          recordActivity(ctx.db, listId, activity, item.name, by, now);
+          if (activity === "deleted") rememberCleared(ctx.db, listId, [{ name: item.name, quantity: item.quantity }], now);
+        }
+      }
       return sendLists(req, reply, undefined, listId ?? SHOPPING_LIST_ID);
     });
-  lineEdit("/shopping/check", (id) => checkLine(ctx.db, id, ctx.now().toISOString()));
-  lineEdit("/shopping/uncheck", (id) => uncheckLine(ctx.db, id));
-  lineEdit("/shopping/delete", (id) => deleteLine(ctx.db, id));
+  lineEdit("/shopping/check", "ticked", (id, by, now) => checkLine(ctx.db, id, now, by?.name ?? null));
+  lineEdit("/shopping/uncheck", "unticked", (id) => uncheckLine(ctx.db, id));
+  lineEdit("/shopping/delete", "deleted", (id) => deleteLine(ctx.db, id));
+
+  /** Hand-add (the add row, or a "Nyligen" chip): the line, its Activity row, back to its List. */
+  const handAdd = (req: FastifyRequest, reply: FastifyReply, listId: number, body: AddForm) => {
+    const name = body.name?.trim();
+    if (name) {
+      const now = ctx.now().toISOString();
+      const line = addLine(ctx.db, { name, quantity: body.quantity }, now, listId);
+      recordActivity(ctx.db, listId, "added", line.name, actor(req), now);
+    }
+    return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
+  };
 
   app.post<{ Body: AddForm }>("/shopping/add", async (req, reply) => {
     const requested = Number(req.body.listId);
     const listId = Number.isInteger(requested) && requested > 0 && getList(ctx.db, requested)?.kind === "shopping" ? requested : SHOPPING_LIST_ID;
-    const name = req.body.name?.trim();
-    if (name) addLine(ctx.db, { name, quantity: req.body.quantity }, ctx.now().toISOString(), listId);
-    return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
+    return handAdd(req, reply, listId, req.body);
+  });
+
+  app.post<{ Params: { id: string }; Body: AddForm }>("/lists/:id/add", async (req, reply) => {
+    const list = getList(ctx.db, Number(req.params.id));
+    if (!list || list.kind !== "shopping") return reply.code(404).type("text/plain; charset=utf-8").send(t(langOf(req), "lists.notFound"));
+    return handAdd(req, reply, list.id, req.body);
   });
 
   // Clear asks once: the GET is the confirmation page, the POST removes every Checked Off line.
@@ -140,8 +177,8 @@ ${renderPushes(lang, ctx, buy)}`;
     return page({ title: t(lang, "shopping.clearTitle"), body, lang, tab: "shopping" });
   });
 
-  app.post("/shopping/clear", async (_req, reply) => {
-    const n = clearChecked(ctx.db);
+  app.post("/shopping/clear", async (req, reply) => {
+    const n = clearLines(ctx.db, SHOPPING_LIST_ID, actor(req), ctx.now().toISOString());
     return reply.redirect(n > 0 ? `/shopping?cleared=${n}` : "/shopping", 303);
   });
 

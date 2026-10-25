@@ -211,7 +211,8 @@ describe("Delete", () => {
 
     const after = await shoppingPage(app);
     expect(sectionLines(after, "buy")).toEqual([["500 g pasta", false]]);
-    expect(after).not.toContain(">ost<");
+    // Only the re-add tray still offers it.
+    expect(after.slice(0, after.indexOf('class="recent-tray"'))).not.toContain(">ost<");
     expect(after).not.toMatch(/removed|restore/i);
   });
 
