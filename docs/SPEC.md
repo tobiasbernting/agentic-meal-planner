@@ -10,9 +10,9 @@ A self-hosted, single-container app that plans a household's dinners Mon–Sun, 
 
 - No auth, no users, no multi-household tenancy. Trusted LAN only.
 - No breakfast/lunch/snack planning — dinners only.
-- No notifications (email/push from the app itself); sinks cover delivery.
+- No notifications beyond the webhook sink: the Daily Brief and Due reminders (ADR-0010) go through it; the app sends no email and no push of its own.
 - No leftover/inventory awareness ("we have minced meat already").
-- No house planning (chores, maintenance). That lives on the shared Trello board, outside this app.
+- No calendar of events, no chore rewards, no per-person permissions. Household Lists and Todos (ADR-0010) cover chores as repeating Todos assigned to a Member; events stay in the phones' calendars.
 - No calendar feed in v1. Kids' meals are shown in the web app; an ICS feed is deferred.
 
 ## Functional requirements
