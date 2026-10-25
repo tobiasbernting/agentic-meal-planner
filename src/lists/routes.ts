@@ -17,6 +17,7 @@ import { isHtmx } from "../ui/htmx.js";
 import { page } from "../ui/layout.js";
 import { countOpenItems, createList, deleteList, getList, listLists, moveList, renameList, type List, type ListKind } from "./repo.js";
 import { SHOPPING_LIST_ID } from "./schema.js";
+import { parseQuickAdd, plain } from "./quick-add.js";
 import { isRepeatKind, type RepeatRule } from "./repeat.js";
 import { clearDoneTodos, createTodo, deleteTodo, endRepeat, getTodo, listDoneRecords, listTodos, tickTodo, untickTodo, updateTodo, type TodoInput } from "./todos.js";
 import { listClearPage, listDeletePage, listEditPage, listHead, listHref, listName, listsPage, todoEditPage, todoListPage, todoRow } from "./view.js";
@@ -45,6 +46,10 @@ interface TodoForm {
   repeat_n?: string;
   repeat_day?: string;
   next?: string;
+  /** Quick Add: the typed phrase; `raw=1` keeps it whole as the title; `replace` re-saves that Todo. */
+  text?: string;
+  raw?: string;
+  replace?: string;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -123,7 +128,7 @@ export const listRoutes: FeaturePlugin = async (app, ctx) => {
     return reply.redirect(`/lists/${list.id}`, 303);
   });
 
-  app.get<{ Params: ListParams; Querystring: { mine?: string; cleared?: string } }>("/lists/:id", async (req, reply) => {
+  app.get<{ Params: ListParams; Querystring: { mine?: string; cleared?: string; added?: string; text?: string } }>("/lists/:id", async (req, reply) => {
     const lang = langOf(req);
     const list = getList(db, Number(req.params.id));
     if (!list) return notFound(req, reply, "lists.notFound");
@@ -142,7 +147,13 @@ ${clearControl(lang, ctx, list.id)}`;
     }
     const me = memberOf(req, db);
     const todos = listTodos(db, list.id);
+    // Right after a Quick Add without HTMX: mark the phrase's parsed words on the new row once.
+    const addedId = Number(req.query.added);
+    const text = req.query.text;
+    const added =
+      typeof text === "string" && todos.some((todo) => todo.id === addedId) ? { id: addedId, text, spans: parseQuickAdd(text, { lang, today: today(), members: listMembers(db) }).spans } : undefined;
     return todoListPage(lang, ctx, list, todos, {
+      ...(added ? { added } : {}),
       today: today(),
       timezone: readTimezone(db),
       me,
@@ -215,7 +226,9 @@ ${clearControl(lang, ctx, list.id)}`;
     const lang = langOf(req);
     const list = getList(db, Number(req.params.id));
     if (!list || list.kind !== "todo") return notFound(req, reply, "lists.notFound");
-    const parsed = parseTodoForm(lang, req.body ?? {});
+    const body = req.body ?? {};
+    if (body.text !== undefined) return quickAdd(req, reply, list.id, body);
+    const parsed = parseTodoForm(lang, body);
     if ("error" in parsed) {
       html(reply.code(400));
       const todos = listTodos(db, list.id);
@@ -224,6 +237,46 @@ ${clearControl(lang, ctx, list.id)}`;
     createTodo(db, list.id, parsed, ctx.now().toISOString(), memberOf(req, db)?.name ?? null);
     return reply.redirect(`/lists/${list.id}`, 303);
   });
+
+  /**
+   * Quick Add: parse the phrase (or keep it whole with `raw=1`) and save it as a new Todo, or
+   * over the Todo named by `replace` ("behåll som text"). Over HTMX the answer is the new row
+   * with the parsed words marked; otherwise the List, which marks them once.
+   */
+  const quickAdd = (req: FastifyRequest, reply: FastifyReply, listId: number, body: TodoForm) => {
+    const lang = langOf(req);
+    const text = body.text?.trim() ?? "";
+    if (!text) {
+      html(reply.code(400));
+      const list = getList(db, listId)!;
+      const todos = listTodos(db, listId);
+      return todoListPage(lang, ctx, list, todos, { today: today(), timezone: readTimezone(db), me: memberOf(req, db), mine: false, doneCount: todos.filter((todo) => todo.doneAt !== null).length, notice: t(lang, "todo.invalid") });
+    }
+    const members = listMembers(db);
+    const parsed = body.raw === "1" ? plain(text) : parseQuickAdd(text, { lang, today: today(), members });
+    const member = members.find((m) => m.id === parsed.memberId);
+    const replacing = getTodo(db, Number(body.replace));
+    const input: TodoInput = {
+      title: parsed.title,
+      notes: replacing?.listId === listId ? replacing.notes : null,
+      dueDate: parsed.dueDate,
+      dueTime: parsed.dueTime,
+      member: member ? { id: member.id, name: member.name } : null,
+      repeat: parsed.repeat,
+    };
+    let id: number;
+    if (replacing && replacing.listId === listId) {
+      updateTodo(db, replacing.id, input);
+      id = replacing.id;
+    } else {
+      id = createTodo(db, listId, input, ctx.now().toISOString(), memberOf(req, db)?.name ?? null).id;
+    }
+    if (isHtmx(req)) {
+      html(reply);
+      return reply.send(todoRow(lang, getTodo(db, id)!, members, { today: today(), timezone: readTimezone(db), quickAdd: { text, spans: parsed.spans } }));
+    }
+    return reply.redirect(parsed.spans.length ? `/lists/${listId}?added=${id}&text=${encodeURIComponent(text)}` : `/lists/${listId}`, 303);
+  };
 
   app.get<{ Params: ListParams }>("/todos/:id/edit", async (req, reply) => {
     const todo = getTodo(db, Number(req.params.id));

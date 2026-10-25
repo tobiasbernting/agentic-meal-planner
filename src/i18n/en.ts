@@ -325,6 +325,9 @@ export const en = {
   "lists.clearConfirm": "Remove {n} lines",
   "lists.cleared": "{n} done lines cleared.",
 
+  "quickAdd.label": "Add a to do",
+  "quickAdd.hint": "e.g. Bins out every wednesday at 7pm @Pappa",
+  "quickAdd.keepText": "keep as text",
   "todo.add": "Add",
   "todo.title": "What",
   "todo.notes": "Notes",

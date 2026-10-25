@@ -15,6 +15,7 @@ import { shortWhen } from "../ui/when.js";
 import { SHOPPING_LIST_ID } from "./schema.js";
 import { countOpenItems, type List } from "./repo.js";
 import { describeRepeat, REPEAT_KINDS, type RepeatRule } from "./repeat.js";
+import type { QuickAddSpan } from "./quick-add.js";
 import type { DoneRecord, Todo } from "./todos.js";
 
 /** The List's name as shown: the Shopping List takes the UI language's name. */
@@ -114,6 +115,34 @@ export interface TodoRowOptions {
   listName?: string;
   /** Short status to show for a moment after a repeating Todo advanced. */
   flash?: string;
+  /** The phrase this Todo was just Quick Added from, with its parsed spans to mark once. */
+  quickAdd?: QuickAddEcho;
+}
+
+export interface QuickAddEcho {
+  text: string;
+  spans: QuickAddSpan[];
+}
+
+/**
+ * The typed phrase with the parsed words as `<mark>`, and "behåll som text", which re-posts the
+ * phrase with `raw=1` to save it whole as the title of this same Todo. Nothing when nothing parsed.
+ */
+function quickAddEcho(lang: Lang, todo: Todo, echo: QuickAddEcho): string {
+  if (echo.spans.length === 0) return "";
+  let html = "";
+  let at = 0;
+  for (const span of echo.spans) {
+    html += `${escapeHtml(echo.text.slice(at, span.start))}<mark>${escapeHtml(echo.text.slice(span.start, span.end))}</mark>`;
+    at = span.end;
+  }
+  html += escapeHtml(echo.text.slice(at));
+  return `\n<div class="quick-add-echo" role="status"><span class="quick-add-text">${html}</span><form method="post" action="/lists/${todo.listId}/todos">
+  <input type="hidden" name="text" value="${escapeHtml(echo.text)}" />
+  <input type="hidden" name="raw" value="1" />
+  <input type="hidden" name="replace" value="${todo.id}" />
+  <button type="submit" class="quiet">${t(lang, "quickAdd.keepText")}</button>
+</form></div>`;
 }
 
 /** "fre 31 okt 15:00" or "fre 31 okt". */
@@ -147,7 +176,7 @@ export function todoRow(lang: Lang, todo: Todo, members: Member[], opts: TodoRow
   if (todo.repeat) meta.push(`<span class="todo-repeat">↻ ${escapeHtml(describeRepeat(todo.repeat, lang))}</span>`);
   if (opts.listName) meta.push(`<span class="todo-list">${escapeHtml(opts.listName)}</span>`);
   if (todo.doneAt) meta.push(`<span class="todo-done-by">${escapeHtml(todo.doneBy ? t(lang, "todo.doneBy", { name: todo.doneBy, time: shortWhen(lang, todo.doneAt, opts.timezone) }) : t(lang, "todo.doneAt", { time: shortWhen(lang, todo.doneAt, opts.timezone) }))}</span>`);
-  const metaHtml = meta.length ? `\n<div class="todo-meta">${meta.join("")}</div>` : "";
+  const metaHtml = (meta.length ? `\n<div class="todo-meta">${meta.join("")}</div>` : "") + (opts.quickAdd ? quickAddEcho(lang, todo, opts.quickAdd) : "");
   const end = `\n<div class="todo-end"><a class="button quiet" href="/todos/${todo.id}/edit">${t(lang, "todo.edit")}</a></div>`;
   return `<li class="${classes}" data-todo="${todo.id}">${tickForm(lang, todo, opts.next)}<div class="todo-body">${label}${metaHtml}</div>${end}</li>`;
 }
@@ -157,16 +186,11 @@ function memberSelect(lang: Lang, members: Member[], chosen: number | null, name
   return `<label>${t(lang, "todo.member")} <select name="${name}">${options.join("")}</select></label>`;
 }
 
-/** The add form at the top of a todo-style List: title, Due date, time, Member. */
-export function todoAddForm(lang: Lang, list: List, members: Member[]): string {
+/** Quick Add at the top of a todo-style List: one phrase; Due, Repeat and Member come from its words. */
+export function todoAddForm(lang: Lang, list: List): string {
   return `<form method="post" action="/lists/${list.id}/todos" class="todo-add">
-  <label>${t(lang, "todo.title")} <input name="title" required autocomplete="off" /></label>
-  <div class="todo-add-when">
-    <label>${t(lang, "todo.due")} <input type="date" name="due_date" /></label>
-    <label>${t(lang, "todo.dueTime")} <input type="time" name="due_time" /></label>
-    ${memberSelect(lang, members, null)}
-    <button type="submit">${t(lang, "todo.add")}</button>
-  </div>
+  <label>${t(lang, "quickAdd.label")} <input name="text" required autocomplete="off" placeholder="${escapeHtml(t(lang, "quickAdd.hint"))}" /></label>
+  <button type="submit">${t(lang, "todo.add")}</button>
 </form>`;
 }
 
@@ -178,6 +202,8 @@ export interface TodoPageOptions {
   mine: boolean;
   doneCount: number;
   notice?: string;
+  /** The Todo just Quick Added and its phrase, marked once on its row. */
+  added?: { id: number } & QuickAddEcho;
 }
 
 /** The Mina / Alla toggle, present only when the device has a Member. */
@@ -189,10 +215,10 @@ function mineToggle(lang: Lang, list: List, me: Member | undefined, mine: boolea
 export function todoListPage(lang: Lang, ctx: AppContext, list: List, todos: Todo[], opts: TodoPageOptions): string {
   const members = listMembers(ctx.db);
   const shown = opts.mine && opts.me ? todos.filter((todo) => todo.memberId === opts.me!.id) : todos;
-  const rows = shown.length === 0 ? `<p class="notice">${t(lang, "lists.empty")}</p>` : `<ul class="rows" id="todos">\n${shown.map((todo) => todoRow(lang, todo, members, { today: opts.today, timezone: opts.timezone })).join("\n")}\n</ul>`;
+  const rows = shown.length === 0 ? `<p class="notice">${t(lang, "lists.empty")}</p>` : `<ul class="rows" id="todos">\n${shown.map((todo) => todoRow(lang, todo, members, { today: opts.today, timezone: opts.timezone, ...(opts.added?.id === todo.id ? { quickAdd: opts.added } : {}) })).join("\n")}\n</ul>`;
   const body = `${listHead(lang, list)}
 ${opts.notice ? notice({ text: opts.notice, role: "status" }) : ""}
-${todoAddForm(lang, list, members)}
+${todoAddForm(lang, list)}
 ${mineToggle(lang, list, opts.me, opts.mine)}
 ${rows}
 ${listClearControl(lang, list, opts.doneCount)}`;

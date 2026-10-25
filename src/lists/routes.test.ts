@@ -6,6 +6,7 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { NoAgent } from "../llm/index.js";
+import { ScriptedLlmAgent } from "../llm/fake.js";
 import { createMember } from "../members/repo.js";
 import { planWeek, sectionLines, updateList } from "../shopping/test-helpers.js";
 import { listLists } from "./repo.js";
@@ -280,5 +281,59 @@ describe("a todo-style List", () => {
     expect(listTodos(app.ctx.db, chores)[0]!.repeat).toBeNull();
     await post(app, `/todos/${id}`, { title: "Dammsuga", due_date: "2026-10-21", repeat_kind: "every_n_weeks", repeat_n: "2" });
     expect(await get(app, `/lists/${chores}`, "lang=sv")).toContain("↻ varannan vecka");
+  });
+});
+
+describe("Quick Add on a todo-style List", () => {
+  async function withMamma() {
+    const llm = new ScriptedLlmAgent({});
+    const app = await start({ llm });
+    const mamma = createMember(app.ctx.db, { name: "Mamma", colour: "moss" });
+    const chores = await createList(app, "Att göra", "todo");
+    return { app, llm, mamma, chores };
+  }
+
+  it("saves the spec's phrase as a Todo with Due, time and Member, and marks the three spans once, without an agent", async () => {
+    const { app, llm, mamma, chores } = await withMamma();
+    const page = await get(app, `/lists/${chores}`, "lang=sv");
+    expect(page).toContain('<input name="text" required autocomplete="off" placeholder="t.ex. Soptunnan ut varje onsdag kl 19 @Pappa" />');
+
+    const res = await post(app, `/lists/${chores}/todos`, { text: "Boka tandläkare Ella fredag kl 15 @Mamma" }, "lang=sv");
+    const [todo] = listTodos(app.ctx.db, chores);
+    expect(todo).toMatchObject({ title: "Boka tandläkare Ella", dueDate: "2026-10-23", dueTime: "15:00", memberId: mamma.id, memberName: "Mamma", repeat: null });
+    expect(res.headers.location).toBe(`/lists/${chores}?added=${todo!.id}&text=${encodeURIComponent("Boka tandläkare Ella fredag kl 15 @Mamma")}`);
+
+    const marked = await get(app, res.headers.location as string, "lang=sv");
+    expect(marked).toContain('<span class="quick-add-text">Boka tandläkare Ella <mark>fredag</mark> <mark>kl 15</mark> <mark>@Mamma</mark></span>');
+    expect(marked).toContain('<button type="submit" class="quiet">behåll som text</button>');
+    expect(await get(app, `/lists/${chores}`)).not.toContain("quick-add-echo");
+    expect(llm.calls).toEqual([]);
+  });
+
+  it("answers HTMX with the new row and its marks, and \"keep as text\" re-saves the same Todo whole with no Due", async () => {
+    const { app, chores } = await withMamma();
+    const fragment = await app.inject({ method: "POST", url: `/lists/${chores}/todos`, headers: { "hx-request": "true", cookie: "lang=sv" }, payload: { text: "Soptunnan ut varje onsdag kl 19" } });
+    expect(fragment.statusCode).toBe(200);
+    expect(fragment.body).toMatch(/^<li class="row todo" data-todo="(\d+)">/);
+    expect(fragment.body).toContain("Soptunnan ut <mark>varje onsdag</mark> <mark>kl 19</mark>");
+    expect(fragment.body).toContain("↻ varje onsdag");
+    const id = /data-todo="(\d+)"/.exec(fragment.body)![1]!;
+    expect(listTodos(app.ctx.db, chores)[0]).toMatchObject({ dueDate: "2026-10-21", dueTime: "19:00", repeat: { kind: "weekly", weekdays: ["wed"] } });
+
+    expect(fragment.body).toContain('<input type="hidden" name="raw" value="1" />');
+    expect(fragment.body).toContain(`<input type="hidden" name="replace" value="${id}" />`);
+    const kept = await post(app, `/lists/${chores}/todos`, { text: "Soptunnan ut varje onsdag kl 19", raw: "1", replace: id });
+    expect(kept.headers.location).toBe(`/lists/${chores}`);
+    const todos = listTodos(app.ctx.db, chores);
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toMatchObject({ id: Number(id), title: "Soptunnan ut varje onsdag kl 19", dueDate: null, dueTime: null, repeat: null, memberId: null });
+  });
+
+  it("refuses an empty phrase and saves a phrase with no tokens as it is", async () => {
+    const { app, chores } = await withMamma();
+    expect((await app.inject({ method: "POST", url: `/lists/${chores}/todos`, payload: { text: "   " } })).statusCode).toBe(400);
+    const res = await post(app, `/lists/${chores}/todos`, { text: "Köp mjölk" });
+    expect(res.headers.location).toBe(`/lists/${chores}`);
+    expect(listTodos(app.ctx.db, chores)[0]).toMatchObject({ title: "Köp mjölk", dueDate: null });
   });
 });
