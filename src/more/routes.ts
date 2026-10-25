@@ -8,12 +8,14 @@ import { langOf, t, type Lang } from "../i18n/index.js";
 import { agentBinaryFound } from "../logging/startup.js";
 import { listIngestOutcomes, type IngestOutcome } from "../lunch/outcome.js";
 import { listPantryItems } from "../pantry/repo.js";
+import { listMembers } from "../members/repo.js";
+import { memberOf } from "../members/device.js";
 import { readTimezone } from "../planner/settings.js";
 import { listSchools } from "../schools/repo.js";
 import { escapeHtml, page } from "../ui/layout.js";
 import { shortWhen } from "../ui/when.js";
 
-type Countable = "dish" | "school" | "pantryItem";
+type Countable = "dish" | "school" | "pantryItem" | "member";
 
 function count(lang: Lang, noun: Countable, n: number): string {
   return t(lang, `count.${noun}.${n === 1 ? "one" : "other"}` as const, { n });
@@ -38,7 +40,7 @@ interface Row {
   status: string;
 }
 
-function rows(lang: Lang, ctx: AppContext): Row[] {
+function rows(lang: Lang, ctx: AppContext, device: string): Row[] {
   const dishes = listDishes(ctx.db);
   const schools = listSchools(ctx.db);
   // Paused Schools are not ingested, so only active Schools' outcomes say how lunch data is doing.
@@ -55,13 +57,14 @@ function rows(lang: Lang, ctx: AppContext): Row[] {
     },
     { href: "/schools", label: t(lang, "nav.schools"), status: schoolLine },
     { href: "/pantry", label: t(lang, "nav.pantry"), status: count(lang, "pantryItem", listPantryItems(ctx.db).length) },
+    { href: "/members", label: t(lang, "member.title"), status: t(lang, "more.members", { members: count(lang, "member", listMembers(ctx.db).length), device }) },
     { href: "/settings", label: t(lang, "nav.settings"), status: agentStatus(lang, ctx.agentCommand) },
     { href: "/logs", label: t(lang, "logs.title"), status: t(lang, "more.logs.level", { level: ctx.logs.getLevel() }) },
   ];
 }
 
-function morePage(lang: Lang, ctx: AppContext): string {
-  const list = rows(lang, ctx)
+function morePage(lang: Lang, ctx: AppContext, device: string): string {
+  const list = rows(lang, ctx, device)
     .map((r) => `<li><a class="row-link" href="${r.href}"><span class="row-label">${escapeHtml(r.label)}</span><span class="row-status">${escapeHtml(r.status)}</span></a></li>`)
     .join("\n");
   const body = `<header class="page-head"><h1>${t(lang, "more.title")}</h1></header>
@@ -72,5 +75,10 @@ ${list}
 }
 
 export const moreRoutes: FeaturePlugin = async (app, ctx) => {
-  app.get("/more", async (req, reply) => reply.type("text/html").send(morePage(langOf(req), ctx)));
+  app.get("/more", async (req, reply) => {
+    const lang = langOf(req);
+    const me = memberOf(req, ctx.db);
+    const device = me ? t(lang, "member.deviceIs", { name: me.name }) : t(lang, "member.chooseDevice");
+    return reply.type("text/html").send(morePage(lang, ctx, device));
+  });
 };

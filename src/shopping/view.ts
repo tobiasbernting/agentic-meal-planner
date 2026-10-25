@@ -16,6 +16,7 @@ import { configuredSinks } from "../sinks/registry.js";
 import { listPantryItems } from "../pantry/repo.js";
 import { normaliseName } from "../text.js";
 import { weekdayOf } from "../week.js";
+import { SHOPPING_LIST_ID } from "../lists/schema.js";
 import { buyFingerprint, getShoppingList, type ShoppingLine } from "./list.js";
 import { countChecked } from "./edits.js";
 
@@ -90,11 +91,11 @@ function renderLine(lang: Lang, dishName: (id: number) => string | undefined, li
 
 function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[]): string {
   const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, l, actions(l))).join("\n")}\n</ul>`;
-  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
+  return `<section id="${id}">${heading ? `<h2 class="section-label">${heading}</h2>\n` : ""}${list}</section>`;
 }
 
 /** The hand-add row: a name with autocomplete over Ingredients and Pantry Items, and an optional free-text quantity. */
-export function addForm(lang: Lang, ctx: AppContext): string {
+export function addForm(lang: Lang, ctx: AppContext, listId = SHOPPING_LIST_ID): string {
   const seen = new Set<string>();
   const options: string[] = [];
   const offer = (name: string) => {
@@ -108,7 +109,8 @@ export function addForm(lang: Lang, ctx: AppContext): string {
     item.aliases.forEach(offer);
   }
   for (const dish of listDishes(ctx.db)) dish.ingredients.forEach((i) => offer(i.name));
-  return `<form method="post" action="/shopping/add" class="line-add">
+  const list = listId === SHOPPING_LIST_ID ? "" : `\n  <input type="hidden" name="listId" value="${listId}" />`;
+  return `<form method="post" action="/shopping/add" class="line-add">${list}
   <label>${t(lang, "shopping.addName")} <input name="name" required list="shopping-names" autocomplete="off" /></label>
   <datalist id="shopping-names">${options.join("")}</datalist>
   <label>${t(lang, "shopping.addQuantity")} <input name="quantity" /></label>
@@ -117,10 +119,19 @@ export function addForm(lang: Lang, ctx: AppContext): string {
 }
 
 /** "Rensa avbockade (N)" leading to the confirmation page; nothing when no line is ticked. */
-export function clearControl(lang: Lang, ctx: AppContext): string {
-  const n = countChecked(ctx.db);
+export function clearControl(lang: Lang, ctx: AppContext, listId = SHOPPING_LIST_ID): string {
+  const n = countChecked(ctx.db, listId);
   if (n === 0) return "";
-  return `<p class="clear-control"><a class="button quiet" href="/shopping/clear">${escapeHtml(t(lang, "shopping.clear", { n }))}</a></p>`;
+  const href = listId === SHOPPING_LIST_ID ? "/shopping/clear" : `/lists/${listId}/clear`;
+  return `<p class="clear-control"><a class="button quiet" href="${href}">${escapeHtml(t(lang, "shopping.clear", { n }))}</a></p>`;
+}
+
+/** Another shopping-style List: one plain section of lines with tick and Delete, in the Shopping page's markup. */
+export function renderPlainLines(lang: Lang, listId: number, lines: ShoppingLine[]): string {
+  const none = () => undefined;
+  return `<div id="shopping-lists" data-list="${listId}">
+${renderSection(lang, none, "lines", "", lines, (line) => [deleteForm(lang, line)])}
+</div>`;
 }
 
 /**

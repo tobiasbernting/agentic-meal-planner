@@ -91,13 +91,18 @@ function checkedLast(lines: ShoppingLine[]): ShoppingLine[] {
 
 export function getShoppingList(db: Database.Database): StoredShoppingList {
   const shares = sharesByLine(db);
-  const lines = listItems(db, SHOPPING_LIST_ID).map((item) => toLine(item, shares.get(item.id) ?? []));
-  const section = (s: ListItem["section"]) => listItems(db, SHOPPING_LIST_ID).filter((i) => i.section === s).map((i) => i.id);
-  const buyIds = new Set(section("buy"));
+  const items = listItems(db, SHOPPING_LIST_ID);
+  const lines = items.map((item) => toLine(item, shares.get(item.id) ?? []));
+  const buyIds = new Set(items.filter((i) => i.section === "buy").map((i) => i.id));
   return {
     buy: checkedLast(lines.filter((l) => buyIds.has(l.id))),
     checkPantry: checkedLast(lines.filter((l) => !buyIds.has(l.id))),
   };
+}
+
+/** The lines of another shopping-style List (no Shares, no sections), Checked Off last. */
+export function getListLines(db: Database.Database, listId: number): ShoppingLine[] {
+  return checkedLast(listItems(db, listId).map((item) => toLine(item, [])));
 }
 
 /** The line as a sink receives it. */

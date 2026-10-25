@@ -25,6 +25,8 @@ import { logsRoutes } from "./logs/routes.js";
 import { createPlanRunRegistry, type PlanRunRegistry } from "./plan-run/registry.js";
 import { planRunRoutes } from "./plan-run/routes.js";
 import { moreRoutes } from "./more/routes.js";
+import { memberRoutes } from "./members/routes.js";
+import { listRoutes } from "./lists/routes.js";
 import { assetRoutes } from "./ui/assets.js";
 import { offlineRoutes } from "./offline/routes.js";
 import { registerIdempotency } from "./offline/idempotency.js";
@@ -107,7 +109,7 @@ export type FeaturePlugin = FastifyPluginAsync<AppContext>;
  * `FeaturePlugin` and adds it here with a single line (parallel-work friendly).
  * Today stays first (FR-17a).
  */
-const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, swapRoutes, shoppingRoutes, dishRoutes, schoolRoutes, pantryRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes, moreRoutes, assetRoutes, offlineRoutes];
+const FEATURES: FeaturePlugin[] = [todayRoutes, planRoutes, swapRoutes, shoppingRoutes, listRoutes, dishRoutes, schoolRoutes, pantryRoutes, memberRoutes, settingsRoutes, logsRoutes, planRunRoutes, langRoutes, moreRoutes, assetRoutes, offlineRoutes];
 
 async function fetchPageText(url: string): Promise<string> {
   const res = await fetch(url);

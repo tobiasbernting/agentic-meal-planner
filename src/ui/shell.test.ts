@@ -30,7 +30,10 @@ const PAGES: [url: string, active: string][] = [
   ["/", "Idag"],
   ["/plan", "Plan"],
   ["/shopping", "Inköp"],
+  ["/lists", "Listor"],
   ["/more", "Mer"],
+  ["/members", "Mer"],
+  ["/me", "Mer"],
   ["/dishes", "Mer"],
   ["/dishes/new", "Mer"],
   ["/schools", "Mer"],
@@ -41,15 +44,16 @@ const PAGES: [url: string, active: string][] = [
 ];
 
 describe("the almanac shell", () => {
-  it("renders the tab bar Idag, Plan, Inköp, Mer on every page, marking the active tab", async () => {
+  it("renders the tab bar Idag, Inköp, Listor, Plan, Mer on every page, marking the active tab", async () => {
     const app = await makeApp();
     for (const [url, active] of PAGES) {
       const res = await app.inject({ method: "GET", url });
       expect(res.statusCode, url).toBe(200);
       expect(tabs(res.body), url).toEqual([
         ["/", "Idag", active === "Idag"],
-        ["/plan", "Plan", active === "Plan"],
         ["/shopping", "Inköp", active === "Inköp"],
+        ["/lists", "Listor", active === "Listor"],
+        ["/plan", "Plan", active === "Plan"],
         ["/more", "Mer", active === "Mer"],
       ]);
     }
@@ -58,7 +62,7 @@ describe("the almanac shell", () => {
   it("labels the tabs in English with the lang=en cookie", async () => {
     const app = await makeApp();
     const res = await app.inject({ method: "GET", url: "/plan", headers: { cookie: "lang=en" } });
-    expect(tabs(res.body).map(([, label]) => label)).toEqual(["Today", "Plan", "Shopping", "More"]);
+    expect(tabs(res.body).map(([, label]) => label)).toEqual(["Today", "Shopping", "Lists", "Plan", "More"]);
   });
 });
 
@@ -160,7 +164,7 @@ describe("Mer", () => {
     return [...html.matchAll(/<a class="row-link" href="([^"]+)"><span class="row-label">([^<]+)<\/span><span class="row-status">([^<]*)<\/span><\/a>/g)].map((m) => [m[1]!, m[2]!, m[3]!]);
   }
 
-  it("lists Rätter, Skolor, Skafferi, Inställningar and Loggar with a count or status each", async () => {
+  it("lists Rätter, Skolor, Skafferi, Medlemmar, Inställningar and Loggar with a count or status each", async () => {
     const app = await makeApp();
     for (const name of ["Köttbullar", "Pannkakor"]) createDish(app.ctx.db, { name, inRotation: name === "Köttbullar" });
     createDish(app.ctx.db, { name: "Tacos", inRotation: false });
@@ -174,6 +178,7 @@ describe("Mer", () => {
       ["/dishes", "Rätter", "3 rätter, 1 i rotation"],
       ["/schools", "Skolor", "1 skola, hämtad lör 10:20"],
       ["/pantry", "Skafferi", "1 vara"],
+      ["/members", "Medlemmar", "0 medlemmar · Vems telefon är detta?"],
       ["/settings", "Inställningar", "Ingen agent, enklare planer"],
       ["/logs", "Loggar", "Nivå: info"],
     ]);
@@ -199,6 +204,7 @@ describe("Mer", () => {
       ["Dishes", "0 dishes, 0 in rotation"],
       ["Schools", "0 schools"],
       ["Pantry", "0 items"],
+      ["Members", "0 members · Whose phone is this?"],
       ["Settings", "No agent, simpler plans"],
       ["Logs", "Level: info"],
     ]);

@@ -55,6 +55,9 @@ describe("every screen renders in Swedish by default (FR-18)", () => {
       [`/schools/${schoolId}/edit`, "Redigera skola"],
       ["/pantry", "Skafferi"],
       [`/pantry/${itemId}/edit`, "Redigera skafferivara"],
+      ["/lists", "Listor"],
+      ["/members", "Medlemmar"],
+      ["/me", "Vems telefon är detta?"],
       ["/settings", "Inställningar"],
       ["/settings/quick-days?week=2026-10-26", "Snabbdagar"],
     ];

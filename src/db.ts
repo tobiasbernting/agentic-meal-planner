@@ -10,6 +10,8 @@ import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
 import { SCHEMA_SINKS } from "./sinks/schema.js";
 import { SCHEMA_IDEMPOTENCY } from "./offline/idempotency.js";
 import { SCHEMA_LISTS } from "./lists/schema.js";
+import { SCHEMA_MEMBERS } from "./members/schema.js";
+import { SCHEMA_TODOS } from "./lists/todos-schema.js";
 import { migrateToLivingShoppingList } from "./shopping/migrate.js";
 
 export const DB_FILENAME = "meal-planner.db";
@@ -35,6 +37,8 @@ const SCHEMA: string[] = [
   SCHEMA_SINKS,
   SCHEMA_IDEMPOTENCY,
   SCHEMA_LISTS,
+  SCHEMA_MEMBERS,
+  SCHEMA_TODOS,
 ];
 
 /**
@@ -50,6 +54,10 @@ export function openDatabase(dataDir: string): Database.Database {
   addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "dish_ingredient", "preparation_note", "TEXT");
   addColumnIfMissing(db, "sink_push", "buy_hash", "TEXT");
+  // Todo fields on list items (ADR-0010, spec #121).
+  for (const [column, definition] of [["notes", "TEXT"], ["due_date", "TEXT"], ["due_time", "TEXT"], ["member_id", "INTEGER"], ["member_name", "TEXT"], ["added_by", "TEXT"], ["repeat", "TEXT"], ["reminded_at", "TEXT"]] as const) {
+    addColumnIfMissing(db, "list_item", column, definition);
+  }
   // The Shopping List became one living list with Shares (ADR-0009, spec #120): the per-week
   // tables migrate once and `sink_push` loses its plan foreign key.
   runOnce(db, "living-shopping-list-120", () => migrateToLivingShoppingList(db));

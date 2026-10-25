@@ -17,14 +17,15 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
-/** The four tabs. Library and admin pages (Dishes, Schools, Pantry, Settings, Logs) use "more". */
-export type Tab = "today" | "plan" | "shopping" | "more";
+/** The five tabs (ADR-0010). Library and admin pages (Dishes, Schools, Pantry, Members, Settings, Logs) use "more". */
+export type Tab = "today" | "plan" | "shopping" | "lists" | "more";
 
-/** Fixed tab order (Idag, Plan, Inköp, Mer); not driven by feature registration order. */
+/** Fixed tab order (Idag, Inköp, Listor, Plan, Mer); not driven by feature registration order. */
 const TABS: { tab: Tab; href: string; label: MessageKey }[] = [
   { tab: "today", href: "/", label: "nav.today" },
-  { tab: "plan", href: "/plan", label: "nav.plan" },
   { tab: "shopping", href: "/shopping", label: "nav.shopping" },
+  { tab: "lists", href: "/lists", label: "nav.lists" },
+  { tab: "plan", href: "/plan", label: "nav.plan" },
   { tab: "more", href: "/more", label: "nav.more" },
 ];
 

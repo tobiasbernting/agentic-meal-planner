@@ -278,6 +278,47 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 .line-add input[name="quantity"] { width: 7em; }
 .clear-control { margin: 10px var(--gutter) 0; }
 
+/* Members (ADR-0010): eight ink-friendly colours, never red (red days own it), never the only
+   signal: a chip is a dot plus the name in text. */
+:root {
+  --member-moss: #4f7a3a; --member-sea: #2f6f8f; --member-plum: #6d4a86; --member-clay: #a0522d;
+  --member-sand: #a98a2a; --member-slate: #4f5d6e; --member-berry: #9c2f5a; --member-pine: #2f6b5a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --member-moss: #8fc06e; --member-sea: #7fb8d8; --member-plum: #b48ad0; --member-clay: #e0906a;
+    --member-sand: #d8c060; --member-slate: #9fb0c4; --member-berry: #e07aa3; --member-pine: #7fc0a8;
+  }
+}
+.member-moss { --member: var(--member-moss); } .member-sea { --member: var(--member-sea); }
+.member-plum { --member: var(--member-plum); } .member-clay { --member: var(--member-clay); }
+.member-sand { --member: var(--member-sand); } .member-slate { --member: var(--member-slate); }
+.member-berry { --member: var(--member-berry); } .member-pine { --member: var(--member-pine); }
+.member-chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: var(--fs-small); }
+.member-dot { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--ink); background: var(--member, transparent); }
+.chip .member-dot { margin-right: 4px; }
+
+/* Todo rows (ADR-0010): the tick column of the Shopping List, the title, then a quiet status
+   line with the due date, the Member chip and the repeat. Done rows are struck and muted. */
+.rows > li.todo { display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 6px var(--gutter) 6px calc(var(--gutter) - 8px); }
+.todo form { margin: 0; }
+.todo .tick { width: var(--tap); height: var(--tap); padding: 0; border: 0; background: transparent; }
+.todo .tick::before { content: ""; display: block; width: 22px; height: 22px; border: 1.5px solid var(--ink); background: var(--raised); }
+.todo-done .tick::before { background: var(--ink); box-shadow: inset 0 0 0 3px var(--raised); }
+.todo-body { grid-column: 2; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.todo-done .row-label { color: var(--muted); font-weight: 400; }
+.todo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: var(--fs-small); color: var(--muted); }
+.todo-overdue .todo-due { font-weight: 800; color: var(--ink); }
+.todo > .todo-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
+.todo-end .button, .todo-end button { min-height: var(--tap); font-size: var(--fs-small); }
+.todo-add { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 14px var(--gutter) 0; }
+.todo-add .todo-add-when { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
+.todo-add label { margin-top: 0; }
+.todo-add input, .todo-add select { margin-top: 4px; }
+.list-filter { display: flex; gap: 8px; margin: 10px var(--gutter) 0; }
+.list-filter a[aria-current="true"] { background: var(--ink); color: var(--paper); }
+.lists-add { margin: 24px var(--gutter) 0; }
+
 /* Swap (#81): the eligible-Dish list replaces Byt in the row's actions; each Dish is a ruled row button. */
 .swap-list { flex-basis: 100%; margin: 0; }
 .swap-list .rows { border-top: 1px solid var(--rule); margin-top: 4px; }
