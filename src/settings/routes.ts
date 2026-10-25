@@ -1,6 +1,7 @@
 /**
  * Settings UI (FR-15): the Quick Day template, cron schedule, variety window, Main Category
- * collision toggle, default prep limit, `agent_command` and Shopping List Sink config.
+ * collision toggle, default prep limit, `agent_command`, the Daily Brief time (ADR-0010) and
+ * Shopping List Sink config.
  * Keys and defaults live in src/planner/settings.ts; this module only renders and validates.
  */
 import cron from "node-cron";
@@ -32,6 +33,7 @@ import { langOf, t, weekdayName, type Lang } from "../i18n/index.js";
 import { agentBinaryFound } from "../logging/startup.js";
 import { trelloSinkFromEnv } from "../sinks/trello.js";
 import { escapeHtml, notice, page } from "../ui/layout.js";
+import { hasNoticeSink, SETTING_DAILY_BRIEF_TIME, SETTING_NOTICE_LANG } from "../notifier/send.js";
 
 interface SettingsView {
   planner: PlannerSettings;
@@ -42,6 +44,9 @@ interface SettingsView {
   trelloConfigured: boolean;
   shoppingListSinks: string;
   timezone: string;
+  dailyBriefTime: string;
+  /** A configured sink carries notices (the webhook). */
+  noticeSink: boolean;
 }
 
 function quickDayFields(lang: Lang, template: PlannerSettings["quickDayTemplate"]): string {
@@ -175,6 +180,12 @@ ${errorNotice(error)}
     <h2>${t(lang, "settings.section.agent")}</h2>
     ${agentSection(lang, view)}
   </section>
+  <section id="notices">
+    <h2>${t(lang, "settings.section.notices")}</h2>
+    <label>${t(lang, "settings.dailyBriefTime")} <input type="time" name="daily_brief_time" value="${escapeHtml(view.dailyBriefTime)}" /></label>
+    <p class="muted">${t(lang, "settings.dailyBriefHelp")}</p>
+    ${view.noticeSink ? "" : `<p class="no-sink">${t(lang, "settings.noSink")} <a href="#recipients">${t(lang, "settings.noSinkLink")}</a></p>`}
+  </section>
   <section id="recipients">
     <h2>${t(lang, "settings.section.recipients")}</h2>
     <p>${t(lang, view.trelloConfigured ? "settings.trello.configured" : "settings.trello.missing")}</p>
@@ -238,6 +249,9 @@ function parseSettingsForm(
   // `shopping_list_sinks` (raw JSON) is still accepted for scripted posts; the page itself only edits the webhook entry.
   let sinks = body.shopping_list_sinks?.trim() || storedSinks;
   if (!isJsonArray(sinks)) return { error: t(lang, "settings.error.sinks") };
+  // Absent from scripted posts: the stored time stays.
+  const dailyBrief = body.daily_brief_time?.trim();
+  if (dailyBrief && !/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyBrief)) return { error: t(lang, "settings.error.dailyBrief") };
   if (body.webhook_url !== undefined) {
     const url = body.webhook_url.trim();
     if (url && !/^https?:\/\/\S+$/.test(url)) return { error: t(lang, "settings.error.webhook") };
@@ -257,6 +271,8 @@ function parseSettingsForm(
       [SETTING_SUGGESTION_STYLE]: body.suggestion_style?.trim() ?? "",
       [SETTING_AGENT_COMMAND]: body.agent_command?.trim() ?? "",
       [SETTING_SHOPPING_LIST_SINKS]: sinks,
+      [SETTING_NOTICE_LANG]: lang,
+      ...(dailyBrief === undefined ? {} : { [SETTING_DAILY_BRIEF_TIME]: dailyBrief }),
     },
   };
 }
@@ -325,6 +341,8 @@ export const settingsRoutes: FeaturePlugin = async (app, ctx) => {
     shoppingListSinks: readSetting(db, SETTING_SHOPPING_LIST_SINKS) ?? "[]",
     effectiveAgentCommand: ctx.agentCommand,
     trelloConfigured: trelloSinkFromEnv(ctx.env ?? process.env) !== null,
+    dailyBriefTime: readSetting(db, SETTING_DAILY_BRIEF_TIME) ?? "",
+    noticeSink: hasNoticeSink(db, ctx.env ?? process.env),
   });
 
   app.get("/settings", async (req, reply) => {

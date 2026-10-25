@@ -144,8 +144,9 @@ export function createTodo(db: Database.Database, listId: number, input: TodoInp
 export function updateTodo(db: Database.Database, id: number, input: TodoInput): boolean {
   return (
     db
-      .prepare("UPDATE list_item SET name = ?, notes = ?, due_date = ?, due_time = ?, member_id = ?, member_name = ?, repeat = ? WHERE id = ?")
-      .run(input.title.trim(), input.notes?.trim() || null, input.dueDate ?? null, input.dueTime ?? null, input.member?.id ?? null, input.member?.name ?? null, input.repeat ? JSON.stringify(input.repeat) : null, id).changes > 0
+      // A changed Due may need its message again.
+      .prepare("UPDATE list_item SET name = ?, notes = ?, due_date = ?, due_time = ?, member_id = ?, member_name = ?, repeat = ?, reminded_at = CASE WHEN due_date IS ? AND due_time IS ? THEN reminded_at ELSE NULL END WHERE id = ?")
+      .run(input.title.trim(), input.notes?.trim() || null, input.dueDate ?? null, input.dueTime ?? null, input.member?.id ?? null, input.member?.name ?? null, input.repeat ? JSON.stringify(input.repeat) : null, input.dueDate ?? null, input.dueTime ?? null, id).changes > 0
   );
 }
 

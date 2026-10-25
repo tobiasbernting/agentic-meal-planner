@@ -42,7 +42,7 @@ const scheduler = startScheduler(
 // Settings (#35) re-arms the schedule through this port when `cron_expression` is saved.
 app.ctx.scheduler = scheduler;
 
-// The household's minute tick (ADR-0010): daily Activity prune.
+// The household's minute tick (ADR-0010): daily Activity prune, the Daily Brief and Due messages.
 const householdTick = startHouseholdTick({
   get db() {
     return app.ctx.db;
@@ -51,6 +51,8 @@ const householdTick = startHouseholdTick({
     return app.ctx.now;
   },
   log: app.ctx.log.child({ component: "household" }),
+  ...(app.ctx.env ? { env: app.ctx.env } : {}),
+  ...(app.ctx.fetch ? { fetch: app.ctx.fetch } : {}),
 });
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

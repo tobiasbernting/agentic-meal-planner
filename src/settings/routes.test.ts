@@ -320,7 +320,7 @@ describe("Settings sections (grouped, plain controls)", () => {
   it("groups the page into its sections and links to Logs (English)", async () => {
     const app = await start();
     const res = await app.inject({ method: "GET", url: "/settings" });
-    expect(sections(res.body)).toEqual(["Week & Quick Days", "Planning", "Agent", "Recipients", "Language"]);
+    expect(sections(res.body)).toEqual(["Week & Quick Days", "Planning", "Agent", "Notices", "Recipients", "Language"]);
     expect(res.body).toContain('href="/logs"');
   });
 
@@ -328,7 +328,7 @@ describe("Settings sections (grouped, plain controls)", () => {
     const app = await buildApp({ dataDir: mkdtempSync(join(tmpdir(), "mp-settings-sv-")) });
     apps.push(app);
     const res = await app.inject({ method: "GET", url: "/settings" });
-    expect(sections(res.body)).toEqual(["Vecka & snabbdagar", "Planering", "Agent", "Mottagare", "Språk"]);
+    expect(sections(res.body)).toEqual(["Vecka & snabbdagar", "Planering", "Agent", "Meddelanden", "Mottagare", "Språk"]);
     expect(res.body).toContain("Söndag");
   });
 
