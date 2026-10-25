@@ -1,6 +1,6 @@
 # Agentic Meal Planner
 
-A self-hosted, agent-driven weekly dinner planner for households with school-age kids.
+A self-hosted list app for households with school-age kids, with an agent-driven weekly dinner plan built around the school lunches. The Shopping List the plan writes, the household's other Lists and Todos, and today's lunch and dinner live in one app ([ADR-0010](./docs/adr/0010-household-lists-and-todos.md)).
 
 It plans next week's dinners around three inputs:
 
@@ -10,7 +10,24 @@ It plans next week's dinners around three inputs:
 
 Every week — on a configurable day, default Sunday evening — a **Planner Agent** (running programmatically via a configurable agent CLI such as `copilot -p`, `claude -p`, or `codex exec`, inside the Docker container on a cron schedule) produces a **Weekly Plan** and adds what its dinners need to the household's one **Shopping List**. The list lives in the app: both parents tick it off at the store, add lines by hand, delete a line for good or clear the ticked ones when the shopping is unpacked; a Plan Run only ever adds to it ([ADR-0009](./docs/adr/0009-one-living-shopping-list-with-shares.md)). An optional webhook such as ntfy can also receive the open "Buy" lines; staple ingredients (flour, milk, cream, …) stay in a "Check pantry" section, since you usually pick those up during the week anyway.
 
-A small web interface lets you manage favorite dishes, schools, pantry items, and quick-day settings, and view the current plan and shopping list.
+A small web interface lets you manage favorite dishes, schools, pantry items, Members and quick-day settings, view the current plan and shopping list, and keep every other List the household writes down. Five tabs: **Idag** (today's lunch, dinner and Todos), **Inköp** (the Shopping List), **Listor** (every List), **Plan** (the week) and **Mer** (Dishes, Schools, Pantry, Members, Settings, Logs).
+
+## Lists and todos
+
+- **Lists.** Listor holds every List, the Shopping List first. A new List is shopping-style (lines with a free-text quantity, ticked, struck and Cleared like the Shopping List, with a "Nyligen" tray that puts a recently cleared line back with one tap) or todo-style (Todos). Every List is shared by the whole household; there are no private Lists.
+- **Todos.** A Todo has a title, optional notes, an optional Due date and time, an optional Member and an optional Repeat (daily, weekdays, weekly on chosen days, every N weeks, monthly on a day, yearly). Ticking a Todo marks it Done: it stays struck below the open ones until you Clear. Ticking a repeating Todo moves it to its next Due date instead. Today shows overdue and due-today Todos under the day's lunch and dinner; each Plan day lists the Todos due that day.
+- **Members without login.** Add the household's people under Mer > Members with a name and a colour. Each phone picks its Member once (Mer > "Den här telefonen"); that is a cookie, not an account. Ticks and adds are then attributed ("Pappa 14:02", and in each List's Activity), and "Mina" filters Today and a List to your Todos.
+- **Quick Add.** Type one phrase at the top of a todo-style List; the parsed words are marked on the new row, and "behåll som text" keeps the phrase whole instead. The grammar follows the UI language and needs no agent:
+
+  | | Swedish | English |
+  | --- | --- | --- |
+  | Day | `idag`, `imorgon`, `i övermorgon`, `fredag` / `fre` (the next one), `24/12`, `5/1-2027` | `today`, `tomorrow`, `friday`, `24/12` |
+  | Time | `kl 15`, `kl 9:30`, `18:05` | `at 5pm`, `at 17:00`, `9pm` |
+  | Repeat | `varje dag`, `varje vardag`, `varje måndag och torsdag`, `varannan vecka`, `varje månad den 25`, `varje år` | `every day`, `weekdays`, `every monday and wednesday`, `every other week`, `monthly on the 5th`, `yearly` |
+  | Member | `@Pappa` | `@Pappa` |
+
+  "Boka tandläkare Ella fredag kl 15 @Mamma" becomes "Boka tandläkare Ella", Due next Friday at 15:00, assigned to Mamma.
+- **Daily Brief.** Settings > Meddelanden takes a time (HH:MM; empty is off). At that minute the webhook sink receives today's lunch per School, the dinner, the Todos due and overdue, and how many lines are left to buy. A Todo with a Due time also gets a message at that time, and a copy to its Member's own ntfy topic when the Member has one. Nothing is sent without a webhook sink; Settings says so.
 
 ## Principles
 
@@ -60,7 +77,7 @@ Shopping List Sinks are set in Settings as a JSON array (empty = no push). The T
 [{ "type": "webhook", "url": "https://ntfy.sh/my-topic", "format": "ntfy" }]
 ```
 
-`format` is `ntfy` (default, plain text) or `json` (`{ weekStart, items }`). Only the Buy list is pushed. Secrets come from env, never settings: `WEBHOOK_SECRET` adds a bearer `Authorization` header.
+`format` is `ntfy` (default, plain text) or `json` (`{ weekStart, items }`). Only the Buy list is pushed. The same webhook carries the Daily Brief and Due messages: ntfy gets a `Title` header and the text as the body, json gets `{ "kind": "notice", "title", "text" }`. A Member's topic replaces the last path segment of the webhook URL (or, given as a full URL, is used as is). Secrets come from env, never settings: `WEBHOOK_SECRET` adds a bearer `Authorization` header.
 
 The agent command (Settings, or the `AGENT_COMMAND` env var) defaults to `copilot --model gpt-5-mini --reasoning-effort low --allow-tool=url -p` in the running server; set `AGENT_COMMAND=""` to run without an agent (degraded mode). "Today" and the weekly run use the server time zone (`-e TZ=Europe/Stockholm` with Docker; the image defaults to UTC) unless a time zone (IANA name) is saved in Settings.
 

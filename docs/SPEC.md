@@ -4,7 +4,7 @@ What we are building, for whom, and what "done" means. Domain language per [GLOS
 
 ## Purpose
 
-A self-hosted, single-container app that plans a household's dinners Mon–Sun, working around the kids' school lunches, and delivers a shopping list to where the household actually shops. Open source (MIT) so others can contribute School Plugins and Shopping List sinks.
+A self-hosted, single-container app for the household's lists, with dinner planned around the school lunches. It plans a household's dinners Mon–Sun, working around the kids' school lunches, keeps the Shopping List where the household actually shops, and holds the household's other Lists and Todos beside the plan (ADR-0010). Open source (MIT) so others can contribute School Plugins and Shopping List sinks.
 
 ## Non-goals (v1)
 
@@ -53,6 +53,15 @@ A self-hosted, single-container app that plans a household's dinners Mon–Sun, 
 - FR-17a: Today view: the first screen shows today's Lunch Entry for each School and today's Planned Dinner.
 - FR-18: The UI is available in Swedish and English. Category labels are required in both languages. If the full translation is not ready, Swedish ships first.
 
+**Lists, Todos and Members** (ADR-0010)
+- FR-19: Lists. Any number of named household Lists, each shopping-style or todo-style, shared by the whole household. Listor shows every List with its open count, the Shopping List first; Lists can be renamed, reordered and deleted (the Shopping List cannot). A shopping-style List works like the Shopping List (tick, struck and sorted last, Delete, Clear, free-text quantity) and offers lines Cleared or Deleted in the last 30 days as one-tap re-adds. Every List shows its Activity (who added, ticked, un-ticked, Deleted or Cleared what, and when) for 30 days.
+- FR-20: Todos and Done. A Todo has a title, optional notes, an optional Due date and time and an optional Member. Ticking makes it Done: struck below the open Todos, attributed to the device's Member, until Cleared; tapping again un-ticks. Overdue Todos are marked.
+- FR-21: Repeat. A Todo may Repeat daily, on weekdays, weekly on chosen weekdays, every N weeks, monthly on a day or yearly, anchored on its Due date and stored as a structured rule. Ticking a repeating Todo records the done occurrence and moves its Due to the next occurrence; it is never struck. The Repeat can be ended.
+- FR-22: Members and the device cookie. Members have a name, a colour from a fixed palette of eight (red excluded) and an optional ntfy topic; they are data, not accounts. A device chooses its Member once, kept in a cookie. A Todo may be assigned to one Member, shown as a chip with the name in text. "Mina" filters Today and a todo-style List to the device Member's Todos.
+- FR-23: Today and Plan carry Todos. Today shows overdue and due-today Todos under today's lunch and dinner, and tomorrow's on tomorrow's row; each Plan day lists its due Todos. A Todo can be ticked there without leaving the page.
+- FR-24: Quick Add. One input at the top of a todo-style List turns a typed phrase into a Todo with a deterministic Swedish and English grammar for Due, time, Repeat and @Member. The parsed words are shown and can be kept as plain text. Quick Add never calls the agent.
+- FR-25: Daily Brief and reminders. With a time set in Settings, the Daily Brief (today's lunch per School, dinner, Todos due and overdue, lines left to buy) goes to the configured webhook sink once a day; a Todo with a Due time gets a reminder at that time, also to its Member's own topic when set. Settings says when no sink is configured.
+
 ## Non-functional requirements
 
 - NFR-1: One Docker image, one process, SQLite on a mounted `/data` volume (ADR-0002).
@@ -71,3 +80,7 @@ A self-hosted, single-container app that plans a household's dinners Mon–Sun, 
 5a. The Today view shows today's lunch for each School and today's dinner.
 6. With `agent_command` unset, the app still produces a (degraded) plan.
 7. A contributor can add a School Plugin by copying CONTRIBUTING.md's example, with tests.
+8. A todo-style List holds Todos with Due, Member and Repeat; ticking a plain Todo strikes it until Clear, and ticking a repeating one moves it to its next Due date.
+9. Today shows overdue and due-today Todos under today's lunch and dinner; each Plan day lists its due Todos; "Mina" shows only the device Member's Todos.
+10. Quick Add turns "Boka tandläkare Ella fredag kl 15 @Mamma" into a Todo due next Friday at 15:00 assigned to Mamma, with no agent configured.
+11. With a webhook sink and a Daily Brief time set, the sink receives the Daily Brief at that minute and a reminder at a Todo's Due time.

@@ -16,6 +16,7 @@ This document began as an unattended design session. Every decision below was co
 | Q8 | Delivery | Web UI (Today view first) plus push of the Shopping List's "Buy" section to Trello (primary, one list per week) and an optional generic webhook (ntfy reference default), per ADR-0006. Generation day/time configurable (default Sunday 18:00, plans the coming Mon–Sun week); manual "regenerate" button. **(confirmed 2026-10-16, amended: Trello replaces Bring!/Home Assistant; amended 2026-10-18 by ADR-0008: Trello removed, the list is ticked in the app over a VPN, only the webhook sink remains)** |
 | Q9–Q16 | Dish rules, categories, pantry, plan lifecycle | Weekend Dish is its own hard flag. Preferred Days are soft. Quick Day limits apply to all dishes that day. Main Category is a fixed list of 11, with Swedish and English labels stored by key; "Other" never collides. Pantry matching is deterministic first, then LLM. Push happens on generation. Confirmed plans are locked from automatic changes. **(confirmed 2026-10-16)** |
 | Q17 | Menu changes | Regenerate re-checks school menus and shows a notice when a stored Lunch Entry changed. No silent re-plan. **(confirmed 2026-10-16)** |
+| ADR-0010 | Household Lists | The app becomes the household's lists: Lists (shopping-style or todo-style), Todos with Due, Member and Repeat, Members as data chosen per device by cookie, Today and Plan carrying the Todos, a deterministic Quick Add grammar, a 30-day Activity per List, and the Daily Brief and Due reminders through the webhook sink. Five tabs: Idag, Inköp, Listor, Plan, Mer. **(confirmed 2026-10-25 by merging #135; built in spec #121)** |
 | Q22–Q36 | Account, app, scope | Shopping and house planning share one app, Trello. Dinners and shopping only in this app; house planning is outside its scope. Trello spike before the sink build. Calendar (ICS) feed deferred; the web app shows today's lunch and dinner. **(confirmed 2026-10-16)** |
 
 Round-2 resolutions:
@@ -66,11 +67,15 @@ Round-2 resolutions:
 - **planned_dinner** — plan_id, date, dish_id, is_quick_day, lunch_that_day?, selection_rationale?, source_url? (recipe link for LLM-found recipes, ADR-0003)
 - **pantry_item** — id, name, aliases (comma-separated for fuzzy matching)
 - **list** — id, name, kind (`shopping` | `todo`), position. The Shopping List is id 1 (ADR-0009); household Lists follow (ADR-0010)
-- **list_item** — list_id, name, name_key (normalised, unique per list), quantity? (hand-added free text), unit?, section? (`buy` | `check_pantry`), hand_added, checked_at?, checked_by?, position
+- **list_item** — list_id, name, name_key (normalised, unique per list), quantity? (hand-added free text), unit?, section? (`buy` | `check_pantry`), hand_added, checked_at?, checked_by?, position. Todo columns (ADR-0010): notes?, due_date?, due_time?, member_id?, member_name? (kept as text so a deleted Member still reads), repeat? (JSON rule), added_by?, reminded_at? (the Due reminder went out)
+- **list_item_done** — list_item_id, done_at, member_id?, member_name?: one row per done occurrence of a repeating Todo
+- **member** — id, name, colour (one of eight palette names), topic? (an ntfy topic of the Member's own), position
+- **activity** — list_id, item_name, action (`added` | `ticked` | `unticked` | `deleted` | `cleared` | `planned`), member_id?, member_name?, at. Kept 30 days; pruned at startup and once a day
+- **cleared_recent** — list_id, name, name_key, quantity?, cleared_at: lines Cleared or Deleted from a shopping-style List, offered back in "Nyligen" for 30 days
 - **shopping_share** — list_item_id? (null once the line is Deleted: a tombstone), planned_dinner_id, dish_id, quantity?, unit?. One per Planned Dinner per Ingredient; a line's quantity is the sum of its Shares
 - **shopping_missing** — planned_dinner_id, the dinners whose Ingredient resolution yielded nothing at the last update
 - **sink_push** — plan_id? (null for a manual push), sink_id, pushed_at, ok, error?, detail?, buy_hash?
-- **settings** — key/value: variety_window_weeks (soft preference, default 3), category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sinks (JSON array of sink configs; any webhook secret comes from env vars, never this table)
+- **settings** — key/value: variety_window_weeks (soft preference, default 3), category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sinks (JSON array of sink configs; any webhook secret comes from env vars, never this table), daily_brief_time (HH:MM, empty = off), notice_lang (the language notices are written in)
 
 ## Key interfaces
 

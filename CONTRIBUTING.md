@@ -39,5 +39,7 @@ Rules of thumb:
 
 - The domain language lives in [GLOSSARY.md](./GLOSSARY.md) — use it in code and issues.
 - Load-bearing decisions are recorded in [docs/adr/](./docs/adr/). If you want to change one, open an issue referencing the ADR rather than silently reversing it.
-- The deterministic constraint engine must stay LLM-free and fully unit-tested (ADR-0001).
+- The deterministic constraint engine must stay LLM-free and fully unit-tested (ADR-0001). So must Quick Add's grammar and the Repeat rules (ADR-0010).
+- Every new write route is a plain POST and must be sorted into the offline allowlist, `src/offline/allowlist.ts`: queueable (it may become a Pending Change) or online-only (it needs the server, an agent or a sink). `src/offline/allowlist.test.ts` fails on a POST route in neither list (ADR-0007).
+- Every new piece of text needs a Swedish and an English string (`src/i18n/sv.ts`, `src/i18n/en.ts`).
 - License: MIT.
