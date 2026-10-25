@@ -1,7 +1,7 @@
 # Shopping list sinks: Trello (primary), generic webhook (optional)
 
 ---
-Status: Accepted (amended 2026-10-16: Trello replaces Bring!/Home Assistant as the primary sink, after the owner ruled out both)
+Status: Superseded in part by ADR-0008 (2026-10-18): the Trello sink is removed, because the phones now reach the app from the store over WireGuard and the household ticks in the app. The sink interface and the generic webhook sink stay. Earlier: Accepted (amended 2026-10-16: Trello replaces Bring!/Home Assistant as the primary sink, after the owner ruled out both)
 ---
 
 The "Buy" section of each Shopping List is pushed outward so the list is on the phone in the store. Sinks sit behind a `ShoppingListSink` interface (`push(items) → void`), all optional and composable:
