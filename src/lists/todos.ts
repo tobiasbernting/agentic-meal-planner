@@ -96,6 +96,14 @@ export function listTodosDue(db: Database.Database, date: string): Todo[] {
   return rows.map(toTodo);
 }
 
+/** Open Todos due from `from` to `to` (inclusive), across every todo-style List, by date, time then position. */
+export function listTodosDueBetween(db: Database.Database, from: string, to: string): Todo[] {
+  const rows = db
+    .prepare(`${SELECT} WHERE due_date BETWEEN ? AND ? AND checked_at IS NULL AND list_id IN (SELECT id FROM list WHERE kind = 'todo') ORDER BY due_date, due_time IS NULL, due_time, position, id`)
+    .all(from, to) as TodoRow[];
+  return rows.map(toTodo);
+}
+
 /** Open Todos whose Due date is before `today`, oldest first. */
 export function listOverdueTodos(db: Database.Database, today: string): Todo[] {
   const rows = db

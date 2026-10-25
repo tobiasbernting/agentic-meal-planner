@@ -7,7 +7,9 @@ import { runLogger } from "../logging/logger.js";
 import { listDishes } from "../dishes/repo.js";
 import { listSchools } from "../schools/repo.js";
 import { addDays, mondayOf, weekDates } from "../week.js";
-import { householdToday } from "../planner/settings.js";
+import { householdToday, readTimezone } from "../planner/settings.js";
+import { memberOf } from "../members/device.js";
+import type { Member } from "../members/repo.js";
 import { langOf, t, type Lang } from "../i18n/index.js";
 import { weekHead, type DayDensity } from "../ui/almanac.js";
 import { escapeHtml, page } from "../ui/layout.js";
@@ -28,20 +30,30 @@ function firstRun(db: Database.Database, lang: Lang): string {
 </section>`;
 }
 
+/** The Mina / Alla toggle over Today's Todos, present only when the device has a Member. */
+function mineToggle(lang: Lang, me: Member | undefined, mine: boolean): string {
+  if (!me) return "";
+  return `<nav class="list-filter actions" aria-label="${escapeHtml(t(lang, "todo.member"))}"><a class="button" href="/"${mine ? "" : ' aria-current="true"'}>${t(lang, "todo.all")}</a><a class="button" href="/?mine=1"${mine ? ' aria-current="true"' : ""}>${t(lang, "todo.mine")}</a></nav>`;
+}
+
 /**
  * Today (FR-17a) as an almanac page: the ISO week landmark, then the week Monday to Sunday as
  * almanac day rows. Today's row is open in full, tomorrow half-open, the rest compact. On a
  * Sunday, tomorrow (next Monday) follows the week. "Uppdatera lunchmenyer" sits quietly below.
+ * Each row carries the Todos due that day (ADR-0010); today's also the overdue ones, and `mine=1`
+ * keeps only the device Member's Todos (lunch and Dinner always show).
  */
 export const todayRoutes: FeaturePlugin = async (app, ctx) => {
-  app.get("/", async (req, reply) => {
+  app.get<{ Querystring: { mine?: string } }>("/", async (req, reply) => {
     const lang = langOf(req);
     const today = householdToday(ctx.db, ctx.now());
+    const me = memberOf(req, ctx.db);
+    const mine = Boolean(me) && req.query.mine === "1";
     const tomorrow = addDays(today, 1);
     const dates = weekDates(mondayOf(today));
     if (!dates.includes(tomorrow)) dates.push(tomorrow);
     const density = (date: string): DayDensity => (date === today ? "full" : date === tomorrow ? "half" : "compact");
-    const days = almanac(ctx.db, lang);
+    const days = almanac(ctx.db, lang, { today, timezone: readTimezone(ctx.db), next: mine ? "/?mine=1" : "/", ...(mine && me ? { mineId: me.id } : {}) });
     const noPlanHtml = `<p>${t(lang, "today.noPlan")} <a href="/plan">${t(lang, "today.planThisWeek")}</a></p>`;
     const rows = dates
       .map((date) =>
@@ -49,6 +61,8 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
           date,
           density: density(date),
           today: date === today,
+          overdueTodos: date === today,
+          hideTodos: date < today,
           noPlanHtml,
           swapHtml: date === today ? swapControl(ctx, lang, date, "/") : undefined,
         }),
@@ -60,6 +74,7 @@ export const todayRoutes: FeaturePlugin = async (app, ctx) => {
         : "";
     const body = `${weekHead(lang, today)}
 ${firstRun(ctx.db, lang)}
+${mineToggle(lang, me, mine)}
 ${rows}
 ${refresh}`;
     reply.type("text/html; charset=utf-8");

@@ -315,6 +315,11 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 .todo-add .todo-add-when { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
 .todo-add label { margin-top: 0; }
 .todo-add input, .todo-add select { margin-top: 4px; }
+/* Todos in an almanac day cell (ADR-0010): the same rows, flush with the cell's text. */
+.day-cell .rows.day-todos { margin-top: 2px; }
+.day-cell .rows.day-todos > li.todo { padding: 2px 0 2px 0; margin-left: -10px; }
+.day-cell .rows.day-todos > li:last-child { border-bottom: 0; }
+.day-todos-count, .day-todos-more { margin-top: 4px; font-size: var(--fs-small); color: var(--muted); }
 .list-filter { display: flex; gap: 8px; margin: 10px var(--gutter) 0; }
 .list-filter a[aria-current="true"] { background: var(--ink); color: var(--paper); }
 .lists-add { margin: 24px var(--gutter) 0; }
