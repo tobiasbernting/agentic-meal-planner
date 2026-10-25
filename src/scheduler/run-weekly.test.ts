@@ -9,7 +9,7 @@ import { createCapturingLogger } from "../logging/logger.js";
 import { listLunchEntries } from "../lunch/repo.js";
 import { confirmPlan, getPlanForWeek } from "../planner/repo.js";
 import { createSchool } from "../schools/repo.js";
-import { buildAndPushShoppingList } from "../shopping/build-and-push.js";
+import { updateAndPushShoppingList } from "../shopping/update-and-push.js";
 import { createPlanRunRegistry } from "../plan-run/registry.js";
 import { buildApp } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
@@ -130,7 +130,7 @@ describe("runWeeklyPlanning", () => {
       fetchPage,
       now: () => SUNDAY,
       log: logger.child({ runId }),
-      afterPlan: ({ planId, log, onProgress }) => buildAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
+      afterPlan: ({ planId, log, onProgress }) => updateAndPushShoppingList({ db, llm, fetchPage, log, onProgress }, planId),
     });
 
     const planRun = records.filter((r) => r.component === "plan-run");
@@ -140,7 +140,7 @@ describe("runWeeklyPlanning", () => {
       "dish-selection",
       "ingredient-resolution",
       "pantry-matching",
-      "shopping-list-push",
+      "shopping-list-update",
     ]);
     const progress = planRun.filter((r) => r.msg === "phase progress");
     expect(progress.map((r) => [r.done, r.total])).toEqual([0, 1, 2, 3, 4, 5, 6].map((done) => [done, 7]));

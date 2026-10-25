@@ -9,7 +9,7 @@ import { NoAgent } from "../llm/index.js";
 import { createPantryItem } from "../pantry/repo.js";
 import { savePlan } from "../planner/repo.js";
 import { SETTING_SHOPPING_LIST_SINKS } from "../planner/settings.js";
-import { buildShoppingList } from "../shopping/build.js";
+import { updateShoppingList } from "../shopping/shares.js";
 import { createCapturingLogger } from "../logging/logger.js";
 import { pushShoppingList } from "./push.js";
 import { configuredSinks } from "./registry.js";
@@ -141,7 +141,7 @@ async function planWithList(fetch: FetchLike) {
     { weekStart: WEEK, dinners: [{ date: WEEK, dishId: dish, isQuickDay: false, lunchThatDay: null, rationale: "r" }], degradedReasons: [] },
     NOW.toISOString(),
   );
-  await buildShoppingList(app.ctx, planId);
+  await updateShoppingList(app.ctx, planId);
   return { app, planId };
 }
 

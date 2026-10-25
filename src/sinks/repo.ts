@@ -2,7 +2,8 @@ import type Database from "better-sqlite3";
 import type { PushResult } from "./types.js";
 
 export interface SinkPush {
-  planId: number;
+  /** The Plan Run that triggered the push; null for a manual Skicka igen. */
+  planId: number | null;
   sinkId: string;
   pushedAt: string;
   ok: boolean;
@@ -14,7 +15,7 @@ export interface SinkPush {
 
 export function recordPush(
   db: Database.Database,
-  planId: number,
+  planId: number | null,
   sinkId: string,
   pushedAt: string,
   result: PushResult,
@@ -31,14 +32,14 @@ export function recordPush(
   );
 }
 
-/** Latest push per sink for a plan (most recent attempt wins), ordered by sink id. */
-export function latestPushes(db: Database.Database, planId: number): SinkPush[] {
+/** Latest push per sink (most recent attempt wins), ordered by sink id. The list is one, so pushes are not per plan. */
+export function latestPushes(db: Database.Database): SinkPush[] {
   const rows = db
     .prepare(
       `SELECT plan_id, sink_id, pushed_at, ok, error, detail, buy_hash FROM sink_push
-       WHERE id IN (SELECT MAX(id) FROM sink_push WHERE plan_id = ? GROUP BY sink_id) ORDER BY sink_id`,
+       WHERE id IN (SELECT MAX(id) FROM sink_push GROUP BY sink_id) ORDER BY sink_id`,
     )
-    .all(planId) as { plan_id: number; sink_id: string; pushed_at: string; ok: number; error: string | null; detail: string | null; buy_hash: string | null }[];
+    .all() as { plan_id: number | null; sink_id: string; pushed_at: string; ok: number; error: string | null; detail: string | null; buy_hash: string | null }[];
   return rows.map((r) => ({
     planId: r.plan_id,
     sinkId: r.sink_id,

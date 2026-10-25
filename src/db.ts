@@ -7,9 +7,10 @@ import { SCHEMA_SCHOOLS } from "./schools/schema.js";
 import { SCHEMA_INGEST_OUTCOME, SCHEMA_LUNCH } from "./lunch/schema.js";
 import { SCHEMA_PANTRY } from "./pantry/schema.js";
 import { SCHEMA_INGREDIENTS } from "./ingredients/schema.js";
-import { SCHEMA_SHOPPING } from "./shopping/schema.js";
 import { SCHEMA_SINKS } from "./sinks/schema.js";
 import { SCHEMA_IDEMPOTENCY } from "./offline/idempotency.js";
+import { SCHEMA_LISTS } from "./lists/schema.js";
+import { migrateToLivingShoppingList } from "./shopping/migrate.js";
 
 export const DB_FILENAME = "meal-planner.db";
 
@@ -31,9 +32,9 @@ const SCHEMA: string[] = [
   SCHEMA_PANTRY,
   SCHEMA_PLANNER,
   SCHEMA_INGREDIENTS,
-  SCHEMA_SHOPPING,
   SCHEMA_SINKS,
   SCHEMA_IDEMPOTENCY,
+  SCHEMA_LISTS,
 ];
 
 /**
@@ -49,6 +50,9 @@ export function openDatabase(dataDir: string): Database.Database {
   addColumnIfMissing(db, "dish", "suggested", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "dish_ingredient", "preparation_note", "TEXT");
   addColumnIfMissing(db, "sink_push", "buy_hash", "TEXT");
+  // The Shopping List became one living list with Shares (ADR-0009, spec #120): the per-week
+  // tables migrate once and `sink_push` loses its plan foreign key.
+  runOnce(db, "living-shopping-list-120", () => migrateToLivingShoppingList(db));
   // The extraction caches gained a language in their key (spec #71). They are caches, so the
   // old tables are dropped and rebuilt empty rather than migrated.
   runOnce(db, "extraction-cache-language-71", () =>

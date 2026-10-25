@@ -10,6 +10,7 @@ import { savePlan } from "../planner/repo.js";
 import { weekDates } from "../week.js";
 import { planRunSettled } from "../plan-run/test-helpers.js";
 import { createCapturingLogger } from "../logging/logger.js";
+import { updateList } from "../shopping/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -300,17 +301,18 @@ describe("a Plan Run that throws", () => {
     });
     const app = await start({ llm });
     const pasta = createDish(app.ctx.db, { name: "Pasta", prepTimeMinutes: 20, ingredients: [{ name: "pasta", quantity: 400, unit: "g" }] });
-    savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(pasta), degradedReasons: [] }, NOW.toISOString());
-    await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+    const planId = savePlan(app.ctx.db, { weekStart: WEEK, dinners: dinnersOf(pasta), degradedReasons: [] }, NOW.toISOString());
+    await updateList(app, planId);
     const dinners = async () => (await app.inject({ method: "GET", url: `/plan?week=${WEEK}` })).body.match(/<div class="day-dinner">[^<]*<\/div>/g);
-    const shoppingList = async () => (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body.match(/<section id="(buy|check-pantry)">[\s\S]*?<\/section>/g);
+    const shoppingList = async () => (await app.inject({ method: "GET", url: "/shopping" })).body.match(/<section id="(buy|check-pantry)">[\s\S]*?<\/section>/g);
     const before = { dinners: await dinners(), shoppingList: await shoppingList() };
 
     await app.inject({ method: "POST", url: "/plan/regenerate", payload: { weekStart: WEEK } });
     await planRunSettled(app, WEEK);
 
     expect(before.dinners).toHaveLength(7);
-    expect(before.shoppingList?.join("")).toContain("400 g pasta");
+    // One Share per Planned Dinner (ADR-0009): Pasta on all seven days wants seven times its Ingredients.
+    expect(before.shoppingList?.join("")).toContain("2800 g pasta");
     expect({ dinners: await dinners(), shoppingList: await shoppingList() }).toEqual(before);
   });
 

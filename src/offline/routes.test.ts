@@ -78,7 +78,7 @@ describe("the service worker script", () => {
     expect(config.onlineOnly).toEqual(ONLINE_ONLY_ROUTES);
     expect(config.pages).toEqual(OFFLINE_PAGES);
     expect(config.prewarm).toEqual(PREWARM_PAGES);
-    expect(config.prewarm).toContain("/shopping?week={nextWeek}");
+    expect(config.prewarm).toContain("/shopping");
   });
 
   it("carries the banner marker the shell renders, the passthrough paths and the worker's own page paths", async () => {

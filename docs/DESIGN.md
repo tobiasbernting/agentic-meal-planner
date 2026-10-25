@@ -51,7 +51,7 @@ Round-2 resolutions:
 │   2. Constraints    — deterministic filter (ADR-0001)              │
 │   3. Selection      — LlmAgent.selectDishes (ADR-0005)             │
 │   4. Ingredients    — fetch recipe URLs, LlmAgent.extractIngredients│
-│   5. Shopping list  — aggregate, split Pantry Items out (Q6)       │
+│   5. Shopping list  — add Shares to the living list (ADR-0009)     │
 │   6. Push           — "Buy" section → configured sinks (ADR-0006)  │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -65,7 +65,11 @@ Round-2 resolutions:
 - **weekly_plan** — id, week_start (Monday), generated_at, status (generated | confirmed; confirmed plans are locked from automatic changes)
 - **planned_dinner** — plan_id, date, dish_id, is_quick_day, lunch_that_day?, selection_rationale?, source_url? (recipe link for LLM-found recipes, ADR-0003)
 - **pantry_item** — id, name, aliases (comma-separated for fuzzy matching)
-- **shopping_list_item** — plan_id, name, quantity?, unit?, section (`buy` | `check_pantry`), source_dish_id
+- **list** — id, name, kind (`shopping` | `todo`), position. The Shopping List is id 1 (ADR-0009); household Lists follow (ADR-0010)
+- **list_item** — list_id, name, name_key (normalised, unique per list), quantity? (hand-added free text), unit?, section? (`buy` | `check_pantry`), hand_added, checked_at?, checked_by?, position
+- **shopping_share** — list_item_id? (null once the line is Deleted: a tombstone), planned_dinner_id, dish_id, quantity?, unit?. One per Planned Dinner per Ingredient; a line's quantity is the sum of its Shares
+- **shopping_missing** — planned_dinner_id, the dinners whose Ingredient resolution yielded nothing at the last update
+- **sink_push** — plan_id? (null for a manual push), sink_id, pushed_at, ok, error?, detail?, buy_hash?
 - **settings** — key/value: variety_window_weeks (soft preference, default 3), category_collision_enabled, quick_day_template (JSON, e.g. `{"tue":30,"thu":30}`), cron_expression (controls which day/time the plan is generated), default_prep_limit_minutes, agent_command (the agent CLI used for LLM work — ADR-0005; default `copilot -p`, e.g. `claude -p`, `codex exec`, `opencode run`), shopping_list_sinks (JSON array of sink configs; any webhook secret comes from env vars, never this table)
 
 ## Key interfaces
@@ -99,8 +103,8 @@ Both interfaces ship with one production implementation in v1 (a plugins directo
 3. Deterministic filter: eligible Favorite Dishes per day (no name/category collision, prep-time OK). Variety is *not* enforced here.
 4. `selectDishes` over the eligible sets, with recently-planned history (soft variety preference) → Weekly Plan + Planned Dinners (with rationale for transparency — including when a recent dish is repeated on purpose).
 5. Resolve Ingredients per planned Dish, by precedence: manual Ingredients → recipe URL (fetch → `extractIngredients`, cached per URL + content hash) → the LLM finds a recipe from the dish name and extracts from that. Adaptations ("no chili — kids") are applied by the LLM during extraction, so the list reflects what you actually cook.
-6. Aggregate into Shopping List; anything fuzzy-matching a Pantry Item (name or alias) goes to "Check pantry".
-7. Push the "Buy" section to every configured shopping-list sink (optional webhook/ntfy — ADR-0006, Trello removed by ADR-0008); "Check pantry" stays in the app. Sink failures degrade gracefully and surface in the UI.
+6. Update the one living Shopping List (ADR-0009): withdraw the Shares of dinners that are gone or changed, then add one Share per Ingredient for every Planned Dinner that has none yet, merging by normalised name; a new line lands in "Check pantry" when it fuzzy-matches a Pantry Item (name or alias), else in "Buy". Ticks, hand-added lines and Deleted lines are never touched.
+7. Push the open "Buy" lines to every configured shopping-list sink (optional webhook/ntfy — ADR-0006, Trello removed by ADR-0008); "Check pantry" stays in the app. Sink failures degrade gracefully and surface in the UI.
 
 **Today view** — the first screen. Shows today's Lunch Entry for each School and today's Planned Dinner. Read-only, from the stored plan and lunch data.
 

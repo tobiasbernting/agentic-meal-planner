@@ -2,7 +2,7 @@
  * Swap (spec #71): replace one Planned Dinner by hand. Byt loads an HTMX fragment listing the
  * Dishes eligible on that date (the deterministic engine's hard rules, `eligibleDishesOn`).
  * Picking one writes that Planned Dinner with the localised "vald för hand" rationale and
- * rebuilds the week's Shopping List. Swap is unavailable (hidden, and refused over HTTP) on a
+ * updates the Shopping List (the old dinner's Shares go, the new one's come; ADR-0009). Swap is unavailable (hidden, and refused over HTTP) on a
  * confirmed plan and while the week's Plan Run is in flight. Plan and Today render the control
  * with `swapControl`.
  */
@@ -15,7 +15,7 @@ import { langOf, t, type Lang } from "../i18n/index.js";
 import { runLogger } from "../logging/logger.js";
 import { eligibleDishesOn } from "../planner/eligible.js";
 import { getPlanForWeek, setPlannedDinnerDish, type WeeklyPlan } from "../planner/repo.js";
-import { buildShoppingList } from "../shopping/build.js";
+import { updateShoppingList } from "../shopping/shares.js";
 import { escapeHtml, page } from "../ui/layout.js";
 import { isIsoDate, mondayOf } from "../week.js";
 
@@ -114,8 +114,9 @@ export const swapRoutes: FeaturePlugin = async (app, ctx) => {
     setPlannedDinnerDish(ctx.db, plan.id, date, dishId, t(lang, "swap.rationale"));
     const log = runLogger(ctx.log, req, "swap");
     log.info({ date, planId: plan.id, dishId, dish: getDish(ctx.db, dishId)?.name }, "dinner swapped");
-    // The Shopping List follows the plan (FR-11). Sinks are not pushed; the next Plan Run or "Skicka igen" does that.
-    await buildShoppingList({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log, language: lang }, plan.id);
+    // The Shopping List follows the plan (FR-11, ADR-0009): the old dinner's Shares are withdrawn and the new
+    // Dish's added. Sinks are not pushed; the next Plan Run or "Skicka igen" does that.
+    await updateShoppingList({ db: ctx.db, llm: ctx.llm, fetchPage: ctx.fetchPage, now: ctx.now, log, language: lang }, plan.id);
     return reply.redirect(safeNext(req.body.next, date), 303);
   });
 };

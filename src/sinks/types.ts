@@ -1,4 +1,4 @@
-import type { AggregatedItem } from "../shopping/aggregate.js";
+import type { PushedItem } from "../shopping/list.js";
 
 export type PushResult = { ok: true; detail?: string } | { ok: false; error: string };
 
@@ -8,7 +8,7 @@ export type PushResult = { ok: true; detail?: string } | { ok: false; error: str
  */
 export interface ShoppingListSink {
   id: string;
-  push(input: { weekStart: string; items: AggregatedItem[] }): Promise<PushResult>;
+  push(input: { weekStart: string; items: PushedItem[] }): Promise<PushResult>;
 }
 
 /** Minimal fetch shape so tests can record calls without a network. */

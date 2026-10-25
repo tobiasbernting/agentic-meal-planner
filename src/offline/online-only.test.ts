@@ -6,8 +6,8 @@ import { buildApp, type AppOptions } from "../app.js";
 import { withEnglish } from "../i18n/test-helpers.js";
 import { createDish } from "../dishes/repo.js";
 import { createPantryItem } from "../pantry/repo.js";
-import { savePlan } from "../planner/repo.js";
 import { NoAgent } from "../llm/index.js";
+import { planWeek, updateList } from "../shopping/test-helpers.js";
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 const NOW = new Date(2026, 9, 21, 18, 30);
@@ -29,12 +29,11 @@ function formTags(html: string, action: string): string[] {
   return [...html.matchAll(/<form\b[^>]*>/g)].map((m) => m[0]).filter((tag) => tag.includes(`action="${action}"`));
 }
 
-async function plannedShopping(build: boolean) {
+async function plannedShopping() {
   const app = await start({ env: ENV });
   const pasta = createDish(app.ctx.db, { name: "Pasta", ingredients: [{ name: "pasta", quantity: 400, unit: "g" }, { name: "mjölk", quantity: 2, unit: "dl" }] });
   createPantryItem(app.ctx.db, { name: "mjölk", aliases: [] });
-  savePlan(app.ctx.db, { weekStart: WEEK, dinners: [{ date: WEEK, dishId: pasta, isQuickDay: false, lunchThatDay: null, rationale: "r" }], degradedReasons: [] }, NOW.toISOString());
-  if (build) await app.inject({ method: "POST", url: "/shopping/build", payload: { weekStart: WEEK } });
+  await updateList(app, planWeek(app.ctx.db, WEEK, [pasta], NOW.toISOString()));
   return { app, pasta };
 }
 
@@ -83,29 +82,21 @@ describe("online-only form marker", () => {
     for (const tag of tags) expect(tag).toContain('data-online-only="Requires connection"');
   });
 
-  it("marks Shopping's push and Har alltid hemma forms, but not the check form", async () => {
-    const { app } = await plannedShopping(true);
-    const html = (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body;
-    for (const action of ["/shopping/push", "/shopping/pantry"]) {
+  it("marks Shopping's push form, but not the check, Har alltid hemma or Delete forms", async () => {
+    const { app } = await plannedShopping();
+    const html = (await app.inject({ method: "GET", url: "/shopping" })).body;
+    const pushes = formTags(html, "/shopping/push");
+    expect(pushes.length).toBeGreaterThan(0);
+    for (const tag of pushes) expect(tag).toContain('data-online-only="Requires connection"');
+    for (const action of ["/shopping/check", "/shopping/pantry", "/shopping/delete"]) {
       const tags = formTags(html, action);
       expect(tags.length, action).toBeGreaterThan(0);
-      for (const tag of tags) expect(tag, action).toContain('data-online-only="Requires connection"');
+      for (const tag of tags) expect(tag, action).not.toContain("data-online-only");
     }
-    const checks = formTags(html, "/shopping/check");
-    expect(checks.length).toBeGreaterThan(0);
-    for (const tag of checks) expect(tag).not.toContain("data-online-only");
-  });
-
-  it("marks Shopping's build form on an unbuilt week", async () => {
-    const { app } = await plannedShopping(false);
-    const html = (await app.inject({ method: "GET", url: `/shopping?week=${WEEK}` })).body;
-    const tags = formTags(html, "/shopping/build");
-    expect(tags.length).toBeGreaterThan(0);
-    expect(tags[0]).toContain("data-online-only=");
   });
 
   it("leaves the Dish edit form alone", async () => {
-    const { app, pasta } = await plannedShopping(true);
+    const { app, pasta } = await plannedShopping();
     const html = (await app.inject({ method: "GET", url: `/dishes/${pasta}/edit` })).body;
     const tags = formTags(html, `/dishes/${pasta}`);
     expect(tags.length).toBeGreaterThan(0);

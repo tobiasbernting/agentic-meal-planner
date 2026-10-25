@@ -1,164 +1,151 @@
 /**
- * The Shopping List page's parts (FR-11, FR-17, ADR-0007): the Buy and Check pantry sections
- * as a to-do list (a tick on every line, Har alltid hemma and Ångra, a remove control on every
- * Dish-derived line, the Extra Item add row and delete), the "N removed" disclosure, the
- * missing-Ingredients block, the sink status lines and the Build form. src/shopping/routes.ts
- * assembles them per request.
+ * The Shopping List page's parts (FR-11, FR-17, ADR-0009): the Buy and Check pantry sections of
+ * the living list as a to-do list (a tick on every line, the dinners and dates a line is for,
+ * Har alltid hemma and Ångra, Delete on every line), the hand-add row with autocomplete, the
+ * Clear control, the missing-Ingredients block and the sink status lines.
+ * src/shopping/routes.ts assembles them per request.
  */
 import type { AppContext } from "../app.js";
 import { readTimezone } from "../planner/settings.js";
-import { t, type Lang } from "../i18n/index.js";
-import { getDish } from "../dishes/repo.js";
+import { t, weekdayName, type Lang } from "../i18n/index.js";
+import { getDish, listDishes } from "../dishes/repo.js";
 import { escapeHtml, notice } from "../ui/layout.js";
 import { shortWhen } from "../ui/when.js";
-import type { AggregatedItem } from "./aggregate.js";
 import { latestPushes } from "../sinks/repo.js";
 import { configuredSinks } from "../sinks/registry.js";
-import { buyFingerprint, getShoppingList } from "./build.js";
-import type { ShoppingLine } from "./edits.js";
-import type { PantryItem } from "../pantry/repo.js";
-import { pantryLookup } from "../pantry/matching.js";
+import { listPantryItems } from "../pantry/repo.js";
 import { normaliseName } from "../text.js";
+import { weekdayOf } from "../week.js";
+import { buyFingerprint, getShoppingList, type ShoppingLine } from "./list.js";
+import { countChecked } from "./edits.js";
 
-/** The Pantry Item Har alltid hemma just created: its line under Check pantry offers Ångra. */
-export type Undo = PantryItem;
-
-/** "pasta" / "400 g pasta" as the row's main text. */
-function itemLabel(item: AggregatedItem): string {
-  const amount = item.quantity === null ? "" : `${item.quantity}${item.unit ? ` ${item.unit}` : ""} `;
-  return `${amount}${item.name}`;
+/** What Har alltid hemma just did: the line moved, and the Pantry Item it created (none when one existed). */
+export interface Undo {
+  lineId: number;
+  pantryId?: number;
 }
 
-/** A one-button form posting the week and a line's name to a Shopping List edit route. */
-function lineForm(action: string, weekStart: string, name: string, button: string): string {
-  return `<form method="post" action="${action}">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <input type="hidden" name="name" value="${escapeHtml(name)}" />
+/** "pasta" / "400 g pasta" as the row's main text. */
+export function itemLabel(line: Pick<ShoppingLine, "name" | "quantity" | "unit">): string {
+  const amount = line.quantity === null ? "" : `${line.quantity}${line.unit ? ` ${line.unit}` : ""} `;
+  return `${amount}${line.name}`;
+}
+
+/** "tis 28 okt": the short weekday and the day with its short month, in the UI language. */
+export function shortDate(lang: Lang, date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  const month = new Intl.DateTimeFormat(lang === "sv" ? "sv-SE" : "en-GB", { month: "short", timeZone: "UTC" }).format(d).replace(/\.$/, "");
+  return `${weekdayName(lang, weekdayOf(date), "short").toLowerCase()} ${d.getUTCDate()} ${month}`;
+}
+
+/** A one-button form posting a line's id to a Shopping List edit route, swapping the sections over HTMX. */
+function lineForm(action: string, lineId: number, button: string, extra = ""): string {
+  return `<form method="post" action="${action}" hx-post="${action}" hx-target="#shopping-lists" hx-swap="outerHTML">
+  <input type="hidden" name="id" value="${lineId}" />${extra}
   ${button}
 </form>`;
 }
 
-/** Quiet "har alltid hemma" form on a Buy line: makes a Pantry Item of the line's name. */
-function alwaysHomeForm(lang: Lang, weekStart: string, item: AggregatedItem): string {
-  return `<form method="post" action="/shopping/pantry" hx-post="/shopping/pantry" hx-target="#shopping-lists" hx-swap="outerHTML">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <input type="hidden" name="name" value="${escapeHtml(item.name)}" />
-  <button type="submit" class="quiet" data-working-label="…" aria-label="${escapeHtml(t(lang, "shopping.alwaysHomeFor", { name: item.name }))}">${t(lang, "shopping.alwaysHome")}</button>
-</form>`;
+/** Quiet "har alltid hemma" form on a Buy line: makes a Pantry Item of the line's name and moves the line. */
+function alwaysHomeForm(lang: Lang, line: ShoppingLine): string {
+  const button = `<button type="submit" class="quiet" data-working-label="…" aria-label="${escapeHtml(t(lang, "shopping.alwaysHomeFor", { name: line.name }))}">${t(lang, "shopping.alwaysHome")}</button>`;
+  return lineForm("/shopping/pantry", line.id, button, `\n  <input type="hidden" name="name" value="${escapeHtml(line.name)}" />`);
 }
 
-/** Ångra on a Check pantry line: deletes the Pantry Item just created and rebuilds. */
-function undoForm(lang: Lang, weekStart: string, undo: Undo): string {
-  return `<form method="post" action="/shopping/pantry/undo" hx-post="/shopping/pantry/undo" hx-target="#shopping-lists" hx-swap="outerHTML">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <input type="hidden" name="id" value="${undo.id}" />
-  <button type="submit" class="quiet" data-working-label="…">${t(lang, "shopping.undo")}</button>
-</form>`;
+/** Ångra on the line Har alltid hemma just moved: deletes the Pantry Item it created and moves the line back. */
+function undoForm(lang: Lang, undo: Undo): string {
+  const pantry = undo.pantryId === undefined ? "" : `\n  <input type="hidden" name="pantryId" value="${undo.pantryId}" />`;
+  const button = `<button type="submit" class="quiet" data-working-label="…">${t(lang, "shopping.undo")}</button>`;
+  return lineForm("/shopping/pantry/undo", undo.lineId, button, pantry);
 }
 
-/** Takes a Dish-derived line off this week's list ("we already have this"). */
-function removeForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
-  const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.removeFor", { name: line.name }))}">${t(lang, "shopping.remove")}</button>`;
-  return lineForm("/shopping/remove", weekStart, line.name, button);
-}
-
-/** Deletes an Extra Item outright (no restore). */
-function deleteExtraForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
-  return `<form method="post" action="/shopping/extra/delete">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <input type="hidden" name="id" value="${line.extraId}" />
-  <button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.deleteExtraFor", { name: line.name }))}">${t(lang, "common.delete")}</button>
-</form>`;
-}
-
-/** The add row at the end of Buy: a name and an optional free-text quantity. */
-function addExtraForm(lang: Lang, weekStart: string): string {
-  return `<form method="post" action="/shopping/extra" class="extra-add">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <label>${t(lang, "shopping.extraName")} <input name="name" required /></label>
-  <label>${t(lang, "shopping.extraQuantity")} <input name="quantity" /></label>
-  <button type="submit">${t(lang, "shopping.addExtra")}</button>
-</form>`;
+/** Delete: the line goes for good (ADR-0009). */
+function deleteForm(lang: Lang, line: ShoppingLine): string {
+  const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.deleteFor", { name: line.name }))}">${t(lang, "shopping.delete")}</button>`;
+  return lineForm("/shopping/delete", line.id, button);
 }
 
 /** The tick: checks an open line, unchecks a Checked Off one. */
-function tickForm(lang: Lang, weekStart: string, line: ShoppingLine): string {
+function tickForm(lang: Lang, line: ShoppingLine): string {
   const key = line.checked ? "shopping.uncheck" : "shopping.check";
   const button = `<button type="submit" class="tick" aria-label="${escapeHtml(t(lang, key, { name: line.name }))}" aria-pressed="${line.checked}"></button>`;
-  return lineForm(line.checked ? "/shopping/uncheck" : "/shopping/check", weekStart, line.name, button);
+  return lineForm(line.checked ? "/shopping/uncheck" : "/shopping/check", line.id, button);
 }
 
-function renderLine(lang: Lang, dishName: (id: number) => string | undefined, weekStart: string, line: ShoppingLine, actions: string[]): string {
-  const dishes = line.sourceDishIds.flatMap((id) => dishName(id) ?? []);
-  const till = dishes.length === 0 ? "" : `\n<span class="row-status">${escapeHtml(t(lang, "shopping.till", { dishes: dishes.join(", ") }))}</span>`;
+/** "till: Tacos (tis 28 okt), Pasta (fre 31 okt)": the dinners a line is for, dated when the dinner still exists. */
+function provenance(lang: Lang, dishName: (id: number) => string | undefined, line: ShoppingLine): string {
+  const parts = line.dinners.flatMap(({ dishId, date }) => {
+    const name = dishName(dishId);
+    if (!name) return [];
+    return [date ? t(lang, "shopping.tillOn", { dish: escapeHtml(name), date: shortDate(lang, date) }) : escapeHtml(name)];
+  });
+  return parts.length === 0 ? "" : `\n<span class="row-status">${t(lang, "shopping.till", { dishes: parts.join(", ") })}</span>`;
+}
+
+function renderLine(lang: Lang, dishName: (id: number) => string | undefined, line: ShoppingLine, actions: string[]): string {
   const label = line.checked ? `<s class="row-label">${escapeHtml(itemLabel(line))}</s>` : `<span class="row-label">${escapeHtml(itemLabel(line))}</span>`;
   const end = actions.length ? `\n<div class="line-end">${actions.join("\n")}</div>` : "";
-  return `<li class="row line${line.checked ? " line-checked" : ""}"${lineKeys(line)}>${tickForm(lang, weekStart, line)}<div class="line-body">${label}${till}</div>${end}</li>`;
+  return `<li class="row line${line.checked ? " line-checked" : ""}" data-line="${line.id}" data-name="${escapeHtml(normaliseName(line.name))}">${tickForm(lang, line)}<div class="line-body">${label}${provenance(lang, dishName, line)}</div>${end}</li>`;
 }
 
-/**
- * How the Offline Copy overlay (public/offline/core.js) finds a line: the normalised name the
- * edit routes key on, and an Extra Item's id for its delete.
- */
-function lineKeys(line: ShoppingLine): string {
-  const extra = line.extraId === undefined ? "" : ` data-extra="${line.extraId}"`;
-  return ` data-line="${escapeHtml(normaliseName(line.name))}"${extra}`;
+function renderSection(lang: Lang, dishName: (id: number) => string | undefined, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[]): string {
+  const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, l, actions(l))).join("\n")}\n</ul>`;
+  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}</section>`;
 }
 
-function renderSection(lang: Lang, dishName: (id: number) => string | undefined, weekStart: string, id: string, heading: string, lines: ShoppingLine[], actions: (line: ShoppingLine) => string[], tail = ""): string {
-  const list = lines.length === 0 ? `<p class="sink-status">${t(lang, "shopping.nothing")}</p>` : `<ul class="rows">\n${lines.map((l) => renderLine(lang, dishName, weekStart, l, actions(l))).join("\n")}\n</ul>`;
-  return `<section id="${id}"><h2 class="section-label">${heading}</h2>\n${list}${tail}</section>`;
-}
-
-/** "N removed", closed by default, listing each Removed Line with a restore control. Empty when none. */
-function renderRemoved(lang: Lang, weekStart: string, removed: ShoppingLine[]): string {
-  if (removed.length === 0) return "";
-  const rows = removed.map((line) => {
-    const button = `<button type="submit" class="quiet" aria-label="${escapeHtml(t(lang, "shopping.restoreFor", { name: line.name }))}">${t(lang, "shopping.restore")}</button>`;
-    return `<li class="row with-actions"${lineKeys(line)}><span class="row-label">${escapeHtml(itemLabel(line))}</span><div class="row-actions">${lineForm("/shopping/restore", weekStart, line.name, button)}</div></li>`;
-  });
-  return `\n<details id="removed">
-<summary>${escapeHtml(t(lang, removed.length === 1 ? "count.removed.one" : "count.removed.other", { n: removed.length }))}</summary>
-<ul class="rows">
-${rows.join("\n")}
-</ul>
-</details>`;
-}
-
-export function buildForm(weekStart: string, label: string): string {
-  return `<form method="post" action="/shopping/build">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
-  <button type="submit" class="quiet">${label}</button>
+/** The hand-add row: a name with autocomplete over Ingredients and Pantry Items, and an optional free-text quantity. */
+export function addForm(lang: Lang, ctx: AppContext): string {
+  const seen = new Set<string>();
+  const options: string[] = [];
+  const offer = (name: string) => {
+    const key = normaliseName(name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    options.push(`<option value="${escapeHtml(name.trim())}"></option>`);
+  };
+  for (const item of listPantryItems(ctx.db)) {
+    offer(item.name);
+    item.aliases.forEach(offer);
+  }
+  for (const dish of listDishes(ctx.db)) dish.ingredients.forEach((i) => offer(i.name));
+  return `<form method="post" action="/shopping/add" class="line-add">
+  <label>${t(lang, "shopping.addName")} <input name="name" required list="shopping-names" autocomplete="off" /></label>
+  <datalist id="shopping-names">${options.join("")}</datalist>
+  <label>${t(lang, "shopping.addQuantity")} <input name="quantity" /></label>
+  <button type="submit">${t(lang, "shopping.add")}</button>
 </form>`;
 }
 
+/** "Rensa avbockade (N)" leading to the confirmation page; nothing when no line is ticked. */
+export function clearControl(lang: Lang, ctx: AppContext): string {
+  const n = countChecked(ctx.db);
+  if (n === 0) return "";
+  return `<p class="clear-control"><a class="button quiet" href="/shopping/clear">${escapeHtml(t(lang, "shopping.clear", { n }))}</a></p>`;
+}
+
 /**
- * The Buy and Check pantry sections and the removed disclosure in one swappable wrapper. With
- * `undo`, the matching Check pantry line offers Ångra, and a placeholder fetches the plain
- * sections after a few seconds. Every Dish-derived line can be removed for the week; an Extra
- * Item is deleted instead.
+ * The Buy and Check pantry sections in one swappable wrapper. With `undo`, the line Har alltid
+ * hemma just moved offers Ångra, and a placeholder fetches the plain sections after a few
+ * seconds. Every line can be Deleted; Buy lines also offer Har alltid hemma.
  */
-export function renderLists(lang: Lang, ctx: AppContext, planId: number, weekStart: string, opts: { alwaysHome: boolean; undo?: Undo }): string {
-  const { buy, checkPantry, removed } = getShoppingList(ctx.db, planId);
+export function renderLists(lang: Lang, ctx: AppContext, opts: { alwaysHome: boolean; undo?: Undo } = { alwaysHome: true }): string {
+  const { buy, checkPantry } = getShoppingList(ctx.db);
   const dishName = (id: number) => getDish(ctx.db, id)?.name;
   const { undo } = opts;
-  const isUndoLine = undo ? pantryLookup([undo]) : undefined;
-  const buyActions = (line: ShoppingLine) =>
-    line.extraId !== undefined ? [deleteExtraForm(lang, weekStart, line)] : [...(opts.alwaysHome ? [alwaysHomeForm(lang, weekStart, line)] : []), removeForm(lang, weekStart, line)];
-  const pantryActions = (line: ShoppingLine) => [...(undo && isUndoLine?.(line.name) ? [undoForm(lang, weekStart, undo)] : []), removeForm(lang, weekStart, line)];
-  const expire = undo ? `\n<div hidden hx-get="/shopping/sections?week=${weekStart}" hx-trigger="load delay:6s" hx-target="#shopping-lists" hx-swap="outerHTML"></div>` : "";
+  const buyActions = (line: ShoppingLine) => [...(opts.alwaysHome ? [alwaysHomeForm(lang, line)] : []), deleteForm(lang, line)];
+  const pantryActions = (line: ShoppingLine) => [...(undo && undo.lineId === line.id ? [undoForm(lang, undo)] : []), deleteForm(lang, line)];
+  const expire = undo ? `\n<div hidden hx-get="/shopping/sections" hx-trigger="load delay:6s" hx-target="#shopping-lists" hx-swap="outerHTML"></div>` : "";
   return `<div id="shopping-lists">
-${renderSection(lang, dishName, weekStart, "buy", t(lang, "shopping.buy"), buy, buyActions, `\n${addExtraForm(lang, weekStart)}`)}
-${renderSection(lang, dishName, weekStart, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, pantryActions)}${renderRemoved(lang, weekStart, removed)}${expire}
+${renderSection(lang, dishName, "buy", t(lang, "shopping.buy"), buy, buyActions)}
+${renderSection(lang, dishName, "check-pantry", t(lang, "shopping.checkPantry"), checkPantry, pantryActions)}${expire}
 </div>`;
 }
 
 /** Inverted status block naming the planned Dishes with no Ingredients; Försök igen unless a Plan Run is in flight. */
-export function renderMissing(lang: Lang, weekStart: string, names: string[], retry: boolean): string {
+export function renderMissing(lang: Lang, names: string[], retry: boolean): string {
   if (names.length === 0) return "";
   const actionsHtml = retry
     ? `<form method="post" action="/shopping/retry">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <button type="submit">${t(lang, "shopping.retry")}</button>
 </form>`
     : undefined;
@@ -170,17 +157,16 @@ function sinkName(sinkId: string): string {
 }
 
 /**
- * Where and when the Buy list went: one status line per sink, or an inverted block per failure;
- * Skicka igen once. When a rebuild (Swap, Har alltid hemma) changed the Buy list after a
- * successful push, a line says so, since the sink no longer holds the current list. With no
- * sink configured, the history stays but the last line links to Settings instead of Skicka igen.
+ * Where and when the open Buy lines went: one status line per sink, or an inverted block per
+ * failure; Skicka igen once. When the open Buy list changed after a successful push, a line
+ * says so, since the sink no longer holds the current list. With no sink configured, the
+ * history stays but the last line links to Settings instead of Skicka igen.
  */
-export function renderPushes(lang: Lang, ctx: AppContext, planId: number, weekStart: string, buy: ShoppingLine[]): string {
+export function renderPushes(lang: Lang, ctx: AppContext, buy: ShoppingLine[]): string {
   const timezone = readTimezone(ctx.db);
-  const pushes = latestPushes(ctx.db, planId);
+  const pushes = latestPushes(ctx.db);
   const hasSink = configuredSinks(ctx.db, ctx.env ?? process.env, ctx.fetch).length > 0;
   const again = (quiet: boolean) => `<form method="post" action="/shopping/push">
-  <input type="hidden" name="weekStart" value="${escapeHtml(weekStart)}" />
   <button type="submit"${quiet ? ' class="quiet"' : ""}>${t(lang, "shopping.pushAgain")}</button>
 </form>`;
   const lastFailed = pushes.reduce((last, p, i) => (p.ok ? last : i), -1);
