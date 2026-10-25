@@ -147,3 +147,43 @@ _Avoid_: queued request, offline edit
 **Offline Copy**:
 The last version of a screen the device saw, shown with its timestamp when the server is unreachable.
 _Avoid_: cache, snapshot
+
+### Lists
+
+Added by ADR-0010. The Shopping List (above) is the first List; these terms cover every List.
+
+**List**:
+A named, ordered, household-wide list of lines or Todos. Every List is shared by the whole household; there are no private Lists. A List is shopping-style (lines with a free-text quantity, ticked and Cleared like the Shopping List) or todo-style (Todos with a due date, a Member and a Repeat). The Shopping List is the one shopping-style List the Plan Run writes to and cannot be deleted.
+_Avoid_: project, board, note, checklist (ambiguous with the shopping-style kind)
+
+**Todo**:
+One thing to do on a todo-style List: a title, optional notes, an optional due date and time, an optional Member and an optional Repeat. Done when ticked.
+_Avoid_: task, reminder, item, to-do item
+
+**Due**:
+The date, and optionally the time, a Todo should be done by. A Todo past its due date is overdue and shows on Today until done. A Todo with no due date lives only on its List.
+_Avoid_: deadline, scheduled for
+
+**Repeat**:
+A Todo's fixed-schedule rule: daily, weekdays, weekly on chosen weekdays, every N weeks, monthly on a day, or yearly, anchored on its due date. Ticking a repeating Todo advances its due date to the next occurrence and records the done occurrence; it never becomes a struck line. Stored as a structured rule, never as free text.
+_Avoid_: recurring, recurrence rule, every!
+
+**Done**:
+A Todo the household has ticked. Stays visible, struck through, below the open Todos of its List, until Cleared. Tapping again un-ticks. Attributed to the device's Member. The todo-style counterpart of Checked Off.
+_Avoid_: completed, finished, archived
+
+**Member**:
+A person in the household, with a name and a colour. Data, not an account: no password, no login. A device picks its Member once and keeps it in a cookie, which attributes its edits and makes "mine" work. A Todo may be assigned to one Member. Kids are Members whether or not they hold a phone.
+_Avoid_: user, account, assignee (say "assigned to a Member"), profile
+
+**Quick Add**:
+The one input at the top of a List that adds a line or a Todo from a single typed phrase. A small Swedish and English grammar sets Due, Repeat and Member from words in the phrase ("imorgon", "fredag kl 17", "varje måndag", "@Pappa"); the parsed span is shown and a tap reverts it to plain text. Works without an agent.
+_Avoid_: smart add, natural language input, parse
+
+**Activity**:
+The record of who did what on a List: a Member, an action (added, ticked, un-ticked, Cleared, deleted) and a time, kept for 30 days. A record, not a lock: ticks stay last-write-wins per line.
+_Avoid_: log, history, audit trail
+
+**Daily Brief**:
+One message a day at a configured hour, sent through a configured webhook sink: today's lunch and dinner, the Todos due today, and how many Shopping List lines are left to buy. Optional; off when no sink is configured.
+_Avoid_: digest, agenda email, morning push
