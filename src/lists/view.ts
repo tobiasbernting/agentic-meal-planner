@@ -15,7 +15,9 @@ import { shortWhen } from "../ui/when.js";
 import { SHOPPING_LIST_ID } from "./schema.js";
 import { countOpenItems, type List } from "./repo.js";
 import { describeRepeat, REPEAT_KINDS, type RepeatRule } from "./repeat.js";
+import type { ActivityRow } from "./activity.js";
 import type { QuickAddSpan } from "./quick-add.js";
+import { addDays, localDate, localTime } from "../week.js";
 import type { DoneRecord, Todo } from "./todos.js";
 
 /** The List's name as shown: the Shopping List takes the UI language's name. */
@@ -202,6 +204,8 @@ export interface TodoPageOptions {
   mine: boolean;
   doneCount: number;
   notice?: string;
+  /** The Activity disclosure, rendered by the caller. */
+  activityHtml?: string;
   /** The Todo just Quick Added and its phrase, marked once on its row. */
   added?: { id: number } & QuickAddEcho;
 }
@@ -221,7 +225,8 @@ ${opts.notice ? notice({ text: opts.notice, role: "status" }) : ""}
 ${todoAddForm(lang, list)}
 ${mineToggle(lang, list, opts.me, opts.mine)}
 ${rows}
-${listClearControl(lang, list, opts.doneCount)}`;
+${listClearControl(lang, list, opts.doneCount)}
+${opts.activityHtml ?? ""}`;
   return page({ title: listName(lang, list), body, lang, tab: "lists" });
 }
 
@@ -270,4 +275,40 @@ ${error ? notice({ text: error }) : ""}
 ${history}
 <p><a href="${listHref(list)}">${escapeHtml(listName(lang, list))}</a></p>`;
   return page({ title: t(lang, "todo.editTitle"), body, lang, tab: "lists" });
+}
+
+/** "14:02" today, "igår 14:02", "tis 14:02" this past week, "tis 13 okt 14:02" before that. */
+function activityWhen(lang: Lang, at: string, today: string, timezone: string | undefined): string {
+  const date = localDate(new Date(at), timezone);
+  const time = localTime(new Date(at), timezone);
+  if (date === today) return time;
+  if (date === addDays(today, -1)) return `${t(lang, "activity.yesterday")} ${time}`;
+  if (date > addDays(today, -7)) return shortWhen(lang, at, timezone);
+  return `${shortDate(lang, date)} ${time}`;
+}
+
+function activityText(lang: Lang, row: ActivityRow): string {
+  const who = row.memberName ?? t(lang, "activity.someone");
+  switch (row.action) {
+    case "planned":
+      return t(lang, row.itemName === "1" ? "activity.planned.one" : "activity.planned.other", { n: row.itemName });
+    case "cleared":
+      return t(lang, row.itemName === "1" ? "activity.cleared.one" : "activity.cleared.other", { who, n: row.itemName });
+    default:
+      return t(lang, `activity.${row.action}`, { who, name: row.itemName });
+  }
+}
+
+/** "Aktivitet": who did what on the List in the last 30 days, newest first, closed by default. */
+export function activityDisclosure(lang: Lang, rows: ActivityRow[], today: string, timezone: string | undefined): string {
+  const items =
+    rows.length === 0
+      ? `<p class="muted">${t(lang, "activity.empty")}</p>`
+      : `<ul class="rows activity-rows">
+${rows.map((row) => `<li class="row"><span class="row-status">${escapeHtml(t(lang, "activity.row", { text: activityText(lang, row), when: activityWhen(lang, row.at, today, timezone) }))}</span></li>`).join("\n")}
+</ul>`;
+  return `<details class="activity">
+<summary>${t(lang, "activity.title")}</summary>
+${items}
+</details>`;
 }

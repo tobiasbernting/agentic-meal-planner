@@ -196,8 +196,3 @@ export function listDoneRecords(db: Database.Database, id: number, limit = 10): 
   const rows = db.prepare("SELECT done_at, member_name FROM list_item_done WHERE list_item_id = ? ORDER BY done_at DESC, id DESC LIMIT ?").all(id, limit) as { done_at: string; member_name: string | null }[];
   return rows.map((r) => ({ doneAt: r.done_at, memberName: r.member_name }));
 }
-
-/** Clear on a todo-style List: every Done Todo goes. Returns how many. */
-export function clearDoneTodos(db: Database.Database, listId: number): number {
-  return db.prepare("DELETE FROM list_item WHERE list_id = ? AND checked_at IS NOT NULL").run(listId).changes;
-}

@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { DEFAULT_AGENT_COMMAND } from "./planner/settings.js";
 import { readSchedulerOptions, startScheduler } from "./scheduler/scheduler.js";
+import { startHouseholdTick } from "./scheduler/household-tick.js";
 import { updateAndPushShoppingList } from "./shopping/update-and-push.js";
 
 // FR-15: `copilot -p` is the default agent command in production. buildApp itself has no default
@@ -41,9 +42,21 @@ const scheduler = startScheduler(
 // Settings (#35) re-arms the schedule through this port when `cron_expression` is saved.
 app.ctx.scheduler = scheduler;
 
+// The household's minute tick (ADR-0010): daily Activity prune.
+const householdTick = startHouseholdTick({
+  get db() {
+    return app.ctx.db;
+  },
+  get now() {
+    return app.ctx.now;
+  },
+  log: app.ctx.log.child({ component: "household" }),
+});
+
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
     scheduler.stop();
+    householdTick.stop();
     void app.close().then(() => process.exit(0));
   });
 }
