@@ -120,8 +120,12 @@ _Avoid_: contribution, source, portion
 An Ingredient the household restocks ad hoc during the week (flour, milk, cream, …). Lands in "Check pantry", never in "Buy". A line's section is fixed when its first Share or hand-add lands.
 _Avoid_: staple, basic
 
+**Store Section**:
+Where in the store a Buy line is picked up: Frukt & grönt, Bröd, Kött & fisk, Mejeri & ägg, Torrvaror & konserver, Fryst, Hushåll or Övrigt, in that walking order. Derived from the line's name alone, deterministically (Swedish and English words; a compound goes by its last part), never stored and never asked of the agent. Groups the unticked Buy lines on the page; Check pantry and the sinks are not grouped.
+_Avoid_: aisle (fine in the UI's spirit, but stores differ), category (that is a Dish's Main Category)
+
 **Checked Off**:
-A Shopping List line the household has marked as in the basket or handled. Stays visible, struck through, below the unticked lines of its section, until Cleared. Tapping again un-ticks. A new Share landing on a Checked Off line un-ticks it, since more is now needed. Not attributed to a person.
+A Shopping List line the household has marked as in the basket or handled. Stays visible, struck through, below the unticked lines of its section (on Buy, together after every Store Section), until Cleared. A tick leaves the line where it is until the page next loads, so it never jumps from under the thumb. Tapping again un-ticks. A new Share landing on a Checked Off line un-ticks it, since more is now needed. Not attributed to a person.
 _Avoid_: bought (pantry lines get checked too), done, completed
 
 **Extra Item**:

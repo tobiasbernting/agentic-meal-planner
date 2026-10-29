@@ -211,7 +211,7 @@ section + section { margin-top: 24px; }
 /* Bottom tab bar: 2px ink top rule, fixed to the safe area; active tab bold and underlined. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--paper);
   border-top: var(--rule-heavy) solid var(--ink);
   padding-bottom: env(safe-area-inset-bottom);
@@ -246,6 +246,10 @@ section + section { margin-top: 24px; }
 
 /* Shopping List: week neighbours, section labels over ruled rows, sink status. */
 main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin-inline: 0; }
+#shopping-lists > .notice { margin-inline: var(--gutter); }
+/* Store Sections inside Buy: a quiet subheading over each group's ruled rows. */
+.aisle-label { padding: 14px var(--gutter) 4px; font-size: var(--fs-small); font-weight: 700; color: var(--muted); }
+#buy .aisle-label + .rows { border-top: 1px solid var(--rule); }
 .section-label { margin: 0; padding: 18px var(--gutter) 6px; font-size: var(--fs-label); font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
 #buy .rows, #check-pantry .rows { border-top: 1px solid var(--rule); }
 #sinks > .notice { margin-inline: 0; }
@@ -256,7 +260,33 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 /* Shopping List as a to-do list (ADR-0007): a tick in a fixed left column, the dense line beside
    it (name and quantity lead, the quiet "till" line under), the quiet actions at the end.
    Checked Off lines are struck through and muted until Cleared; the add row follows the sections. */
-.rows > li.line { display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 4px var(--gutter) 4px calc(var(--gutter) - 8px); }
+.rows > li.line { position: relative; display: grid; grid-template-columns: var(--tap) 1fr auto; column-gap: 4px; align-items: center; min-height: var(--tap); padding: 4px var(--gutter) 4px calc(var(--gutter) - 8px); }
+/* A tap anywhere on a line ticks it: the tick's hit area stretches over the whole row, under the
+   actions. The pressed row darkens a little, so the thumb sees the tap land. */
+.line .tick::after { content: ""; position: absolute; inset: 0; }
+.rows > li.line:has(.tick:active) { background: var(--raised); }
+.line > .line-end { position: relative; z-index: 1; }
+/* Redigera: on a page with the toggle, a line's actions show only while it is checked. */
+main:has(.edit-toggle) .line > .line-end { display: none; }
+/* …on a row of their own under the name, so the name keeps the full width. */
+main:has(.edit-toggle:checked) .line > .line-end { display: flex; grid-column: 2 / -1; grid-row: 2; justify-self: start; margin-left: -14px; }
+.list-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.list-count { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.list-count:empty { visibility: hidden; }
+.edit-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; }
+.edit-label { margin: 0 0 0 auto; }
+.edit-toggle:focus-visible + .edit-label { outline: 2px solid var(--focus); outline-offset: 2px; }
+.edit-toggle:checked + .edit-label { background: var(--ink); color: var(--paper); text-decoration: none; }
+.edit-toggle:not(:checked) + .edit-label .when-on, .edit-toggle:checked + .edit-label .when-off { display: none; }
+/* What Har alltid hemma left in a Buy line's place: where it went, and Ångra. */
+.rows > li.line-note { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; min-height: calc(var(--tap) + 8px); padding: 4px var(--gutter); }
+.line-note .row-status { flex: 1; }
+.line-note form { margin: 0; }
+/* The line just hand-added flashes once. */
+@media (prefers-reduced-motion: no-preference) {
+  .line-new { animation: line-new 1.6s ease-out; }
+}
+@keyframes line-new { from { background: var(--rule); } to { background: transparent; } }
 .line form { margin: 0; }
 .line > .line-end { grid-column: 3; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 4px; }
 .line-end button { min-height: var(--tap); font-size: var(--fs-small); }
@@ -271,12 +301,14 @@ main > #shopping-lists, main > section#sinks, #shopping-lists > section { margin
 .line-removed .row-label { color: var(--muted); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--rule); }
 .line-removed .tick { visibility: hidden; }
 .line-checked .row-status { opacity: 0.7; }
-/* The hand-add row under the sections and the Clear control (ADR-0009). */
-.line-add { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; margin: 14px var(--gutter) 0; }
+/* The hand-add row over the sections, its status line, and the Clear control (ADR-0009). */
+.line-add { display: grid; grid-template-columns: 1fr 5.5em auto; gap: 8px; align-items: end; margin: 14px var(--gutter) 0; }
 .line-add label { margin-top: 0; }
-.line-add input { margin-top: 4px; }
-.line-add input[name="quantity"] { width: 7em; }
+.line-add input { margin-top: 0; }
+.add-status { grid-column: 1 / -1; margin: 0; min-height: 1.2em; font-size: var(--fs-small); color: var(--muted); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .clear-control { margin: 10px var(--gutter) 0; }
+.clear-control:empty { display: none; }
 
 /* Members (ADR-0010): eight ink-friendly colours, never red (red days own it), never the only
    signal: a chip is a dot plus the name in text. */

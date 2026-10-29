@@ -129,6 +129,11 @@ describe("a shopping-style List", () => {
 
     const fragment = await app.inject({ method: "POST", url: "/shopping/uncheck", headers: { "hx-request": "true" }, payload: { id: hyllor } });
     expect(fragment.body).toMatch(/^<div id="shopping-lists" data-list="\d+">/);
+    const line = await app.inject({ method: "POST", url: "/shopping/check", headers: { "hx-request": "true" }, payload: { id: hyllor, part: "line" } });
+    expect(line.body).toMatch(new RegExp(`^<li class="row line line-checked" data-line="${hyllor}"[\\s\\S]*?/shopping/delete`));
+    expect(line.body).toContain(`<p hx-swap-oob="true" class="clear-control" id="clear-control"><a class="button quiet" href="/lists/${ikea}/clear">Clear checked (1)</a></p>`);
+    expect(line.body).not.toContain("list-count");
+    await post(app, "/shopping/uncheck", { id: hyllor });
     await post(app, "/shopping/check", { id: hyllor });
 
     expect(await get(app, `/lists/${ikea}/clear`)).toContain("1 done lines will be removed from Ikea.");

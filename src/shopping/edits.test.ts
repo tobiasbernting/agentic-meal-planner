@@ -76,7 +76,8 @@ describe("Checked Off lines", () => {
       const id = lineIdOf(html, name);
       expect(html).toMatch(new RegExp(`<form method="post" action="/shopping/check" hx-post="/shopping/check"[^>]*>\\s*<input type="hidden" name="id" value="${id}"`));
     }
-    expect(sectionLines(html, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+    // In Store Section order: Mejeri & ägg before Torrvaror & konserver.
+    expect(sectionLines(html, "buy")).toEqual([["ost", false], ["500 g pasta", false]]);
     expect(sectionLines(html, "check-pantry")).toEqual([["2 dl mjölk", false]]);
   });
 
@@ -91,10 +92,38 @@ describe("Checked Off lines", () => {
 
     expect(sectionLines(checked, "buy")).toEqual([["ost", false], ["500 g pasta", true]]);
     expect(checked).toMatch(/<li class="row line line-checked"[^>]*>[\s\S]*?action="\/shopping\/uncheck"[\s\S]*?<s class="row-label">500 g pasta<\/s>/);
-    expect(sectionLines(unchecked, "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+    expect(sectionLines(unchecked, "buy")).toEqual([["ost", false], ["500 g pasta", false]]);
   });
 
-  it("over HTMX answers with the sections, the same markup as the page", async () => {
+  it("collects the Checked Off Buy lines under their own heading after every Store Section", async () => {
+    const { app } = await builtList();
+    await post(app, "/shopping/add", { name: "äpplen" });
+    await post(app, "/shopping/check", { id: lineIdOf(await shoppingPage(app), "äpplen") });
+
+    const html = await shoppingPage(app);
+
+    expect(sectionLines(html, "buy")).toEqual([["ost", false], ["500 g pasta", false], ["äpplen", true]]);
+    expect([...html.matchAll(/<h3 class="aisle-label">([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(["Dairy &amp; eggs", "Dry goods &amp; tins", "Checked off"]);
+  });
+
+  it("over HTMX with part=line answers with that one line, the same markup as the page, and the count and Clear out of band", async () => {
+    const { app } = await builtList();
+    const id = lineIdOf(await shoppingPage(app), "ost");
+
+    const res = await app.inject({ method: "POST", url: "/shopping/check", headers: { "hx-request": "true" }, payload: { id, part: "line" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("<html");
+    const line = /^<li class="row line line-checked" data-line="\d+"[\s\S]*?<\/li>/.exec(res.body)?.[0];
+    expect(line).toBeDefined();
+    expect(line).toContain('id="tick-' + id + '"');
+    const page = await shoppingPage(app);
+    expect(page).toContain(line!);
+    expect(res.body).toContain('<p hx-swap-oob="innerHTML" id="list-count">1 left to buy</p>');
+    expect(res.body).toMatch(/<p hx-swap-oob="true" class="clear-control" id="clear-control"><a class="button quiet" href="\/shopping\/clear">Clear checked \(1\)<\/a><\/p>/);
+  });
+
+  it("over HTMX without part=line answers with the sections, the same markup as the page", async () => {
     const { app } = await builtList();
     const id = lineIdOf(await shoppingPage(app), "ost");
 
@@ -102,9 +131,8 @@ describe("Checked Off lines", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatch(/^<div id="shopping-lists">/);
-    expect(res.body).not.toContain("<html");
-    const page = await shoppingPage(app);
-    expect(page).toContain(res.body.trim());
+    const lists = /^<div id="shopping-lists">[\s\S]*?\n<\/div>/.exec(res.body)![0];
+    expect(await shoppingPage(app)).toContain(lists);
   });
 
   it("Check pantry lines are tickable too, and a tick does not mark the sent list as changed", async () => {
@@ -138,12 +166,13 @@ describe("Checked Off lines", () => {
 });
 
 describe("hand-added lines", () => {
-  it("shows the add row after the sections with a name, a datalist of Ingredients and Pantry Items, and an optional quantity", async () => {
+  it("shows the add row over the sections with a name, a datalist of Ingredients and Pantry Items, and an optional quantity", async () => {
     const { app } = await builtList();
 
     const html = await shoppingPage(app);
 
-    expect(html).toMatch(/<\/div>\s*<form method="post" action="\/shopping\/add" class="line-add">[\s\S]*name="name" required list="shopping-names"[\s\S]*name="quantity"[\s\S]*<\/form>/);
+    expect(html).toMatch(/<form method="post" action="\/shopping\/add" class="line-add" hx-post="\/shopping\/add" hx-target="#shopping-lists"[^>]*>[\s\S]*name="name" required list="shopping-names"[\s\S]*name="quantity"[\s\S]*<\/form>/);
+    expect(html.indexOf('class="line-add"')).toBeLessThan(html.indexOf('id="shopping-lists"'));
     const options = [...html.matchAll(/<option value="([^"]*)">/g)].map((m) => m[1]);
     expect(options).toEqual(["mjölk", "pasta", "ost"]);
   });
@@ -155,7 +184,7 @@ describe("hand-added lines", () => {
     await post(app, "/shopping/add", { name: "candles" });
 
     const html = await shoppingPage(app);
-    expect(sectionLines(html, "buy")).toEqual([["500 g pasta", false], ["ost", false], ["2 pack batteries", false], ["candles", false]]);
+    expect(sectionLines(html, "buy")).toEqual([["ost", false], ["500 g pasta", false], ["2 pack batteries", false], ["candles", false]]);
     expect(html).not.toMatch(/batteries<\/span>\s*<span class="row-status">for:/);
   });
 
@@ -164,7 +193,19 @@ describe("hand-added lines", () => {
 
     await post(app, "/shopping/add", { name: "  ", quantity: "2" });
 
-    expect(sectionLines(await shoppingPage(app), "buy")).toEqual([["500 g pasta", false], ["ost", false]]);
+    expect(sectionLines(await shoppingPage(app), "buy")).toEqual([["ost", false], ["500 g pasta", false]]);
+  });
+
+  it("over HTMX answers with the sections, the new line marked, and the add row's status naming where it landed", async () => {
+    const { app } = await builtList();
+
+    const res = await app.inject({ method: "POST", url: "/shopping/add", headers: { "hx-request": "true" }, payload: { name: "yoghurt", quantity: "1 l" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatch(/^<div id="shopping-lists">/);
+    expect(res.body).toMatch(/<li class="row line line-new" data-line="\d+" data-name="yoghurt">/);
+    expect(res.body).toContain('<p hx-swap-oob="innerHTML" id="add-status">Added yoghurt under Dairy &amp; eggs</p>');
+    expect(res.body).toContain('<p hx-swap-oob="innerHTML" id="list-count">3 left to buy</p>');
   });
 
   it("un-ticks a line whose name is added again instead of duplicating it, keeping its Dish quantity", async () => {
@@ -174,7 +215,7 @@ describe("hand-added lines", () => {
     await post(app, "/shopping/add", { name: "Ost", quantity: "1 bit" });
 
     const html = await shoppingPage(app);
-    expect(sectionLines(html, "buy")).toEqual([["500 g pasta", false], ["1 bit ost", false]]);
+    expect(sectionLines(html, "buy")).toEqual([["1 bit ost", false], ["500 g pasta", false]]);
     expect(html.match(/row-label">[^<]*ost</g)).toHaveLength(1);
   });
 
@@ -204,7 +245,7 @@ describe("Delete", () => {
   it("shows a Delete control on every line and takes the line off for good", async () => {
     const { app, planId } = await builtList();
     const html = await shoppingPage(app);
-    expect([...html.matchAll(/action="\/shopping\/delete"[\s\S]*?name="id" value="(\d+)"/g)].map((m) => m[1])).toEqual([lineIdOf(html, "pasta"), lineIdOf(html, "ost"), lineIdOf(html, "mjölk")]);
+    expect([...html.matchAll(/action="\/shopping\/delete"[\s\S]*?name="id" value="(\d+)"/g)].map((m) => m[1])).toEqual([lineIdOf(html, "ost"), lineIdOf(html, "pasta"), lineIdOf(html, "mjölk")]);
 
     await post(app, "/shopping/delete", { id: lineIdOf(html, "ost") });
     await updateList(app, planId);
@@ -214,6 +255,18 @@ describe("Delete", () => {
     // Only the re-add tray still offers it.
     expect(after.slice(0, after.indexOf('class="recent-tray"'))).not.toContain(">ost<");
     expect(after).not.toMatch(/removed|restore/i);
+  });
+
+  it("over HTMX with part=line removes the line in place and fills the Nyligen tray out of band", async () => {
+    const { app } = await builtList();
+    const id = lineIdOf(await shoppingPage(app), "ost");
+
+    const res = await app.inject({ method: "POST", url: "/shopping/delete", headers: { "hx-request": "true" }, payload: { id, part: "line" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatch(/^\n<p hx-swap-oob="true" class="clear-control" id="clear-control"><\/p>/);
+    expect(res.body).toMatch(/<div hx-swap-oob="true" id="recent-tray"><section class="recent-tray"[\s\S]*Add ost again/);
+    expect(res.body).toContain('<p hx-swap-oob="innerHTML" id="list-count">1 left to buy</p>');
   });
 
   it("works on a ticked line and on a hand-added line", async () => {

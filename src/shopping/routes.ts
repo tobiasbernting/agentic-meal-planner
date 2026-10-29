@@ -31,16 +31,35 @@ import { memberOf } from "../members/device.js";
 import { createPantryItem, deletePantryItem, listPantryItems } from "../pantry/repo.js";
 import { pantryLookup } from "../pantry/matching.js";
 import { planRunBanner } from "../plan-run/routes.js";
-import { addForm, clearControl, recentTray, renderLists, renderMissing, renderPlainLines, renderPushes, shortDate, type Undo } from "./view.js";
+import { storeSectionOf } from "./store-sections.js";
+import {
+  addForm,
+  clearControl,
+  leftToBuy,
+  listTools,
+  movedNote,
+  outOfBand,
+  recentTray,
+  renderCheckPantry,
+  renderLists,
+  renderMissing,
+  renderPlainLine,
+  renderPlainLines,
+  renderPushes,
+  renderShoppingLine,
+  shortDate,
+  type Undo,
+} from "./view.js";
 
 interface ShoppingQuery {
   notice?: string;
   cleared?: string;
 }
 
-/** Edits post the line's id. */
+/** Edits post the line's id; `part=line` (over HTMX) asks for that one line back instead of the whole list. */
 interface LineForm {
   id?: string;
+  part?: string;
 }
 
 interface AddForm {
@@ -82,19 +101,19 @@ export const shoppingRoutes: FeaturePlugin = async (app, ctx) => {
     const lang = langOf(req);
     const now = today();
     const thisWeek = mondayOf(now);
-    const { buy, checkPantry } = getShoppingList(ctx.db);
+    const { buy } = getShoppingList(ctx.db);
     const missingNames = listMissingDinners(ctx.db).flatMap(({ dishId, date }) => {
       const name = getDish(ctx.db, dishId)?.name;
       return name ? [`${name} (${shortDate(lang, date)})`] : [];
     });
-    const empty = buy.length + checkPantry.length === 0;
     const body = `${weekHead(lang, now)}
 ${queryNotice(lang, req.query)}
 ${planRunBanner(ctx, lang, thisWeek)}
 ${planRunBanner(ctx, lang, addDays(thisWeek, 7))}
 ${renderMissing(lang, missingNames, !retryBlocked())}
-${empty ? `<p class="notice">${t(lang, "shopping.empty")} <a href="/plan">${t(lang, "shopping.goToPlan")}</a></p>` : renderLists(lang, ctx)}
 ${addForm(lang, ctx)}
+${listTools(lang, leftToBuy(lang, buy))}
+${renderLists(lang, ctx)}
 ${recentTray(lang, SHOPPING_LIST_ID, listRecentlyCleared(ctx.db, SHOPPING_LIST_ID, ctx.now().toISOString()))}
 ${clearControl(lang, ctx)}
 ${renderPushes(lang, ctx, buy)}
@@ -103,13 +122,40 @@ ${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toIS
     return page({ title: t(lang, "shopping.title"), body, lang, tab: "shopping" });
   });
 
-  /** After an edit: the List's sections over HTMX, its page otherwise. */
-  const sendLists = (req: FastifyRequest, reply: FastifyReply, undo?: Undo, listId = SHOPPING_LIST_ID) => {
-    if (!isHtmx(req)) return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
-    html(reply);
-    if (listId !== SHOPPING_LIST_ID) return reply.send(renderPlainLines(langOf(req), listId, getListLines(ctx.db, listId), readTimezone(ctx.db)));
-    return reply.send(renderLists(langOf(req), ctx, { alwaysHome: true, undo }));
+  /**
+   * What a change to a List's lines also changes on its page, as out-of-band swaps: the Clear
+   * control, the "Nyligen" tray and, on the Shopping List, the count left to buy.
+   */
+  const listExtras = (lang: Lang, listId: number) => {
+    const parts = [outOfBand(clearControl(lang, ctx, listId)), outOfBand(recentTray(lang, listId, listRecentlyCleared(ctx.db, listId, ctx.now().toISOString())))];
+    if (listId === SHOPPING_LIST_ID) parts.push(outOfBand(`<p id="list-count">${leftToBuy(lang, getShoppingList(ctx.db).buy)}</p>`, "innerHTML"));
+    return parts.join("\n");
   };
+
+  /** After an edit: the List's lines (and what follows from them) over HTMX, its page otherwise. */
+  const sendLists = (req: FastifyRequest, reply: FastifyReply, listId = SHOPPING_LIST_ID, opts: { freshId?: number; status?: string } = {}) => {
+    if (!isHtmx(req)) return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
+    const lang = langOf(req);
+    html(reply);
+    const lines =
+      listId === SHOPPING_LIST_ID
+        ? renderLists(lang, ctx, { freshId: opts.freshId })
+        : renderPlainLines(lang, listId, getListLines(ctx.db, listId), readTimezone(ctx.db), { freshId: opts.freshId, empty: t(lang, "lists.empty") });
+    const status = opts.status === undefined ? "" : `\n${outOfBand(`<p id="add-status">${escapeHtml(opts.status)}</p>`, "innerHTML")}`;
+    return reply.send(`${lines}\n${listExtras(lang, listId)}${status}`);
+  };
+
+  /** After a line edit asked for its line (`part=line`): that line as it is now ("" when gone), in place, and what follows from it. */
+  const sendLine = (req: FastifyRequest, reply: FastifyReply, lineId: number, listId: number) => {
+    const lang = langOf(req);
+    const timezone = readTimezone(ctx.db);
+    const line =
+      listId === SHOPPING_LIST_ID ? renderShoppingLine(lang, ctx, lineId) : (getListLines(ctx.db, listId).flatMap((l) => (l.id === lineId ? [renderPlainLine(lang, l, timezone)] : []))[0] ?? "");
+    html(reply);
+    return reply.send(`${line}\n${listExtras(lang, listId)}`);
+  };
+
+  const wantsLine = (req: FastifyRequest<{ Body: LineForm }>) => isHtmx(req) && req.body.part === "line";
 
   /** The device Member an edit is attributed to. */
   const actor = (req: FastifyRequest): Actor => {
@@ -134,20 +180,36 @@ ${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toIS
           if (activity === "deleted") rememberCleared(ctx.db, listId, [{ name: item.name, quantity: item.quantity }], now);
         }
       }
-      return sendLists(req, reply, undefined, listId ?? SHOPPING_LIST_ID);
+      if (id !== undefined && listId !== undefined && wantsLine(req)) return sendLine(req, reply, id, listId);
+      return sendLists(req, reply, listId ?? SHOPPING_LIST_ID);
     });
   lineEdit("/shopping/check", "ticked", (id, by, now) => checkLine(ctx.db, id, now, by?.name ?? null));
   lineEdit("/shopping/uncheck", "unticked", (id) => uncheckLine(ctx.db, id));
   lineEdit("/shopping/delete", "deleted", (id) => deleteLine(ctx.db, id));
 
-  /** Hand-add (the add row, or a "Nyligen" chip): the line, its Activity row, back to its List. */
+  /** "La till mjölk under Mejeri & ägg": what the add row says after a hand-add, naming where the line landed on the Shopping List. */
+  const addedStatus = (lang: Lang, listId: number, lineId: number, name: string) => {
+    if (listId !== SHOPPING_LIST_ID) return t(lang, "shopping.added", { name });
+    if (getItem(ctx.db, lineId)?.section === "check_pantry") return t(lang, "shopping.addedIn", { name, section: t(lang, "shopping.checkPantry") });
+    const section = storeSectionOf(name);
+    return section === "other" ? t(lang, "shopping.added", { name }) : t(lang, "shopping.addedIn", { name, section: t(lang, `shopping.section.${section}`) });
+  };
+
+  /**
+   * Hand-add (the add row, or a "Nyligen" chip): the line, its Activity row, back to its List. Over
+   * HTMX (the add row) the lines come back with the new one marked, and the add row's status says
+   * what landed where.
+   */
   const handAdd = (req: FastifyRequest, reply: FastifyReply, listId: number, body: AddForm) => {
     const name = body.name?.trim();
+    let added: { id: number; name: string } | undefined;
     if (name) {
       const now = ctx.now().toISOString();
       const line = addLine(ctx.db, { name, quantity: body.quantity }, now, listId);
       recordActivity(ctx.db, listId, "added", line.name, actor(req), now);
+      added = { id: line.id, name: line.name };
     }
+    if (isHtmx(req) && added) return sendLists(req, reply, listId, { freshId: added.id, status: addedStatus(langOf(req), listId, added.id, added.name) });
     return reply.redirect(listId === SHOPPING_LIST_ID ? "/shopping" : `/lists/${listId}`, 303);
   };
 
@@ -193,7 +255,11 @@ ${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toIS
     return reply.redirect("/shopping", 303);
   });
 
-  /** Har alltid hemma: a Pantry Item of the line's name (unless one matches already), and the line moves to Check pantry. */
+  /**
+   * Har alltid hemma: a Pantry Item of the line's name (unless one matches already), and the line
+   * moves to Check pantry. Over HTMX the line's place in Buy says where it went and offers Ångra
+   * until the page next loads; Check pantry follows out of band.
+   */
   app.post<{ Body: PantryForm }>("/shopping/pantry", async (req, reply) => {
     const id = lineId(req.body);
     const name = req.body.name?.trim();
@@ -202,7 +268,10 @@ ${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toIS
     // Ångra only removes an item this tap created.
     const undo: Undo = existing ? { lineId: id } : { lineId: id, pantryId: createPantryItem(ctx.db, { name, aliases: [] }).id };
     moveLine(ctx.db, id, "check_pantry");
-    return sendLists(req, reply, undo);
+    if (!wantsLine(req)) return sendLists(req, reply);
+    const lang = langOf(req);
+    html(reply);
+    return reply.send(`${movedNote(lang, undo, name)}\n${outOfBand(renderCheckPantry(lang, ctx))}\n${listExtras(lang, SHOPPING_LIST_ID)}`);
   });
 
   app.post<{ Body: UndoForm }>("/shopping/pantry/undo", async (req, reply) => {
@@ -210,7 +279,10 @@ ${activityDisclosure(lang, listActivity(ctx.db, SHOPPING_LIST_ID, ctx.now().toIS
     const pantryId = Number(req.body.pantryId);
     if (Number.isInteger(pantryId) && pantryId > 0) deletePantryItem(ctx.db, pantryId);
     if (id !== undefined) moveLine(ctx.db, id, "buy");
-    return sendLists(req, reply);
+    if (id === undefined || !wantsLine(req)) return sendLists(req, reply);
+    const lang = langOf(req);
+    html(reply);
+    return reply.send(`${renderShoppingLine(lang, ctx, id)}\n${outOfBand(renderCheckPantry(lang, ctx))}\n${listExtras(lang, SHOPPING_LIST_ID)}`);
   });
 
   app.get("/shopping/sections", async (req, reply) => sendLists(req, reply));

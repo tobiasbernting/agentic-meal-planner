@@ -6,7 +6,9 @@
 // starts from the `<html data-online>` the page arrived with (an Offline Copy arrives with "0");
 // the worker's connectivity messages flip it; offline it pings /health every 10 s and goes
 // online only on an ok answer. Offline, online-only buttons are disabled and htmx requests (the
-// Plan Run banner polling) are cancelled. Back online, it asks the worker to replay Pending Changes.
+// Plan Run banner polling) are cancelled; a write from a form (a tick, a hand-add) is sent as the
+// plain form post it is underneath instead, which the worker queues as a Pending Change and answers
+// with the page, where the Offline Copy shows it. Back online, it asks the worker to replay Pending Changes.
 (function () {
   var root = document.documentElement;
   var online = document.documentElement.dataset.online !== "0";
@@ -38,7 +40,13 @@
       if (event.data && event.data.type === "connectivity") set(Boolean(event.data.online));
     });
   }
-  document.addEventListener("htmx:beforeRequest", function (event) { if (!online) event.preventDefault(); });
+  document.addEventListener("htmx:beforeRequest", function (event) {
+    if (online) return;
+    event.preventDefault();
+    var elt = event.detail && event.detail.elt;
+    var form = elt && elt.closest ? elt.closest("form") : null;
+    if (form && form.method === "post" && !form.hasAttribute("data-online-only")) HTMLFormElement.prototype.submit.call(form);
+  });
   apply();
   if (!online) timer = setInterval(ping, 10000);
 })();

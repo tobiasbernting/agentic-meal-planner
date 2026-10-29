@@ -48,34 +48,38 @@ async function withPasta(options: Partial<AppOptions> = {}) {
 }
 
 describe("Har alltid hemma", () => {
-  it("over HTMX returns the sections with the line moved in place and an Undo control, and creates the Pantry Item", async () => {
+  const line = { ...hx };
+
+  it("over HTMX leaves a note with Ångra in the line's place, sends Check pantry out of band, and creates the Pantry Item", async () => {
     const { app } = await withPasta();
     const id = lineIdOf(await shoppingPage(app), "pasta");
 
-    const res = await app.inject({ method: "POST", url: "/shopping/pantry", headers: hx, payload: { id, name: "pasta" } });
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry", headers: line, payload: { id, name: "pasta", part: "line" } });
 
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain("<html");
-    expect(res.body).toMatch(/<section id="check-pantry">[\s\S]*400 g pasta[\s\S]*action="\/shopping\/pantry\/undo"/);
-    expect(res.body).toMatch(/<section id="buy">[\s\S]*tomat/);
-    expect(res.body).not.toMatch(/<section id="buy">[\s\S]*pasta[\s\S]*<section id="check-pantry">/);
-    expect(res.body).toContain("Undo");
-    expect(res.body).toContain('hx-get="/shopping/sections"');
+    expect(res.body).toMatch(/^<li class="row line-note"><span class="row-status" role="status">pasta moved to Check pantry<\/span><form method="post" action="\/shopping\/pantry\/undo" hx-post="\/shopping\/pantry\/undo" hx-target="closest li"/);
+    expect(res.body).toContain(`id="home-${id}"`);
+    expect(res.body).toMatch(/<section hx-swap-oob="true" id="check-pantry">[\s\S]*400 g pasta/);
+    expect(res.body).toContain('<p hx-swap-oob="innerHTML" id="list-count">1 left to buy</p>');
+    expect(res.body).not.toContain("hx-trigger");
     expect(listPantryItems(app.ctx.db).map((p) => p.name)).toEqual(["pasta"]);
   });
 
-  it("Undo deletes the Pantry Item just created and the line returns to Buy", async () => {
+  it("Undo deletes the Pantry Item just created and the line comes back in place, with Check pantry out of band", async () => {
     const { app } = await withPasta();
     const id = lineIdOf(await shoppingPage(app), "pasta");
-    const made = await app.inject({ method: "POST", url: "/shopping/pantry", headers: hx, payload: { id, name: "pasta" } });
+    const made = await app.inject({ method: "POST", url: "/shopping/pantry", headers: line, payload: { id, name: "pasta", part: "line" } });
     const pantryId = /name="pantryId" value="(\d+)"/.exec(made.body)![1];
 
-    const res = await app.inject({ method: "POST", url: "/shopping/pantry/undo", headers: hx, payload: { id, pantryId } });
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry/undo", headers: line, payload: { id, pantryId, part: "line" } });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatch(/<section id="buy">[\s\S]*400 g pasta/);
+    expect(res.body).toMatch(new RegExp(`^<li class="row line" data-line="${id}"[\\s\\S]*400 g pasta[\\s\\S]*id="home-${id}"`));
+    expect(res.body).toMatch(/<section hx-swap-oob="true" id="check-pantry">[\s\S]*Nothing here/);
     expect(res.body).not.toContain("/shopping/pantry/undo");
     expect(listPantryItems(app.ctx.db)).toEqual([]);
+    expect(sectionLines(await shoppingPage(app), "buy").map(([l]) => l)).toContain("400 g pasta");
   });
 
   it("does not create a second Pantry Item when one already matches, and offers no Pantry delete on Undo", async () => {
@@ -83,7 +87,7 @@ describe("Har alltid hemma", () => {
     createPantryItem(app.ctx.db, { name: "Pasta", aliases: [] });
     const id = lineIdOf(await shoppingPage(app), "pasta");
 
-    const res = await app.inject({ method: "POST", url: "/shopping/pantry", headers: hx, payload: { id, name: "pasta" } });
+    const res = await app.inject({ method: "POST", url: "/shopping/pantry", headers: line, payload: { id, name: "pasta", part: "line" } });
 
     expect(listPantryItems(app.ctx.db)).toHaveLength(1);
     expect(res.body).toContain("/shopping/pantry/undo");
@@ -101,13 +105,14 @@ describe("Har alltid hemma", () => {
     expect(sectionLines(await shoppingPage(app), "check-pantry")).toEqual([["400 g pasta", false]]);
   });
 
-  it("the Buy button posts through HTMX into the sections wrapper", async () => {
+  it("the Buy button posts through HTMX into its own line, behind the Redigera toggle", async () => {
     const { app } = await withPasta();
 
     const html = await shoppingPage(app);
 
-    expect(html).toMatch(/<form method="post" action="\/shopping\/pantry" hx-post="\/shopping\/pantry" hx-target="#shopping-lists" hx-swap="outerHTML">/);
+    expect(html).toMatch(/<form method="post" action="\/shopping\/pantry" hx-post="\/shopping\/pantry" hx-target="closest li" hx-swap="outerHTML">\s*<input type="hidden" name="id" value="\d+" \/>\s*<input type="hidden" name="part" value="line" \/>/);
     expect(html).toContain('<div id="shopping-lists">');
+    expect(html).toMatch(/<input type="checkbox" id="list-edit" class="edit-toggle" aria-label="Edit the list: Always at home and Delete on every line" \/>/);
   });
 });
 
@@ -214,7 +219,7 @@ describe("Shopping List as the almanac notes page", () => {
     const sv = await shoppingPage(app, "lang=sv");
     const en = await shoppingPage(app);
 
-    expect(sv).toMatch(/<section id="buy"><h2[^>]*>Köp<\/h2>\s*<ul class="rows">/);
+    expect(sv).toMatch(/<section id="buy"><h2[^>]*>Köp<\/h2>\s*<h3 class="aisle-label">Mejeri &amp; ägg<\/h3>\s*<ul class="rows">/);
     expect(sv).toMatch(/500 g pasta<\/span>\s*<span class="row-status">till: Pasta \(mån 19 okt\), Gratäng \(tis 20 okt\)</);
     expect(sv).toMatch(/<span class="row-label">ost<\/span>\s*<span class="row-status">till: Gratäng \(tis 20 okt\)</);
     expect(en).toMatch(/<span class="row-status">for: Pasta \(mon 19 Oct\), Gratäng \(tue 20 Oct\)</);
@@ -345,7 +350,7 @@ describe("Plan Run banner on the Shopping List page", () => {
     const res = await app.inject({ method: "GET", url: "/shopping" });
 
     expect(res.body).toContain("Plan Run finished 18:30");
-    expect(res.body).not.toMatch(/hx-(get|trigger|swap)/);
+    expect(res.body).not.toMatch(/hx-(get|trigger)/);
   });
 
   it("shows a failed run with its reason, and next week's run too", async () => {

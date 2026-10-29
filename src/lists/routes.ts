@@ -13,7 +13,7 @@ import { householdToday, readTimezone } from "../planner/settings.js";
 import { clearLines, countChecked } from "../shopping/edits.js";
 import { listActivity, listRecentlyCleared, recordActivity, type Actor } from "./activity.js";
 import { getListLines } from "../shopping/list.js";
-import { addForm, clearControl, recentTray, renderPlainLines, shortDate } from "../shopping/view.js";
+import { addForm, clearControl, listTools, recentTray, renderPlainLines, shortDate } from "../shopping/view.js";
 import { isHtmx } from "../ui/htmx.js";
 import { page } from "../ui/layout.js";
 import { countOpenItems, createList, deleteList, getList, listLists, moveList, renameList, type List, type ListKind } from "./repo.js";
@@ -147,8 +147,9 @@ export const listRoutes: FeaturePlugin = async (app, ctx) => {
       const lines = getListLines(db, list.id);
       const body = `${listHead(lang, list)}
 ${clearedNotice ? `<div class="notice" role="status"><span class="notice-text">${clearedNotice}</span></div>` : ""}
-${lines.length === 0 ? `<p class="notice">${t(lang, "lists.empty")}</p>` : renderPlainLines(lang, list.id, lines, readTimezone(db))}
 ${addForm(lang, ctx, list.id)}
+${listTools(lang)}
+${renderPlainLines(lang, list.id, lines, readTimezone(db), { empty: t(lang, "lists.empty") })}
 ${recentTray(lang, list.id, listRecentlyCleared(db, list.id, ctx.now().toISOString()))}
 ${clearControl(lang, ctx, list.id)}
 ${activityDisclosure(lang, listActivity(db, list.id, ctx.now().toISOString()), today(), readTimezone(db))}`;

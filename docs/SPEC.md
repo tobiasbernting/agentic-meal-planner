@@ -37,7 +37,7 @@ A self-hosted, single-container app for the household's lists, with dinner plann
 
 **Ingredients & shopping list**
 - FR-10: Ingredient resolution per planned Dish, by precedence: manual Ingredients → recipe URL extraction (cached per URL + content hash) → LLM-found recipe. Adaptations are applied during extraction.
-- FR-11: The Shopping List aggregates all Ingredients, deduplicated, in two sections: "Buy" and "Check pantry". An Ingredient matches a Pantry Item first by normalised name or exact alias. Unmatched Ingredients are judged by the LLM against the aliases. A miss goes to "Buy"; a wrong match only moves an item to "Check pantry".
+- FR-11: The Shopping List aggregates all Ingredients, deduplicated, in two sections: "Buy" and "Check pantry". On the page, the open Buy lines are grouped by Store Section in walking order. An Ingredient matches a Pantry Item first by normalised name or exact alias. Unmatched Ingredients are judged by the LLM against the aliases. A miss goes to "Buy"; a wrong match only moves an item to "Check pantry".
 - FR-12: CRUD Pantry Items with comma-separated aliases.
 
 **Delivery**

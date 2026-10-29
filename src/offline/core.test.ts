@@ -541,11 +541,13 @@ describe("overlayPendingChanges", () => {
     expect(line(html, id.pasta)).not.toContain("line-removed");
   });
 
-  it("appends a pending hand-add to Buy with its quantity text, escaped, and hides the ticked lines on a pending Clear", async () => {
+  it("lists a pending hand-add first in Buy, before the Store Sections and the ticked lines, with its quantity text, escaped, and hides the ticked lines on a pending Clear", async () => {
     const { html: copy, id } = await shoppingCopy();
-    const added = overlayPendingChanges(copy, [change("/shopping/add", { name: "<candles>", quantity: "2 pack" })], texts);
+    const added = overlayPendingChanges(copy, [change("/shopping/add", { name: "<candles>", quantity: "2 pack" }), change("/shopping/add", { name: "tape" })], texts);
     const buy = /<section id="buy">[\s\S]*?<\/section>/.exec(added)![0];
-    expect(buy).toMatch(/<li class="row line line-pending"><div class="line-body"><span class="row-label">2 pack &lt;candles&gt;<\/span><span class="row-status pending-mark">väntar<\/span><\/div><\/li>\s*<\/ul>\s*<\/section>$/);
+    expect(buy).toMatch(
+      /^<section id="buy"><h2 class="section-label">Köp<\/h2>\n<ul class="rows pending-adds">\n<li class="row line line-pending"><div class="line-body"><span class="row-label">2 pack &lt;candles&gt;<\/span><span class="row-status pending-mark">väntar<\/span><\/div><\/li>\n<li class="row line line-pending"><div class="line-body"><span class="row-label">tape<\/span>[\s\S]*?<\/li>\n<\/ul>\n<h3 class="aisle-label">/,
+    );
 
     const cleared = overlayPendingChanges(copy, [change("/shopping/clear", {})], texts);
     expect(line(cleared, id.batteries)).toMatch(/^<li class="row line line-checked" data-line="\d+" data-name="batteries" hidden>/);

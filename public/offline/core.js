@@ -207,7 +207,8 @@ function marked(li, mark) {
 /**
  * The Offline Copy of the Shopping page with the Pending Changes shown on it, so a tick at the
  * store looks like a tick at home: a pending check is struck through and its tick unchecks, a
- * pending Delete is muted, a pending hand-add is appended to Buy, a pending Clear hides the
+ * pending Delete is muted, a pending hand-add is listed first in Buy (right under its heading,
+ * outside the Store Sections and the Checked Off lines), a pending Clear hides the
  * Checked Off lines. Every touched line carries a small pending mark. String replacement keyed
  * on the `data-line` attribute (the line id) src/shopping/view.ts renders. Any other page comes
  * back unchanged.
@@ -249,9 +250,17 @@ export function overlayPendingChanges(html, pending, texts) {
         const label = `${edit.quantity ? `${edit.quantity} ` : ""}${edit.name}`;
         const li = `<li class="row line line-pending"><div class="line-body"><span class="row-label">${escapeHtml(label)}</span>${mark}</div></li>`;
         const buyStart = out.indexOf('<section id="buy">');
-        const buyEnd = out.indexOf("</section>", buyStart);
-        const ul = out.lastIndexOf("</ul>", buyEnd);
-        out = ul > buyStart ? `${out.slice(0, ul)}${li}\n${out.slice(ul)}` : `${out.slice(0, buyEnd)}<ul class="rows">\n${li}\n</ul>\n${out.slice(buyEnd)}`;
+        if (buyStart === -1) break;
+        const pendingList = '<ul class="rows pending-adds">';
+        const existing = out.indexOf(pendingList, buyStart);
+        if (existing !== -1 && existing < out.indexOf("</section>", buyStart)) {
+          const end = out.indexOf("</ul>", existing);
+          out = `${out.slice(0, end)}${li}\n${out.slice(end)}`;
+          break;
+        }
+        const heading = out.indexOf("</h2>", buyStart);
+        const at = heading !== -1 && heading < out.indexOf("</section>", buyStart) ? heading + "</h2>".length : buyStart + '<section id="buy">'.length;
+        out = `${out.slice(0, at)}\n${pendingList}\n${li}\n</ul>${out.slice(at)}`;
         break;
       }
       case "clear":
